@@ -248,23 +248,17 @@
     position: relative;
     overflow: hidden;
     flex-shrink: 0;
+    background: #1a2e1a;
   }
   .card-img img {
     width: 100%;
     height: 100%;
     object-fit: cover;
+    object-position: center;
     display: block;
     transition: transform 0.3s;
   }
   .course-card:hover .card-img img { transform: scale(1.03); }
-  .card-img-bg {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 52px;
-  }
   .card-overlay {
     position: absolute;
     inset: 0;
@@ -906,19 +900,27 @@
 </nav>
 
 <script>
+const IMG = {
+  skiing:        "https://images.unsplash.com/photo-1673994841979-a8d3983d4a51?w=800&q=80&fit=crop",
+  climbing:      "https://images.unsplash.com/photo-1698352607376-fb224335f560?w=800&q=80&fit=crop",
+  mountaineering:"https://plus.unsplash.com/premium_photo-1694475628847-78f7060d4132?w=800&q=80&fit=crop",
+  biking:        "https://images.unsplash.com/photo-1603614068906-c1ea9b6819ab?w=800&q=80&fit=crop",
+  hiking:        "https://images.unsplash.com/photo-1607895521752-bb2ddf4ef6e3?w=800&q=80&fit=crop",
+};
+
 const ALL_COURSES = [
-  { id:1, title:"Avalanche Skills Training 1 — Whistler", provider:"Altus", badge:"AST 1 · 2 days", date:"Apr 19–20, 2026", dateSort:"2026-04-19", location:"Whistler / Blackcomb", activity:"skiing", price:275, avail:"open", rating:"4.9", emoji:"⛷", bg:"linear-gradient(160deg,#1a3a1a,#3a6a3a)", url:"https://altusmountainguides.rezdy.com/409466/ast-1-whistler?utm_source=backcountryfinder&utm_medium=referral" },
-  { id:2, title:"Intro to Outdoor Rock Climbing — Squamish", provider:"MSAA", badge:"Rock climbing · 1 day", date:"May 3, 2026", dateSort:"2026-05-03", location:"Squamish / Stawamus", activity:"climbing", price:199, avail:"low", rating:"4.8", emoji:"🧗", bg:"linear-gradient(160deg,#2a2a3a,#4a4a6a)", url:"https://mountainskillsacademy.rezdy.com?utm_source=backcountryfinder&utm_medium=referral" },
-  { id:3, title:"AST-1 Classic — North Shore / Seymour", provider:"Canada West", badge:"AST 1 · 2.5 days", date:"Apr 26–27, 2026", dateSort:"2026-04-26", location:"Mt Seymour", activity:"skiing", price:325, avail:"open", rating:"4.7", emoji:"🏔", bg:"linear-gradient(160deg,#3a2a1a,#6a4a2a)", url:"https://themountainschool.com/program/ast-1-whistler/?utm_source=backcountryfinder&utm_medium=referral" },
-  { id:4, title:"Intro Mountain Biking Skills — Whistler Bike Park", provider:"Altus", badge:"Biking · 1 day", date:"May 10, 2026", dateSort:"2026-05-10", location:"Whistler", activity:"biking", price:225, avail:"open", rating:"4.9", emoji:"🚵", bg:"linear-gradient(160deg,#1a2a3a,#2a4a6a)", url:"https://altusmountainguides.rezdy.com?utm_source=backcountryfinder&utm_medium=referral" },
-  { id:5, title:"Glacier Travel &amp; Crevasse Rescue — Garibaldi", provider:"CWMS", badge:"Mountaineering · 3 days", date:"Jun 14–16, 2026", dateSort:"2026-06-14", location:"Garibaldi Park", activity:"mountaineering", price:495, avail:"low", rating:"4.7", emoji:"🥾", bg:"linear-gradient(160deg,#2a3a1a,#4a6a2a)", url:"https://themountainschool.com?utm_source=backcountryfinder&utm_medium=referral" },
-  { id:6, title:"AST 1 — North Vancouver (Mt Seymour)", provider:"BC Ski Guides", badge:"AST 1 · 1 day", date:"Apr 22, 2026", dateSort:"2026-04-22", location:"Mt Seymour", activity:"skiing", price:225, avail:"open", rating:"4.6", emoji:"⛷", bg:"linear-gradient(160deg,#1a3a2a,#2a5a3a)", url:"https://www.bcskiguides.com/tours/ast-1-north-vancouver/?utm_source=backcountryfinder&utm_medium=referral" },
-  { id:7, title:"Women's AST 1 — Whistler", provider:"MSAA", badge:"AST 1 · 2 days", date:"May 17–18, 2026", dateSort:"2026-05-17", location:"Whistler", activity:"skiing", price:299, avail:"low", rating:"4.8", emoji:"⛷", bg:"linear-gradient(160deg,#3a1a2a,#6a2a4a)", url:"https://mountainskillsacademy.rezdy.com?utm_source=backcountryfinder&utm_medium=referral" },
-  { id:8, title:"Multi-Pitch Rock Climbing — Squamish", provider:"MSAA", badge:"Climbing · 2 days", date:"Jun 6–7, 2026", dateSort:"2026-06-06", location:"Squamish", activity:"climbing", price:350, avail:"open", rating:"4.8", emoji:"🧗", bg:"linear-gradient(160deg,#2a1a3a,#4a2a6a)", url:"https://mountainskillsacademy.rezdy.com?utm_source=backcountryfinder&utm_medium=referral" },
-  { id:9, title:"Intro to Backcountry Skiing — Squamish", provider:"Altus", badge:"Skiing · 1 day", date:"Apr 29, 2026", dateSort:"2026-04-29", location:"Squamish", activity:"skiing", price:250, avail:"open", rating:"4.9", emoji:"⛷", bg:"linear-gradient(160deg,#1a2e1a,#2d4a2d)", url:"https://altusmountainguides.rezdy.com?utm_source=backcountryfinder&utm_medium=referral" },
-  { id:10, title:"Scrambling Skills Course — Tantalus Range", provider:"Altus", badge:"Mountaineering · 2 days", date:"Jul 5–6, 2026", dateSort:"2026-07-05", location:"Tantalus Range", activity:"mountaineering", price:420, avail:"open", rating:"4.9", emoji:"🏔", bg:"linear-gradient(160deg,#3a3a1a,#6a6a2a)", url:"https://altusmountainguides.rezdy.com?utm_source=backcountryfinder&utm_medium=referral" },
-  { id:11, title:"Hiking &amp; Navigation — Garibaldi", provider:"CWMS", badge:"Hiking · 1 day", date:"Jun 20, 2026", dateSort:"2026-06-20", location:"Garibaldi Park", activity:"hiking", price:175, avail:"open", rating:"4.7", emoji:"🥾", bg:"linear-gradient(160deg,#1a3a2a,#3a6a4a)", url:"https://themountainschool.com?utm_source=backcountryfinder&utm_medium=referral" },
-  { id:12, title:"AST 2 — Whistler / Duffey Lake", provider:"Altus", badge:"AST 2 · 4 days", date:"May 24–27, 2026", dateSort:"2026-05-24", location:"Whistler / Pemberton", activity:"skiing", price:675, avail:"low", rating:"4.9", emoji:"⛷", bg:"linear-gradient(160deg,#1a2a3a,#2a3a4a)", url:"https://altusmountainguides.rezdy.com?utm_source=backcountryfinder&utm_medium=referral" },
+  { id:1,  title:"Avalanche Skills Training 1 — Whistler",        provider:"Altus",       badge:"AST 1 · 2 days",         date:"Apr 19–20, 2026",  dateSort:"2026-04-19", location:"Whistler / Blackcomb",  activity:"skiing",         price:275, avail:"open", rating:"4.9", url:"https://altusmountainguides.rezdy.com/409466/ast-1-whistler?utm_source=backcountryfinder&utm_medium=referral" },
+  { id:2,  title:"Intro to Outdoor Rock Climbing — Squamish",     provider:"MSAA",        badge:"Rock climbing · 1 day",   date:"May 3, 2026",      dateSort:"2026-05-03", location:"Squamish / Stawamus",   activity:"climbing",       price:199, avail:"low",  rating:"4.8", url:"https://mountainskillsacademy.rezdy.com?utm_source=backcountryfinder&utm_medium=referral" },
+  { id:3,  title:"AST-1 Classic — North Shore / Seymour",         provider:"Canada West", badge:"AST 1 · 2.5 days",        date:"Apr 26–27, 2026",  dateSort:"2026-04-26", location:"Mt Seymour",            activity:"skiing",         price:325, avail:"open", rating:"4.7", url:"https://themountainschool.com/program/ast-1-whistler/?utm_source=backcountryfinder&utm_medium=referral" },
+  { id:4,  title:"Intro Mountain Biking Skills — Whistler",        provider:"Altus",       badge:"Biking · 1 day",          date:"May 10, 2026",     dateSort:"2026-05-10", location:"Whistler",              activity:"biking",         price:225, avail:"open", rating:"4.9", url:"https://altusmountainguides.rezdy.com?utm_source=backcountryfinder&utm_medium=referral" },
+  { id:5,  title:"Glacier Travel &amp; Crevasse Rescue — Garibaldi", provider:"CWMS",     badge:"Mountaineering · 3 days", date:"Jun 14–16, 2026",  dateSort:"2026-06-14", location:"Garibaldi Park",        activity:"mountaineering", price:495, avail:"low",  rating:"4.7", url:"https://themountainschool.com?utm_source=backcountryfinder&utm_medium=referral" },
+  { id:6,  title:"AST 1 — North Vancouver (Mt Seymour)",           provider:"BC Ski Guides",badge:"AST 1 · 1 day",         date:"Apr 22, 2026",     dateSort:"2026-04-22", location:"Mt Seymour",            activity:"skiing",         price:225, avail:"open", rating:"4.6", url:"https://www.bcskiguides.com/tours/ast-1-north-vancouver/?utm_source=backcountryfinder&utm_medium=referral" },
+  { id:7,  title:"Women's AST 1 — Whistler",                       provider:"MSAA",        badge:"AST 1 · 2 days",         date:"May 17–18, 2026",  dateSort:"2026-05-17", location:"Whistler",              activity:"skiing",         price:299, avail:"low",  rating:"4.8", url:"https://mountainskillsacademy.rezdy.com?utm_source=backcountryfinder&utm_medium=referral" },
+  { id:8,  title:"Multi-Pitch Rock Climbing — Squamish",           provider:"MSAA",        badge:"Climbing · 2 days",       date:"Jun 6–7, 2026",    dateSort:"2026-06-06", location:"Squamish",              activity:"climbing",       price:350, avail:"open", rating:"4.8", url:"https://mountainskillsacademy.rezdy.com?utm_source=backcountryfinder&utm_medium=referral" },
+  { id:9,  title:"Intro to Backcountry Skiing — Squamish",         provider:"Altus",       badge:"Skiing · 1 day",          date:"Apr 29, 2026",     dateSort:"2026-04-29", location:"Squamish",              activity:"skiing",         price:250, avail:"open", rating:"4.9", url:"https://altusmountainguides.rezdy.com?utm_source=backcountryfinder&utm_medium=referral" },
+  { id:10, title:"Scrambling Skills Course — Tantalus Range",      provider:"Altus",       badge:"Mountaineering · 2 days", date:"Jul 5–6, 2026",    dateSort:"2026-07-05", location:"Tantalus Range",        activity:"mountaineering", price:420, avail:"open", rating:"4.9", url:"https://altusmountainguides.rezdy.com?utm_source=backcountryfinder&utm_medium=referral" },
+  { id:11, title:"Hiking &amp; Navigation — Garibaldi",            provider:"CWMS",        badge:"Hiking · 1 day",          date:"Jun 20, 2026",     dateSort:"2026-06-20", location:"Garibaldi Park",        activity:"hiking",         price:175, avail:"open", rating:"4.7", url:"https://themountainschool.com?utm_source=backcountryfinder&utm_medium=referral" },
+  { id:12, title:"AST 2 — Whistler / Duffey Lake",                 provider:"Altus",       badge:"AST 2 · 4 days",          date:"May 24–27, 2026",  dateSort:"2026-05-24", location:"Whistler / Pemberton",  activity:"skiing",         price:675, avail:"low",  rating:"4.9", url:"https://altusmountainguides.rezdy.com?utm_source=backcountryfinder&utm_medium=referral" },
 ];
 
 let currentFilter = 'all';
@@ -958,15 +960,14 @@ function applyFilter(arr) {
   return arr.filter(c => c.activity === currentFilter);
 }
 
-function buildCard(c, clickable=true) {
+function buildCard(c) {
   const saved = isSaved(c.id);
   const availLabel = c.avail === 'open' ? 'Open' : c.avail === 'low' ? 'Few spots left' : 'Sold out';
+  const imgUrl = IMG[c.activity] || IMG.hiking;
   return `
     <div class="course-card">
       <div class="card-img">
-        <div class="card-img-bg" style="background:${c.bg};">
-          <span style="font-size:52px;opacity:0.28;">${c.emoji}</span>
-        </div>
+        <img src="${imgUrl}" alt="${c.title}" loading="lazy" onerror="this.style.display='none'">
         <div class="card-overlay">
           <div class="card-badge">${c.badge}</div>
           <div class="card-provider-tag">${c.provider}</div>
