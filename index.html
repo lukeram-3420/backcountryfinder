@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BackcountryFinder — Find your course. Find your line.</title>
+<meta name="description" content="BC backcountry courses, all in one place. AST 1, AST 2, rock climbing, mountaineering, hiking and more.">
+<meta property="og:title" content="BackcountryFinder — Find your course. Find your line.">
+<meta property="og:description" content="BC backcountry courses, all in one place. No more 20 open tabs.">
+<meta property="og:url" content="https://backcountryfinder.com">
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://images.unsplash.com/photo-1673994841979-a8d3983d4a51?w=1200&q=80&fit=crop">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet">
@@ -623,6 +630,93 @@
   .mnav-label { font-size: 10px; color: var(--text-tertiary); }
   .mnav-item.active .mnav-label { color: var(--green-accent); }
 
+  /* ── SHARE POPOVER ── */
+  .share-popover-wrap { position: relative; display: inline-block; }
+  .share-popover {
+    display: none;
+    position: absolute;
+    bottom: calc(100% + 8px);
+    right: 0;
+    background: var(--bg-card);
+    border: 1px solid var(--border-mid);
+    border-radius: var(--radius);
+    padding: 12px;
+    width: 220px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+    z-index: 50;
+  }
+  .share-popover.active { display: block; animation: fadeUp 0.15s ease; }
+  .share-popover-title { font-size: 11px; font-weight: 500; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 8px; }
+  .share-popover-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-bottom: 5px; }
+  .sp-btn { display: flex; align-items: center; justify-content: center; gap: 5px; padding: 7px 8px; border-radius: var(--radius-sm); font-size: 11px; font-weight: 500; border: 1px solid var(--border-mid); cursor: pointer; background: var(--bg-card); color: var(--text-primary); text-decoration: none; font-family: 'DM Sans', sans-serif; transition: opacity 0.12s; }
+  .sp-btn:hover { opacity: 0.85; }
+  .sp-btn-wa { background: #25D366; color: #fff; border-color: #25D366; }
+  .sp-btn-im { background: var(--green-dark); color: var(--green-accent); border-color: var(--green-dark); }
+  .sp-btn-native { grid-column: 1 / -1; background: var(--bg-secondary); color: var(--text-secondary); }
+  .sp-btn-copy { grid-column: 1 / -1; background: var(--bg-secondary); color: var(--text-secondary); font-size: 10px; }
+  .sp-url { font-size: 10px; color: var(--text-tertiary); background: var(--bg-secondary); border-radius: 4px; padding: 4px 8px; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; }
+  .card-share-btn { background: var(--bg-secondary); border: 1px solid var(--border-mid); border-radius: var(--radius-sm); padding: 7px 10px; cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-secondary); font-weight: 500; font-family: 'DM Sans', sans-serif; transition: all 0.12s; }
+  .card-share-btn:hover { background: var(--green-light); border-color: var(--green-accent); color: var(--green-dark); }
+
+  /* ── SAVED PAGE EMAIL + SHARE ── */
+  .saved-toolbar { padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); background: var(--bg-secondary); flex-wrap: wrap; gap: 8px; }
+  .saved-toolbar-count { font-size: 12px; color: var(--text-tertiary); }
+  .saved-toolbar-actions { display: flex; gap: 6px; }
+  .toolbar-btn { display: flex; align-items: center; gap: 5px; padding: 7px 14px; border-radius: var(--radius-pill); font-size: 12px; font-weight: 500; border: 1px solid var(--border-mid); cursor: pointer; background: var(--bg-card); color: var(--text-secondary); font-family: 'DM Sans', sans-serif; transition: all 0.12s; }
+  .toolbar-btn:hover { border-color: var(--green-dark); color: var(--green-dark); }
+  .toolbar-btn-primary { background: var(--green-dark); color: var(--green-accent); border-color: var(--green-dark); }
+  .toolbar-btn-primary:hover { opacity: 0.88; color: var(--green-accent); }
+
+  /* ── EMAIL MY LIST MODAL ── */
+  .email-list-modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 200;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .email-list-modal-overlay.active { display: flex; }
+  .email-list-modal {
+    background: var(--bg-card);
+    border-radius: var(--radius);
+    padding: 28px;
+    max-width: 400px;
+    width: 100%;
+    position: relative;
+  }
+  .elm-close { position: absolute; top: 14px; right: 16px; background: none; border: none; font-size: 20px; cursor: pointer; color: var(--text-tertiary); font-family: 'DM Sans', sans-serif; }
+  .elm-tag { font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.6px; color: var(--green-accent); background: var(--green-dark); display: inline-block; padding: 3px 10px; border-radius: var(--radius-pill); margin-bottom: 12px; }
+  .elm-modal h3 { font-family: 'DM Serif Display', serif; font-size: 20px; font-weight: 400; color: var(--text-primary); margin-bottom: 6px; line-height: 1.3; }
+  .elm-modal p { font-size: 13px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 14px; }
+  .elm-courses-preview { background: var(--bg-secondary); border-radius: var(--radius-sm); padding: 10px 12px; margin-bottom: 14px; border-left: 3px solid var(--green-dark); }
+  .elm-course-line { font-size: 12px; color: var(--text-secondary); padding: 2px 0; }
+  .elm-input { width: 100%; border: 1px solid var(--border-mid); border-radius: var(--radius-sm); padding: 10px 14px; font-size: 14px; font-family: 'DM Sans', sans-serif; color: var(--text-primary); background: var(--bg-card); outline: none; margin-bottom: 10px; transition: border-color 0.15s; }
+  .elm-input:focus { border-color: var(--green-dark); }
+  .elm-optin { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 14px; cursor: pointer; }
+  .elm-optin input { margin-top: 2px; accent-color: var(--green-dark); flex-shrink: 0; cursor: pointer; }
+  .elm-optin label { font-size: 12px; color: var(--text-secondary); line-height: 1.5; cursor: pointer; }
+  .elm-submit { width: 100%; background: var(--green-dark); color: #fff; border: none; border-radius: var(--radius-sm); padding: 11px; font-size: 14px; font-weight: 500; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: opacity 0.15s; }
+  .elm-submit:hover { opacity: 0.85; }
+  .elm-success { display: none; text-align: center; padding: 8px 0; }
+  .elm-success .tick { font-size: 32px; margin-bottom: 8px; }
+  .elm-success h4 { font-size: 16px; font-weight: 500; margin-bottom: 4px; }
+  .elm-success p { font-size: 13px; color: var(--text-tertiary); margin-bottom: 0; }
+
+  /* ── SHARED COURSES BANNER ── */
+  .shared-banner { background: var(--green-dark); padding: 14px 32px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .shared-banner-text h3 { font-family: 'DM Serif Display', serif; color: #fff; font-size: 16px; font-weight: 400; margin-bottom: 2px; }
+  .shared-banner-text p { color: rgba(255,255,255,0.55); font-size: 12px; }
+  .shared-banner-actions { display: flex; gap: 8px; flex-shrink: 0; }
+  .shared-save-btn { background: var(--green-accent); color: var(--green-dark); border: none; border-radius: var(--radius-sm); padding: 8px 16px; font-size: 12px; font-weight: 500; cursor: pointer; font-family: 'DM Sans', sans-serif; }
+  .shared-dismiss { background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.7); border: none; border-radius: var(--radius-sm); padding: 8px 14px; font-size: 12px; cursor: pointer; font-family: 'DM Sans', sans-serif; }
+  @media (max-width: 768px) {
+    .shared-banner { padding: 14px 16px; }
+    .share-popover { right: auto; left: 0; }
+  }
+
   /* ── PROVIDER MODAL ── */
   .provider-modal-overlay {
     display: none;
@@ -1047,6 +1141,24 @@
     <h2>saved courses</h2>
     <p>Your bookmarked courses, stored locally in your browser.</p>
   </div>
+  <div id="saved-toolbar-wrap" style="display:none;">
+    <div class="saved-toolbar">
+      <span class="saved-toolbar-count" id="saved-toolbar-count">0 courses saved</span>
+      <div class="saved-toolbar-actions">
+        <button class="toolbar-btn" onclick="openEmailListModal()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 7 10 7 10-7"/></svg>
+          email my list
+        </button>
+        <div class="share-popover-wrap">
+          <button class="toolbar-btn toolbar-btn-primary" onclick="toggleSavedShare(event)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13"/></svg>
+            share list
+          </button>
+          <div class="share-popover" id="saved-share-popover"></div>
+        </div>
+      </div>
+    </div>
+  </div>
   <div class="saved-grid" id="saved-grid">
     <div class="empty-state" id="saved-empty">
       <div class="empty-icon">🔖</div>
@@ -1290,6 +1402,13 @@ function buildCard(c) {
           </div>
           <div class="card-actions">
             <button class="save-btn ${saved ? 'saved' : ''}" onclick="toggleSave(${c.id})" title="${saved ? 'Remove' : 'Save'}">🔖</button>
+            <div class="share-popover-wrap">
+              <button class="card-share-btn" onclick="toggleCardShare(event,${c.id})">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13"/></svg>
+                share
+              </button>
+              <div class="share-popover" id="share-popover-${c.id}"></div>
+            </div>
             ${(c.avail === 'sold' || c.avail === 'low') ?
               `<a class="book-btn" href="${c.url}" target="_blank" rel="noopener" onclick="openNotifyModal('${c.title.replace(/'/g, "\'")}');return false;">Notify me</a>` :
               `<a class="book-btn" href="${c.url}" target="_blank" rel="noopener" onclick="setTimeout(showToast,800)">Book Now ↗</a>`
@@ -1325,13 +1444,18 @@ function renderSaved() {
   const saved = getSaved();
   const empty = document.getElementById('saved-empty');
   const cards = document.getElementById('saved-cards');
+  const toolbar = document.getElementById('saved-toolbar-wrap');
+  const count = document.getElementById('saved-toolbar-count');
   if (saved.length === 0) {
     empty.style.display = 'flex';
     cards.style.display = 'none';
+    if (toolbar) toolbar.style.display = 'none';
     return;
   }
   empty.style.display = 'none';
   cards.style.display = 'grid';
+  if (toolbar) toolbar.style.display = 'block';
+  if (count) count.textContent = `${saved.length} course${saved.length !== 1 ? 's' : ''} saved`;
   const savedCourses = ALL_COURSES.filter(c => saved.includes(c.id));
   cards.innerHTML = savedCourses.map(c => buildCard(c)).join('');
 }
@@ -1375,12 +1499,181 @@ function showPage(name) {
 }
 
 renderCards();
+initSharedCourses();
 
 // Hide ad slots until ADS_ENABLED is true
 if (!ADS_ENABLED) {
   document.querySelectorAll('.ad-banner, .ad-card, #ad-leaderboard').forEach(el => {
     el.style.display = 'none';
   });
+}
+
+// ── SHARED COURSES (URL param) ──
+const SUPABASE_EDGE_URL = 'https://owzrztaguehebkatnatc.supabase.co/functions/v1/send-saved-list';
+
+function getSharedIds() {
+  const params = new URLSearchParams(window.location.search);
+  const shared = params.get('shared');
+  return shared ? shared.split(',').map(Number).filter(Boolean) : [];
+}
+
+function initSharedCourses() {
+  const ids = getSharedIds();
+  if (ids.length === 0) return;
+  const courses = ALL_COURSES.filter(c => ids.includes(c.id));
+  if (courses.length === 0) return;
+  const banner = document.getElementById('shared-banner');
+  const title = document.getElementById('shared-banner-title');
+  const sub = document.getElementById('shared-banner-sub');
+  title.textContent = `${courses.length} course${courses.length !== 1 ? 's' : ''} shared with you`;
+  sub.textContent = courses.map(c => c.title.split('—')[0].trim()).join(', ');
+  banner.style.display = 'block';
+  // Show shared courses at top of search results
+  const sharedSection = document.getElementById('shared-highlighted');
+  if (sharedSection) {
+    const grid = document.getElementById('shared-grid');
+    grid.innerHTML = courses.map(c => buildCard(c)).join('');
+    sharedSection.style.display = 'block';
+  }
+}
+
+function saveSharedCourses() {
+  const ids = getSharedIds();
+  let saved = getSaved();
+  ids.forEach(id => { if (!saved.includes(id)) saved.push(id); });
+  setSaved(saved);
+  dismissSharedBanner();
+  showPage('saved');
+}
+
+function dismissSharedBanner() {
+  document.getElementById('shared-banner').style.display = 'none';
+}
+
+// ── SHARE HELPERS ──
+function buildSharePopoverHTML(courseId, isMultiple) {
+  const ids = isMultiple ? getSaved().join(',') : String(courseId);
+  const shareUrl = `https://backcountryfinder.com/?shared=${ids}`;
+  const courses = isMultiple
+    ? ALL_COURSES.filter(c => getSaved().includes(c.id))
+    : ALL_COURSES.filter(c => c.id === courseId);
+  const courseLines = courses.map(c =>
+    `${c.activity === 'skiing' ? '🎿' : c.activity === 'climbing' ? '🧗' : c.activity === 'biking' ? '🚵' : '🏔'} ${c.title.split('—')[0].trim()} · ${c.date.split(',')[0]} · $${c.price}`
+  ).join('\n');
+  const waMsg = encodeURIComponent(
+    isMultiple
+      ? `Hey — found some great backcountry courses on BackcountryFinder. Opens with them already saved 👇\n\n${courseLines}\n\n${shareUrl}`
+      : `Check out this course on BackcountryFinder:\n\n${courseLines}\n\n${shareUrl}`
+  );
+  const smsMsg = encodeURIComponent(
+    isMultiple
+      ? `Saved some backcountry courses for you — ${shareUrl}`
+      : `Check this course out — ${shareUrl}`
+  );
+  const canNative = typeof navigator.share === 'function';
+  return `
+    <div class="share-popover-title">${isMultiple ? 'share this list' : 'share this course'}</div>
+    <div class="share-popover-btns">
+      <a class="sp-btn sp-btn-wa" href="https://wa.me/?text=${waMsg}" target="_blank">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.136.564 4.14 1.548 5.871L0 24l6.335-1.521A11.934 11.934 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.818 9.818 0 01-5.006-1.369l-.36-.214-3.732.895.944-3.617-.235-.374A9.818 9.818 0 012.182 12C2.182 6.57 6.57 2.182 12 2.182S21.818 6.57 21.818 12 17.43 21.818 12 21.818z"/></svg>
+        WhatsApp
+      </a>
+      <a class="sp-btn sp-btn-im" href="sms:?body=${smsMsg}">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 4.925 0 11c0 3.39 1.643 6.425 4.219 8.399L3 24l4.797-2.561A13.03 13.03 0 0012 22c6.627 0 12-4.925 12-11S18.627 0 12 0z"/></svg>
+        iMessage
+      </a>
+      ${canNative ? `<button class="sp-btn sp-btn-native" onclick="nativeShare('${shareUrl}','${isMultiple ? 'Backcountry courses' : courses[0]?.title || ''}')">share via...</button>` : ''}
+      <button class="sp-btn sp-btn-copy" onclick="copyShareLink('${shareUrl}',this)">copy link</button>
+    </div>
+    <div class="sp-url">${shareUrl}</div>`;
+}
+
+function toggleCardShare(e, courseId) {
+  e.stopPropagation();
+  closeAllPopovers();
+  const popover = document.getElementById(`share-popover-${courseId}`);
+  if (!popover) return;
+  popover.innerHTML = buildSharePopoverHTML(courseId, false);
+  popover.classList.toggle('active');
+}
+
+function toggleSavedShare(e) {
+  e.stopPropagation();
+  closeAllPopovers();
+  const popover = document.getElementById('saved-share-popover');
+  if (!popover) return;
+  popover.innerHTML = buildSharePopoverHTML(null, true);
+  popover.classList.toggle('active');
+}
+
+function closeAllPopovers() {
+  document.querySelectorAll('.share-popover').forEach(p => p.classList.remove('active'));
+}
+
+document.addEventListener('click', closeAllPopovers);
+
+async function copyShareLink(url, btn) {
+  try {
+    await navigator.clipboard.writeText(url);
+    const orig = btn.textContent;
+    btn.textContent = 'copied!';
+    setTimeout(() => { btn.textContent = orig; }, 2000);
+  } catch(e) {
+    prompt('Copy this link:', url);
+  }
+}
+
+async function nativeShare(url, title) {
+  try {
+    await navigator.share({ title: title || 'BackcountryFinder', url });
+  } catch(e) {}
+}
+
+// ── EMAIL MY LIST MODAL ──
+function openEmailListModal() {
+  const saved = getSaved();
+  const courses = ALL_COURSES.filter(c => saved.includes(c.id));
+  if (courses.length === 0) return;
+  const preview = document.getElementById('elm-courses-preview');
+  preview.innerHTML = courses.map(c =>
+    `<div class="elm-course-line">${c.activity === 'skiing' ? '🎿' : c.activity === 'climbing' ? '🧗' : c.activity === 'biking' ? '🚵' : '🏔'} ${c.title.split('—')[0].trim()} · ${c.date.split(',')[0]} · $${c.price}</div>`
+  ).join('');
+  document.getElementById('elm-email').value = '';
+  document.getElementById('elm-form-content').style.display = 'block';
+  document.getElementById('elm-success').style.display = 'none';
+  document.getElementById('email-list-modal').classList.add('active');
+}
+
+function closeEmailListModal(e) {
+  if (!e || e.target === document.getElementById('email-list-modal')) {
+    document.getElementById('email-list-modal').classList.remove('active');
+  }
+}
+
+async function submitEmailList() {
+  const email = document.getElementById('elm-email').value.trim();
+  const optIn = document.getElementById('elm-optin').checked;
+  if (!email || !email.includes('@')) {
+    document.getElementById('elm-email').focus();
+    document.getElementById('elm-email').style.borderColor = '#e24b4a';
+    return;
+  }
+  document.getElementById('elm-email').style.borderColor = '';
+  const btn = document.querySelector('.elm-submit');
+  btn.textContent = 'sending...';
+  btn.disabled = true;
+  const saved = getSaved();
+  const courses = ALL_COURSES.filter(c => saved.includes(c.id));
+  try {
+    await fetch(SUPABASE_EDGE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, courses, optIn })
+    });
+  } catch(e) {}
+  document.getElementById('elm-form-content').style.display = 'none';
+  document.getElementById('elm-success').style.display = 'block';
+  setTimeout(closeEmailListModal, 3500);
 }
 
 // ── SUPABASE CONFIG ──
@@ -1572,6 +1865,44 @@ async function submitToast() {
   setTimeout(closeToast, 2500);
 }
 </script>
+
+<!-- SHARED COURSES BANNER -->
+<div id="shared-banner" style="display:none;">
+  <div class="shared-banner">
+    <div class="shared-banner-text">
+      <h3 id="shared-banner-title">Someone shared courses with you</h3>
+      <p id="shared-banner-sub">Here are the courses they saved — click Book Now to grab a spot.</p>
+    </div>
+    <div class="shared-banner-actions">
+      <button class="shared-save-btn" onclick="saveSharedCourses()">save all to my list</button>
+      <button class="shared-dismiss" onclick="dismissSharedBanner()">dismiss</button>
+    </div>
+  </div>
+</div>
+
+<!-- EMAIL MY LIST MODAL -->
+<div class="email-list-modal-overlay" id="email-list-modal" onclick="closeEmailListModal(event)">
+  <div class="email-list-modal elm-modal">
+    <button class="elm-close" onclick="closeEmailListModal()">×</button>
+    <div id="elm-form-content">
+      <div class="elm-tag">email my list</div>
+      <h3>Send your saved courses to your inbox</h3>
+      <p>We'll email you a neat summary with Book Now links — and a shareable link to send to a friend.</p>
+      <div class="elm-courses-preview" id="elm-courses-preview"></div>
+      <input class="elm-input" type="email" id="elm-email" placeholder="your@email.com">
+      <label class="elm-optin">
+        <input type="checkbox" id="elm-optin" checked>
+        <span>Keep me updated when new courses are added — no spam, unsubscribe anytime.</span>
+      </label>
+      <button class="elm-submit" onclick="submitEmailList()">send me my list</button>
+    </div>
+    <div class="elm-success" id="elm-success">
+      <div class="tick">✓</div>
+      <h4>Check your inbox!</h4>
+      <p>Your saved courses are on their way. Don't forget to check your spam folder if it doesn't arrive.</p>
+    </div>
+  </div>
+</div>
 
 <!-- PROVIDER MODAL -->
 <div class="provider-modal-overlay" id="provider-modal" onclick="closeProviderModal(event)">
