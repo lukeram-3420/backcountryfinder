@@ -1580,8 +1580,8 @@ function buildSharePopoverHTML(courseId, isMultiple) {
         <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 4.925 0 11c0 3.39 1.643 6.425 4.219 8.399L3 24l4.797-2.561A13.03 13.03 0 0012 22c6.627 0 12-4.925 12-11S18.627 0 12 0z"/></svg>
         iMessage
       </a>
-      ${canNative ? `<button class="sp-btn sp-btn-native" onclick="nativeShare('${shareUrl}','${isMultiple ? 'Backcountry courses' : courses[0]?.title || ''}')">share via...</button>` : ''}
-      <button class="sp-btn sp-btn-copy" onclick="copyShareLink('${shareUrl}',this)">copy link</button>
+      ${canNative ? `<button class="sp-btn sp-btn-native" data-native-share="${shareUrl}" data-native-title="${(isMultiple ? 'Backcountry courses' : (courses[0]?.title||'')).replace(/"/g,'&quot;')}">share via...</button>` : ''}
+      <button class="sp-btn sp-btn-copy" data-copy-url="${shareUrl}">copy link</button>
     </div>
     <div class="sp-url">${shareUrl}</div>`;
 }
@@ -1638,22 +1638,39 @@ function closeAllPopovers() {
 }
 
 document.addEventListener('click', function(e) {
+  // Share button on card
   const shareBtn = e.target.closest('[data-share-id]');
   if (shareBtn) {
     e.stopPropagation();
+    e.preventDefault();
     const courseId = parseInt(shareBtn.getAttribute('data-share-id'));
-    const wasOpen = document.getElementById('share-popover-' + courseId)?.classList.contains('active');
+    const popover = document.getElementById('share-popover-' + courseId);
+    const wasOpen = popover?.classList.contains('active');
     closeAllPopovers();
-    if (!wasOpen) {
-      const popover = document.getElementById('share-popover-' + courseId);
-      if (popover) {
-        popover.innerHTML = buildSharePopoverHTML(courseId, false);
-        positionPopover(popover, shareBtn);
-        popover.classList.add('active');
-      }
+    if (!wasOpen && popover) {
+      popover.innerHTML = buildSharePopoverHTML(courseId, false);
+      // Use the wrap div for positioning, not the button (more stable on mobile)
+      const wrap = shareBtn.closest('.share-popover-wrap') || shareBtn;
+      positionPopover(popover, wrap);
+      popover.classList.add('active');
     }
     return;
   }
+  // Copy link button inside popover
+  const copyBtn = e.target.closest('[data-copy-url]');
+  if (copyBtn) {
+    e.stopPropagation();
+    copyShareLink(copyBtn.getAttribute('data-copy-url'), copyBtn);
+    return;
+  }
+  // Native share button inside popover
+  const nativeBtn = e.target.closest('[data-native-share]');
+  if (nativeBtn) {
+    e.stopPropagation();
+    nativeShare(nativeBtn.getAttribute('data-native-share'), nativeBtn.getAttribute('data-native-title'));
+    return;
+  }
+  // Close if clicking outside
   if (!e.target.closest('.share-popover')) closeAllPopovers();
 });
 
