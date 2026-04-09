@@ -1729,7 +1729,11 @@ async function submitEmailList() {
   try {
     await fetch(SUPABASE_EDGE_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'apikey': SUPABASE_KEY
+      },
       body: JSON.stringify({ email, courses, optIn })
     });
   } catch(e) {}
