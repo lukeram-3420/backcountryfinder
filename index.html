@@ -634,16 +634,14 @@
   .share-popover-wrap { position: relative; display: inline-block; }
   .share-popover {
     display: none;
-    position: absolute;
-    bottom: calc(100% + 8px);
-    right: 0;
+    position: fixed;
     background: var(--bg-card);
     border: 1px solid var(--border-mid);
     border-radius: var(--radius);
     padding: 12px;
-    width: 220px;
+    width: min(220px, calc(100vw - 32px));
     box-shadow: 0 8px 24px rgba(0,0,0,0.12);
-    z-index: 50;
+    z-index: 300;
   }
   .share-popover.active { display: block; animation: fadeUp 0.15s ease; }
   .share-popover-title { font-size: 11px; font-weight: 500; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 8px; }
@@ -1588,13 +1586,39 @@ function buildSharePopoverHTML(courseId, isMultiple) {
     <div class="sp-url">${shareUrl}</div>`;
 }
 
+function positionPopover(popover, btn) {
+  const rect = btn.getBoundingClientRect();
+  const popW = Math.min(220, window.innerWidth - 32);
+  const spaceRight = window.innerWidth - rect.left;
+  const spaceBelow = window.innerHeight - rect.bottom;
+  // horizontal: align left edge to button, but clamp to viewport
+  let left = rect.left;
+  if (left + popW > window.innerWidth - 16) left = window.innerWidth - popW - 16;
+  if (left < 16) left = 16;
+  // vertical: open below if space, else above
+  let top;
+  if (spaceBelow >= 200 || spaceBelow > spaceRight) {
+    top = rect.bottom + 8;
+  } else {
+    top = rect.top - 8; // will be adjusted after render
+    popover.style.bottom = (window.innerHeight - rect.top + 8) + 'px';
+    popover.style.top = 'auto';
+    popover.style.left = left + 'px';
+    return;
+  }
+  popover.style.top = top + 'px';
+  popover.style.bottom = 'auto';
+  popover.style.left = left + 'px';
+}
+
 function toggleCardShare(e, courseId) {
   e.stopPropagation();
   closeAllPopovers();
   const popover = document.getElementById(`share-popover-${courseId}`);
   if (!popover) return;
   popover.innerHTML = buildSharePopoverHTML(courseId, false);
-  popover.classList.toggle('active');
+  positionPopover(popover, e.currentTarget);
+  popover.classList.add('active');
 }
 
 function toggleSavedShare(e) {
@@ -1603,7 +1627,8 @@ function toggleSavedShare(e) {
   const popover = document.getElementById('saved-share-popover');
   if (!popover) return;
   popover.innerHTML = buildSharePopoverHTML(null, true);
-  popover.classList.toggle('active');
+  positionPopover(popover, e.currentTarget);
+  popover.classList.add('active');
 }
 
 function closeAllPopovers() {
