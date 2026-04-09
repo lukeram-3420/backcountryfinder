@@ -1588,16 +1588,23 @@ function buildSharePopoverHTML(courseId, isMultiple) {
 
 function positionPopover(popover, btn) {
   const rect = btn.getBoundingClientRect();
+  const popW = Math.min(220, window.innerWidth - 32);
+  popover.style.width = popW + 'px';
+  // Horizontal — align right edge to button right, clamp to viewport
+  let left = rect.right - popW;
+  if (left < 8) left = 8;
+  if (left + popW > window.innerWidth - 8) left = window.innerWidth - popW - 8;
+  popover.style.left = left + 'px';
+  popover.style.right = 'auto';
+  // Vertical — below if space, else above
   const spaceBelow = window.innerHeight - rect.bottom;
-  if (spaceBelow < 200) {
-    popover.style.top = 'auto';
-    popover.style.bottom = 'calc(100% + 8px)';
-  } else {
+  if (spaceBelow >= 200) {
+    popover.style.top = (rect.bottom + 6) + 'px';
     popover.style.bottom = 'auto';
-    popover.style.top = 'calc(100% + 8px)';
+  } else {
+    popover.style.top = 'auto';
+    popover.style.bottom = (window.innerHeight - rect.top + 6) + 'px';
   }
-  popover.style.right = '0';
-  popover.style.left = 'auto';
 }
 
 function toggleCardShare(e, courseId) {
