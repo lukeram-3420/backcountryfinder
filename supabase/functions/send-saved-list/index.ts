@@ -241,6 +241,9 @@ serve(async (req) => {
     const sharedIds = courses.map((c: Course) => c.id).join(",");
     const html = buildEmail(courses, sharedIds);
 
+    console.log(`Sending email to ${email} with ${courses.length} courses`);
+    console.log(`RESEND_API_KEY present: ${!!RESEND_API_KEY}`);
+
     const resendRes = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -255,29 +258,33 @@ serve(async (req) => {
       }),
     });
 
+    const resendBody = await resendRes.text();
+    console.log(`Resend response: ${resendRes.status} — ${resendBody}`);
+
     if (!resendRes.ok) {
-      const err = await resendRes.text();
-      throw new Error(`Resend error: ${err}`);
+      throw new Error(`Resend error ${resendRes.status}: ${resendBody}`);
     }
 
-    // Save to Supabase if opt-in
+    // Save to Supabase if opt-in — use publishable key for anon insert
     if (optIn) {
-      const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-      const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-      await fetch(`${supabaseUrl}/rest/v1/email_signups`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "apikey": supabaseKey,
-          "Authorization": `Bearer ${supabaseKey}`,
-          "Prefer": "return=minimal",
-        },
-        body: JSON.stringify({
-          email,
-          signup_type: "saved_list",
-          course_title: null,
-        }),
-      });
+      const supabaseUrl = "https://owzrztaguehebkatnatc.supabase.co";
+      const supabaseKey = Deno.env.get("ANON_KEY") ?? "";
+      if (supabaseKey) {
+        await fetch(`${supabaseUrl}/rest/v1/email_signups`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "apikey": supabaseKey,
+            "Authorization": `Bearer ${supabaseKey}`,
+            "Prefer": "return=minimal",
+          },
+          body: JSON.stringify({
+            email,
+            signup_type: "saved_list",
+            course_title: null,
+          }),
+        });
+      }
     }
 
     return new Response(JSON.stringify({ success: true }), {
