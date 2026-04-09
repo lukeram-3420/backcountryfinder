@@ -1588,27 +1588,16 @@ function buildSharePopoverHTML(courseId, isMultiple) {
 
 function positionPopover(popover, btn) {
   const rect = btn.getBoundingClientRect();
-  const popW = Math.min(220, window.innerWidth - 32);
-  const spaceRight = window.innerWidth - rect.left;
   const spaceBelow = window.innerHeight - rect.bottom;
-  // horizontal: align left edge to button, but clamp to viewport
-  let left = rect.left;
-  if (left + popW > window.innerWidth - 16) left = window.innerWidth - popW - 16;
-  if (left < 16) left = 16;
-  // vertical: open below if space, else above
-  let top;
-  if (spaceBelow >= 200 || spaceBelow > spaceRight) {
-    top = rect.bottom + 8;
-  } else {
-    top = rect.top - 8; // will be adjusted after render
-    popover.style.bottom = (window.innerHeight - rect.top + 8) + 'px';
+  if (spaceBelow < 200) {
     popover.style.top = 'auto';
-    popover.style.left = left + 'px';
-    return;
+    popover.style.bottom = 'calc(100% + 8px)';
+  } else {
+    popover.style.bottom = 'auto';
+    popover.style.top = 'calc(100% + 8px)';
   }
-  popover.style.top = top + 'px';
-  popover.style.bottom = 'auto';
-  popover.style.left = left + 'px';
+  popover.style.right = '0';
+  popover.style.left = 'auto';
 }
 
 function toggleCardShare(e, courseId) {
