@@ -1602,9 +1602,12 @@ function positionPopover(popover, btn) {
 
 function toggleCardShare(e, courseId) {
   e.stopPropagation();
+  e.preventDefault();
+  const wasOpen = document.getElementById('share-popover-' + courseId)?.classList.contains('active');
   closeAllPopovers();
-  const popover = document.getElementById(`share-popover-${courseId}`);
-  if (!popover) return;
+  if (wasOpen) return;
+  const popover = document.getElementById('share-popover-' + courseId);
+  if (!popover) { console.warn('No popover for id', courseId); return; }
   popover.innerHTML = buildSharePopoverHTML(courseId, false);
   positionPopover(popover, e.currentTarget);
   popover.classList.add('active');
@@ -1612,7 +1615,10 @@ function toggleCardShare(e, courseId) {
 
 function toggleSavedShare(e) {
   e.stopPropagation();
+  e.preventDefault();
+  const wasOpen = document.getElementById('saved-share-popover')?.classList.contains('active');
   closeAllPopovers();
+  if (wasOpen) return;
   const popover = document.getElementById('saved-share-popover');
   if (!popover) return;
   popover.innerHTML = buildSharePopoverHTML(null, true);
@@ -1624,7 +1630,9 @@ function closeAllPopovers() {
   document.querySelectorAll('.share-popover').forEach(p => p.classList.remove('active'));
 }
 
-document.addEventListener('click', closeAllPopovers);
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.share-popover-wrap')) closeAllPopovers();
+});
 
 async function copyShareLink(url, btn) {
   try {
