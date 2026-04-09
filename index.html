@@ -1400,8 +1400,8 @@ function buildCard(c) {
           </div>
           <div class="card-actions">
             <button class="save-btn ${saved ? 'saved' : ''}" onclick="toggleSave(${c.id})" title="${saved ? 'Remove' : 'Save'}">🔖</button>
-            <div class="share-popover-wrap">
-              <button class="card-share-btn" onclick="toggleCardShare(event,${c.id})">
+            <div class="share-popover-wrap" data-course-id="${c.id}">
+              <button class="card-share-btn" data-share-id="${c.id}">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13"/></svg>
                 share
               </button>
@@ -1638,7 +1638,23 @@ function closeAllPopovers() {
 }
 
 document.addEventListener('click', function(e) {
-  if (!e.target.closest('.share-popover-wrap')) closeAllPopovers();
+  const shareBtn = e.target.closest('[data-share-id]');
+  if (shareBtn) {
+    e.stopPropagation();
+    const courseId = parseInt(shareBtn.getAttribute('data-share-id'));
+    const wasOpen = document.getElementById('share-popover-' + courseId)?.classList.contains('active');
+    closeAllPopovers();
+    if (!wasOpen) {
+      const popover = document.getElementById('share-popover-' + courseId);
+      if (popover) {
+        popover.innerHTML = buildSharePopoverHTML(courseId, false);
+        positionPopover(popover, shareBtn);
+        popover.classList.add('active');
+      }
+    }
+    return;
+  }
+  if (!e.target.closest('.share-popover')) closeAllPopovers();
 });
 
 async function copyShareLink(url, btn) {
