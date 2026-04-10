@@ -76,6 +76,9 @@
   .search-field:last-of-type { border-right: none; }
   .search-field label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: #aaa; cursor: pointer; }
   .search-field select, .search-field input[type=date] { border: none; background: transparent; font-size: 14px; font-weight: 600; color: var(--text-primary); font-family: var(--font); outline: none; cursor: pointer; width: 100%; -webkit-appearance: none; appearance: none; }
+  input[type=date]:not(:focus):not(.has-value) { color: transparent; }
+  input[type=date]:not(:focus):not(.has-value)::-webkit-datetime-edit { color: transparent; }
+  input[type=date]:not(:focus):not(.has-value)::-webkit-calendar-picker-indicator { opacity: 0.3; }
   .search-go { background: var(--green-accent); color: var(--green-dark); border: none; padding: 0 28px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: var(--font); white-space: nowrap; flex-shrink: 0; transition: opacity 0.15s; }
   .search-go:hover { opacity: 0.88; }
 
@@ -441,7 +444,7 @@
       </div>
       <div class="search-field" style="flex:1;">
         <label>From when</label>
-        <input type="text" id="search-date" placeholder="any date" onfocus="this.type='date'" onblur="if(!this.value)this.type='text'">
+        <input type="date" id="search-date" onchange="this.classList.toggle('has-value', !!this.value)">
       </div>
       <button class="search-go" onclick="runSearch()">Search →</button>
     </div>
