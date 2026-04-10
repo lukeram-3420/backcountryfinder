@@ -204,6 +204,8 @@
   .provider-card-rating { font-size: 12px; font-weight: 600; color: var(--green-dark); margin-bottom: 12px; }
   .provider-card-tags { display: flex; gap: 6px; flex-wrap: wrap; }
   .provider-tag { font-size: 10px; font-weight: 600; padding: 3px 10px; border-radius: var(--radius-pill); background: var(--green-light); color: var(--green-dark); }
+  .provider-card-link { display: inline-block; margin-top: 12px; font-size: 12px; font-weight: 600; color: var(--green-dark); text-decoration: none; }
+  .provider-card-link:hover { text-decoration: underline; }
 
   /* ABOUT */
   .about-wrap { max-width: 640px; }
@@ -520,11 +522,9 @@
         <button class="provider-cta-btn secondary" onclick="openProviderModal('suggest')">suggest a provider</button>
       </div>
     </div>
-    <div class="provider-cards">
-      <div class="provider-card"><div class="provider-card-name">Altus Mountain Guides</div><div class="provider-card-loc">Whistler, BC</div><div class="provider-card-rating">★ 4.9 · 200+ reviews</div><div class="provider-card-tags"><span class="provider-tag">AST 1 & 2</span><span class="provider-tag">Mountaineering</span><span class="provider-tag">Biking</span></div></div>
-      <div class="provider-card"><div class="provider-card-name">Mountain Skills Academy</div><div class="provider-card-loc">Squamish, BC</div><div class="provider-card-rating">★ 4.8 · 150+ reviews</div><div class="provider-card-tags"><span class="provider-tag">Rock Climbing</span><span class="provider-tag">AST 1</span><span class="provider-tag">Alpinism</span></div></div>
-      <div class="provider-card"><div class="provider-card-name">Canada West Mountain School</div><div class="provider-card-loc">North Vancouver, BC</div><div class="provider-card-rating">★ 4.7 · 120+ reviews</div><div class="provider-card-tags"><span class="provider-tag">AST 1 & 2</span><span class="provider-tag">Mountaineering</span><span class="provider-tag">Hiking</span></div></div>
-      <div class="provider-card"><div class="provider-card-name">BC Ski Guides</div><div class="provider-card-loc">North Vancouver, BC</div><div class="provider-card-rating">★ 4.6 · 80+ reviews</div><div class="provider-card-tags"><span class="provider-tag">AST 1</span><span class="provider-tag">Ski Touring</span></div></div>
+    <div class="provider-cards" id="provider-cards">
+      <div class="skel-card" style="height:120px;"><div class="skel" style="height:100%;border-radius:12px;"></div></div>
+      <div class="skel-card" style="height:120px;"><div class="skel" style="height:100%;border-radius:12px;"></div></div>
     </div>
   </div>
 </div>
@@ -675,6 +675,20 @@
 
 <script>
 const ADS_ENABLED = false;
+
+const ACTIVITY_LABELS = {
+  skiing:         'Backcountry Skiing',
+  climbing:       'Rock Climbing',
+  mountaineering: 'Mountaineering',
+  hiking:         'Hiking',
+  biking:         'Mountain Biking',
+  fishing:        'Fly Fishing',
+  hunting:        'Hunting',
+  heli:           'Heli Skiing',
+  cat:            'Cat Skiing',
+  huts:           'Alpine Huts',
+  guided:         'Guided Tours',
+};
 const SUPABASE_EDGE_URL = 'https://owzrztaguehebkatnatc.supabase.co/functions/v1/send-saved-list';
 const NOTIFY_URL = 'https://owzrztaguehebkatnatc.supabase.co/functions/v1/notify-submission';
 const SUPABASE_URL = 'https://owzrztaguehebkatnatc.supabase.co';
@@ -1011,6 +1025,7 @@ function showPage(name){
   if(nl)nl.classList.add('active');
   if(ml)ml.classList.add('active');
   if(name==='saved')renderSaved();
+  if(name==='providers')loadProviders();
   window.scrollTo(0,0);
 }
 
@@ -1204,6 +1219,65 @@ async function submitToast(){const emailEl=document.getElementById('toast-email'
 // ── INIT ──
 fetchCourses(0, false);
 initSharedCourses();
+
+// ── PROVIDERS PAGE ──
+async function loadProviders() {
+  const grid = document.getElementById('provider-cards');
+  if (!grid) return;
+
+  try {
+    // Fetch active providers
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/providers?select=*&active=eq.true&order=name.asc`,
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+    );
+    const providers = await res.json();
+
+    if (!providers.length) {
+      grid.innerHTML = '<p style="color:var(--text-tertiary);font-size:13px;">No providers listed yet.</p>';
+      return;
+    }
+
+    // Fetch distinct activities per provider from courses table
+    const coursesRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/courses?select=provider_id,activity&active=eq.true`,
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+    );
+    const courses = await coursesRes.json();
+
+    // Build activity map: { provider_id: Set of activities }
+    const activityMap = {};
+    courses.forEach(c => {
+      if (!activityMap[c.provider_id]) activityMap[c.provider_id] = new Set();
+      if (c.activity) activityMap[c.provider_id].add(c.activity);
+    });
+
+    grid.innerHTML = providers.map(p => {
+      const activities = [...(activityMap[p.id] || [])];
+      const tags = activities
+        .map(a => `<span class="provider-tag">${ACTIVITY_LABELS[a] || a}</span>`)
+        .join('');
+      const rating = p.rating
+        ? `<div class="provider-card-rating">★ ${p.rating}${p.review_count ? ` · ${p.review_count}+ reviews` : ''}</div>`
+        : '';
+      const website = p.website
+        ? `<a href="${p.website}" target="_blank" rel="noopener" class="provider-card-link">visit website ↗</a>`
+        : '';
+      return `
+        <div class="provider-card">
+          <div class="provider-card-name">${p.name}</div>
+          <div class="provider-card-loc">${p.location || ''}</div>
+          ${rating}
+          ${tags ? `<div class="provider-card-tags">${tags}</div>` : ''}
+          ${website}
+        </div>`;
+    }).join('');
+
+  } catch(e) {
+    console.error('Failed to load providers:', e);
+    grid.innerHTML = '<p style="color:var(--text-tertiary);font-size:13px;">Could not load providers.</p>';
+  }
+}
 
 // REMOVE-READY: saved buttons get remove-ready class after first mouse-leave
 function addRemoveReadyListeners() {
