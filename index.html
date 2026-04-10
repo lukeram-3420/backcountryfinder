@@ -801,7 +801,7 @@ async function fetchFromSupabase(page = 0, append = false, background = false) {
 
     let url = `${SUPABASE_URL}/rest/v1/courses?select=*,providers(name,rating,review_count)&active=eq.true`;
 
-    if (currentFilters.activity) url += `&activity=eq.${encodeURIComponent(currentFilters.activity)}`;
+    if (currentFilters.activity) url += `&activity_canonical=eq.${encodeURIComponent(currentFilters.activity)}`;
     if (currentFilters.location) url += `&or=(location_canonical.eq.${encodeURIComponent(currentFilters.location)},location_raw.eq.${encodeURIComponent(currentFilters.location)})`;
     if (currentFilters.date)     url += `&date_sort=gte.${currentFilters.date}`;
 
@@ -913,7 +913,8 @@ function buildCard(c){
   const providerName = provider.name || c.provider_id || '';
   const rating = provider.rating ? `★ ${provider.rating}` : '';
   const location = c.location_canonical || c.location_raw || '';
-  const activity = c.activity_override || c.activity_raw || c.activity || 'guided';
+  const activity = c.activity_canonical || c.activity_raw || c.activity || 'guided';
+  const badge = c.badge_canonical || c.badge || activity;
   const imgUrl = c.image_url || IMG[activity] || IMG.hiking;
   const bookingUrl = c.booking_url || '#';
   const safeTitle = (c.title||'').replace(/'/g,"\'");
@@ -921,7 +922,7 @@ function buildCard(c){
     <div class="card-img">
       <img src="${imgUrl}" alt="${c.title}" loading="lazy" onerror="this.src='${IMG[c.activity]||IMG.hiking}'">
       <div class="card-overlay">
-        <div class="card-badge">${c.badge||''}</div>
+        <div class="card-badge">${badge}</div>
         <div class="card-provider-tag">${providerName}</div>
       </div>
     </div>
