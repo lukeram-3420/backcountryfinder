@@ -446,6 +446,72 @@ def scrape_rezdy_api(provider: dict) -> list:
     return courses
 
 
+# ── COURSE PAGE CHECK ──
+
+NO_AVAILABILITY_SIGNALS = [
+    "no availability",
+    "please try again later",
+    "no sessions available",
+    "not available",
+    "sold out",
+    "no upcoming",
+]
+
+STATIC_DATE_PATTERNS = [
+    r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}",
+    r"\d{4}-\d{2}-\d{2}",
+    r"\d{1,2}/\d{1,2}/\d{4}",
+]
+
+def check_course_page(booking_url: str) -> dict:
+    """
+    Visit a course page and determine:
+    - is it available?
+    - are there static dates we can scrape?
+    - is it a custom date picker?
+    Returns dict: {available, custom_dates, dates}
+    """
+    result = {"available": True, "custom_dates": False, "dates": []}
+
+    try:
+        # Strip UTM params for clean page fetch
+        clean_url = booking_url.split("?")[0]
+        r = requests.get(clean_url, headers=HEADERS, timeout=20)
+        r.raise_for_status()
+        text = r.text.lower()
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        # Check for no availability signals
+        for signal in NO_AVAILABILITY_SIGNALS:
+            if signal in text:
+                log.info(f"No availability found at {clean_url}")
+                result["available"] = False
+                return result
+
+        # Try to find static dates in HTML
+        page_text = soup.get_text()
+        found_dates = []
+        for pattern in STATIC_DATE_PATTERNS:
+            matches = re.findall(pattern, page_text)
+            found_dates.extend(matches)
+
+        if found_dates:
+            log.info(f"Found {len(found_dates)} static dates at {clean_url}")
+            result["dates"] = list(set(found_dates))
+        else:
+            # No static dates — assume JS calendar / custom date picker
+            log.info(f"No static dates found at {clean_url} — marking as custom dates")
+            result["custom_dates"] = True
+
+    except Exception as e:
+        log.warning(f"Could not check course page {booking_url}: {e}")
+        # If we can't check, assume available to avoid hiding valid courses
+        result["available"] = True
+        result["custom_dates"] = True
+
+    return result
+
+
 # ── SEND EMAIL ──
 
 def send_email(to: str, subject: str, html: str) -> None:
@@ -582,6 +648,29 @@ def main():
             activity_canonical = resolve_activity(c["title"], desc, activity_maps)
             badge_canonical = build_badge(activity_canonical, c.get("duration_days"))
 
+            # Check individual course page for availability and dates
+            booking_url = c.get("booking_url")
+            active = True
+            custom_dates = False
+            date_display = c.get("date_display")
+            date_sort = c.get("date_sort")
+
+            if booking_url:
+                page_check = check_course_page(booking_url)
+                if not page_check["available"]:
+                    log.info(f"Hiding unavailable course: {c['title']}")
+                    active = False
+                else:
+                    custom_dates = page_check["custom_dates"]
+                    if custom_dates:
+                        date_display = "Flexible dates"
+                        date_sort = None
+                    elif page_check["dates"] and not date_display:
+                        # Use first static date found
+                        date_display = page_check["dates"][0]
+                        date_sort = parse_date_sort(date_display)
+                time.sleep(0.5)  # be polite between course page requests
+
             processed.append({
                 "id":                 course_id,
                 "title":              c["title"],
@@ -593,15 +682,16 @@ def main():
                 "badge_canonical":    badge_canonical,
                 "location_raw":       loc_raw or None,
                 "location_canonical": loc_canonical,
-                "date_display":       c.get("date_display"),
-                "date_sort":          c.get("date_sort"),
+                "date_display":       date_display,
+                "date_sort":          date_sort,
                 "duration_days":      c.get("duration_days"),
                 "price":              c.get("price"),
                 "spots_remaining":    c.get("spots_remaining"),
                 "avail":              c.get("avail", "open"),
                 "image_url":          c.get("image_url"),
-                "booking_url":        c.get("booking_url"),
-                "active":             True,
+                "booking_url":        booking_url,
+                "active":             active,
+                "custom_dates":       custom_dates,
                 "scraped_at":         c["scraped_at"],
             })
 
