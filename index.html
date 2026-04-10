@@ -441,7 +441,7 @@
       </div>
       <div class="search-field" style="flex:1;">
         <label>From when</label>
-        <input type="date" id="search-date" value="2026-04-09">
+        <input type="date" id="search-date">
       </div>
       <button class="search-go" onclick="runSearch()">Search →</button>
     </div>
@@ -799,21 +799,27 @@ async function fetchFromSupabase(page = 0, append = false, background = false) {
     const to = from + PAGE_SIZE - 1;
     const today = new Date().toISOString().split('T')[0];
 
-    let url = `${SUPABASE_URL}/rest/v1/courses?select=*,providers(name,rating,review_count)&active=eq.true`;
+    // Build filters array for clean Supabase query
+    const filters = ['active=eq.true'];
 
-    if (currentFilters.activity) url += `&activity_canonical=eq.${encodeURIComponent(currentFilters.activity)}`;
-    if (currentFilters.location) url += `&or=(location_canonical.eq.${encodeURIComponent(currentFilters.location)},location_raw.eq.${encodeURIComponent(currentFilters.location)})`;
-    // Date filter: include fixed-date courses >= selected date OR custom_dates courses
+    if (currentFilters.activity) filters.push(`activity_canonical=eq.${encodeURIComponent(currentFilters.activity)}`);
+
+    if (currentFilters.location) {
+      const loc = encodeURIComponent(currentFilters.location);
+      filters.push(`or=(location_canonical.eq.${loc},location_raw.eq.${loc})`);
+    }
+
     if (currentFilters.date) {
-      url += `&or=(date_sort.gte.${currentFilters.date},custom_dates.eq.true)`;
+      filters.push(`or=(date_sort.gte.${currentFilters.date},custom_dates.eq.true)`);
     }
 
     // Sort
-    if (currentSort === 'date')         url += '&order=date_sort.asc';
-    else if (currentSort === 'price')   url += '&order=price.asc';
-    else if (currentSort === 'availability') url += '&order=avail.asc';
+    let order = 'order=date_sort.asc.nullslast';
+    if (currentSort === 'price')        order = 'order=price.asc';
+    if (currentSort === 'availability') order = 'order=avail.asc';
 
-    url += `&limit=${PAGE_SIZE}&offset=${from}`;
+    const queryString = filters.join('&');
+    let url = `${SUPABASE_URL}/rest/v1/courses?select=*,providers(name,rating,review_count)&${queryString}&${order}&limit=${PAGE_SIZE}&offset=${from}`;
 
     const res = await fetch(url, {
       headers: {
