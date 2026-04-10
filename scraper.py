@@ -17,11 +17,13 @@ import requests
 from bs4 import BeautifulSoup
 
 # ── CONFIG ──
-SUPABASE_URL   = os.environ["SUPABASE_URL"]
-SUPABASE_KEY   = os.environ["SUPABASE_SERVICE_KEY"]
-RESEND_API_KEY = os.environ["RESEND_API_KEY"]
-NOTIFY_EMAIL   = "luke@backcountryfinder.com"
-FROM_EMAIL     = "luke@backcountryfinder.com"
+SUPABASE_URL          = os.environ["SUPABASE_URL"]
+SUPABASE_KEY          = os.environ["SUPABASE_SERVICE_KEY"]
+RESEND_API_KEY        = os.environ["RESEND_API_KEY"]
+GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "")
+NOTIFY_EMAIL          = "luke@backcountryfinder.com"
+FROM_EMAIL            = "luke@backcountryfinder.com"
+PLACES_API_URL        = "https://maps.googleapis.com/maps/api/place"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -605,8 +607,72 @@ def send_scrape_summary(total: int, providers: list, flags_count: int) -> None:
 
 # ── MAIN ──
 
+
+# -- GOOGLE PLACES --
+
+def find_place_id(provider_name, location):
+    if not GOOGLE_PLACES_API_KEY:
+        return None
+    try:
+        r = requests.get(
+            f"{PLACES_API_URL}/findplacefromtext/json",
+            params={"input": f"{provider_name} {location}", "inputtype": "textquery", "fields": "place_id,name", "key": GOOGLE_PLACES_API_KEY},
+            timeout=10
+        )
+        candidates = r.json().get("candidates", [])
+        if candidates:
+            pid = candidates[0]["place_id"]
+            log.info(f"Found Place ID for {provider_name}: {pid}")
+            return pid
+    except Exception as e:
+        log.warning(f"Place ID lookup failed for {provider_name}: {e}")
+    return None
+
+
+def get_place_details(place_id):
+    if not GOOGLE_PLACES_API_KEY or not place_id:
+        return {}
+    try:
+        r = requests.get(
+            f"{PLACES_API_URL}/details/json",
+            params={"place_id": place_id, "fields": "rating,user_ratings_total", "key": GOOGLE_PLACES_API_KEY},
+            timeout=10
+        )
+        result = r.json().get("result", {})
+        return {"rating": result.get("rating"), "review_count": result.get("user_ratings_total")}
+    except Exception as e:
+        log.warning(f"Place details fetch failed for {place_id}: {e}")
+    return {}
+
+
+def update_provider_ratings():
+    if not GOOGLE_PLACES_API_KEY:
+        log.info("No Google Places API key -- skipping ratings update")
+        return
+    log.info("Updating provider ratings from Google Places...")
+    providers = sb_get("providers", {"select": "id,name,location,google_place_id", "active": "eq.true"})
+    for p in providers:
+        pid = p.get("google_place_id")
+        if not pid:
+            pid = find_place_id(p["name"], p.get("location", ""))
+            if pid:
+                sb_upsert("providers", [{"id": p["id"], "google_place_id": pid}])
+            time.sleep(0.5)
+        if not pid:
+            log.warning(f"No Place ID found for {p['name']} -- skipping")
+            continue
+        details = get_place_details(pid)
+        if details.get("rating"):
+            sb_upsert("providers", [{"id": p["id"], "google_place_id": pid, "rating": details["rating"], "review_count": details.get("review_count")}])
+            log.info(f"{p['name']}: star {details['rating']} ({details.get('review_count', 0)} reviews)")
+        time.sleep(0.5)
+    log.info("Provider ratings update complete")
+
 def main():
     log.info("=== BackcountryFinder scraper starting ===")
+
+    # Update provider ratings from Google Places
+    update_provider_ratings()
 
     # Load location mappings
     mappings = load_location_mappings()
