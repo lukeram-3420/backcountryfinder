@@ -803,7 +803,10 @@ async function fetchFromSupabase(page = 0, append = false, background = false) {
 
     if (currentFilters.activity) url += `&activity_canonical=eq.${encodeURIComponent(currentFilters.activity)}`;
     if (currentFilters.location) url += `&or=(location_canonical.eq.${encodeURIComponent(currentFilters.location)},location_raw.eq.${encodeURIComponent(currentFilters.location)})`;
-    if (currentFilters.date)     url += `&date_sort=gte.${currentFilters.date}`;
+    // Date filter: include fixed-date courses >= selected date OR custom_dates courses
+    if (currentFilters.date) {
+      url += `&or=(date_sort.gte.${currentFilters.date},custom_dates.eq.true)`;
+    }
 
     // Sort
     if (currentSort === 'date')         url += '&order=date_sort.asc';
@@ -929,7 +932,12 @@ function buildCard(c){
     <div class="card-body">
       <div class="card-title">${c.title}</div>
       <div class="card-meta">
-        <span>${c.date_display||''}</span>
+        ${c.custom_dates
+          ? `<span style="color:var(--green-dark);font-weight:600;">Flexible dates</span>`
+          : c.date_display
+            ? `<span>${c.date_display}</span>`
+            : ''
+        }
         ${location?`<span class="sep">·</span><span>${location}</span>`:''}
         ${rating?`<span class="sep">·</span><span>${rating}</span>`:''}
       </div>
