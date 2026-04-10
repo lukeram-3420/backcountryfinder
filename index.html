@@ -788,7 +788,8 @@ async function fetchCourses(page = 0, append = false) {
     return;
   }
 
-  showSkeleton();
+  // Only show skeleton on first page load, not on show more
+  if (!append) showSkeleton();
   await fetchFromSupabase(page, append, false);
 }
 
@@ -844,7 +845,7 @@ async function fetchFromSupabase(page = 0, append = false, background = false) {
     if (!background) showError();
   } finally {
     isLoading = false;
-    hideSkeleton();
+    if (!append) hideSkeleton();
   }
 }
 
