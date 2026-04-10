@@ -458,9 +458,12 @@ NO_AVAILABILITY_SIGNALS = [
 ]
 
 STATIC_DATE_PATTERNS = [
-    r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}",
-    r"\d{4}-\d{2}-\d{2}",
-    r"\d{1,2}/\d{1,2}/\d{4}",
+    # Full date: month name + day + year e.g. "Apr 19, 2026" or "April 19 2026"
+    r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?[,\s]+20\d{2}",
+    # ISO date e.g. "2026-04-19"
+    r"20\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])",
+    # Numeric date e.g. "19/04/2026"
+    r"\d{1,2}/\d{1,2}/20\d{2}",
 ]
 
 def check_course_page(booking_url: str) -> dict:
