@@ -32,12 +32,28 @@ REZDY_PROVIDERS = [
         "id":       "altus",
         "name":     "Altus Mountain Guides",
         "storefront": "https://altusmountainguides.rezdy.com",
+        "catalogs": [
+            "catalog/540907/altus-ast-1",
+            "catalog/540908/altus-ast-1",
+            "catalog/628633/altus-ast-2",
+        ],
         "utm":      "utm_source=backcountryfinder&utm_medium=referral",
     },
     {
         "id":       "msaa",
         "name":     "Mountain Skills Academy",
         "storefront": "https://mountainskillsacademy.rezdy.com",
+        "catalogs": [
+            "catalog/315469/luxury-experiences",
+            "catalog/517471/whistler-mountain-top",
+            "catalog/436573/squamish-via-ferrata",
+            "catalog/486576/hiking-tours",
+            "catalog/517472/climbing-adventures",
+            "catalog/517474/winter-tours",
+            "catalog/622663/via-ferrata-s-no-lift-ticket",
+            "catalog/628248/crevasse-rescue-refresher",
+            "catalog/633549/ast-1-online",
+        ],
         "utm":      "utm_source=backcountryfinder&utm_medium=referral",
     },
 ]
@@ -191,19 +207,43 @@ def stable_id(provider_id: str, activity: str, date_sort: Optional[str], title: 
 def scrape_rezdy(provider: dict) -> list:
     """Scrape a Rezdy storefront using confirmed HTML structure."""
     log.info(f"Scraping {provider['name']} — {provider['storefront']}")
+
+    # If provider has specific catalogs, scrape each one
+    catalogs = provider.get("catalogs", [])
+    if catalogs:
+        all_courses = []
+        seen_titles = set()
+        for catalog in catalogs:
+            url = f"{provider['storefront']}/{catalog}"
+            log.info(f"Scraping catalog: {url}")
+            courses = scrape_rezdy_page(provider, url)
+            for c in courses:
+                if c["title"] not in seen_titles:
+                    seen_titles.add(c["title"])
+                    all_courses.append(c)
+            time.sleep(1)
+        log.info(f"Total unique courses from {provider['name']}: {len(all_courses)}")
+        return all_courses
+
+    # Otherwise scrape root storefront
+    return scrape_rezdy_page(provider, provider["storefront"])
+
+
+def scrape_rezdy_page(provider: dict, url: str) -> list:
+    """Scrape a single Rezdy page and return courses."""
     courses = []
 
     try:
-        r = requests.get(provider["storefront"], headers=HEADERS, timeout=20)
+        r = requests.get(url, headers=HEADERS, timeout=20)
         r.raise_for_status()
         soup = BeautifulSoup(r.text, "html.parser")
 
         items = soup.select("div.products-list-item")
         if not items:
-            log.warning(f"No products-list-item found for {provider['name']} — trying API")
-            return scrape_rezdy_api(provider)
+            log.warning(f"No products-list-item found at {url}")
+            return []
 
-        log.info(f"Found {len(items)} items on {provider['name']}")
+        log.info(f"Found {len(items)} items at {url}")
 
         for item in items:
             try:
@@ -303,7 +343,7 @@ def scrape_rezdy(provider: dict) -> list:
                 continue
 
     except Exception as e:
-        log.error(f"Failed to scrape {provider['name']}: {e}")
+        log.error(f"Failed to scrape {url}: {e}")
 
     log.info(f"Scraped {len(courses)} courses from {provider['name']}")
     return courses
