@@ -139,17 +139,34 @@ def load_location_mappings() -> dict:
     return {r["location_raw"].lower().strip(): r["location_canonical"] for r in rows}
 
 
-def load_activity_overrides() -> dict:
-    """Load manual activity overrides from courses table — {course_id: activity_override}."""
+def load_activity_mappings_table() -> list:
+    """Load activity mappings from Supabase — [{title_contains, activity}]."""
     try:
-        rows = sb_get("courses", {
-            "select": "id,activity_override",
-            "activity_override": "not.is.null"
-        })
-        return {r["id"]: r["activity_override"] for r in rows if r.get("activity_override")}
+        rows = sb_get("activity_mappings", {"select": "title_contains,activity"})
+        return [(r["title_contains"].lower(), r["activity"]) for r in rows]
     except Exception as e:
-        log.warning(f"Could not load activity overrides: {e}")
-        return {}
+        log.warning(f"Could not load activity mappings: {e}")
+        return []
+
+
+def resolve_activity(title: str, description: str, mappings: list) -> str:
+    """Resolve activity using mappings table first, then keyword detection."""
+    text = (title + " " + description).lower()
+    # Check mappings table first (exact substring match)
+    for pattern, activity in mappings:
+        if pattern in text:
+            return activity
+    # Fall back to keyword detection
+    return detect_activity(title, description)
+
+
+def build_badge(activity: str, duration_days) -> str:
+    """Build a clean badge string from canonical activity and duration."""
+    label = ACTIVITY_LABELS.get(activity, activity.title())
+    if duration_days:
+        days = int(duration_days)
+        return f"{label} · {days} day{'s' if days > 1 else ''}"
+    return label
 
 
 def normalise_location(raw: str, mappings: dict) -> Optional[str]:
@@ -526,9 +543,9 @@ def main():
     mappings = load_location_mappings()
     log.info(f"Loaded {len(mappings)} location mappings")
 
-    # Load existing activity overrides so scraper doesn't clobber manual fixes
-    overrides = load_activity_overrides()
-    log.info(f"Loaded {len(overrides)} activity overrides")
+    # Load activity mappings table
+    activity_maps = load_activity_mappings_table()
+    log.info(f"Loaded {len(activity_maps)} activity mappings")
 
     all_courses = []
     location_flags = []
@@ -559,37 +576,33 @@ def main():
             # Build stable ID
             course_id = stable_id(provider["id"], c["activity"], c.get("date_sort"), c["title"])
 
-            # Respect manual activity override
-            activity_raw = c["activity"]
-            activity_override = overrides.get(course_id)
-            final_activity = activity_override if activity_override else activity_raw
-
-            # Rebuild badge with correct activity if override applied
-            badge = c.get("badge") or ""
-            if activity_override and activity_raw != activity_override:
-                dur = c.get("duration_days")
-                dur_str = f" · {int(dur)} day{'s' if dur and dur > 1 else ''}" if dur else ""
-                badge = f"{ACTIVITY_LABELS.get(activity_override, activity_override.title())}{dur_str}"
+            # Resolve canonical activity using mappings table
+            activity_raw = c.get("activity_raw") or c.get("activity") or "guided"
+            desc = ""
+            activity_canonical = resolve_activity(c["title"], desc, activity_maps)
+            badge_canonical = build_badge(activity_canonical, c.get("duration_days"))
 
             processed.append({
-                "id":               course_id,
-                "title":            c["title"],
-                "provider_id":      provider["id"],
-                "badge":            badge,
-                "activity":         final_activity,
-                "activity_raw":     activity_raw,
-                "location_raw":     loc_raw or None,
+                "id":                 course_id,
+                "title":              c["title"],
+                "provider_id":        provider["id"],
+                "badge":              badge_canonical,
+                "activity":           activity_canonical,
+                "activity_raw":       activity_raw,
+                "activity_canonical": activity_canonical,
+                "badge_canonical":    badge_canonical,
+                "location_raw":       loc_raw or None,
                 "location_canonical": loc_canonical,
-                "date_display":     c.get("date_display"),
-                "date_sort":        c.get("date_sort"),
-                "duration_days":    c.get("duration_days"),
-                "price":            c.get("price"),
-                "spots_remaining":  c.get("spots_remaining"),
-                "avail":            c.get("avail", "open"),
-                "image_url":        c.get("image_url"),
-                "booking_url":      c.get("booking_url"),
-                "active":           True,
-                "scraped_at":       c["scraped_at"],
+                "date_display":       c.get("date_display"),
+                "date_sort":          c.get("date_sort"),
+                "duration_days":      c.get("duration_days"),
+                "price":              c.get("price"),
+                "spots_remaining":    c.get("spots_remaining"),
+                "avail":              c.get("avail", "open"),
+                "image_url":          c.get("image_url"),
+                "booking_url":        c.get("booking_url"),
+                "active":             True,
+                "scraped_at":         c["scraped_at"],
             })
 
         provider_summary.append({
