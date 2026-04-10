@@ -126,7 +126,7 @@
   .save-btn.remove-ready:hover .save-label { opacity: 0; }
   .save-btn.remove-ready:hover svg { opacity: 0; }
   .save-btn.remove-ready:hover::after { content: 'remove'; font-size: 12px; font-weight: 700; position: absolute; left: 50%; transform: translateX(-50%); }
-  .save-btn { position: relative; min-width: 90px; }
+  .save-btn { position: relative; }
   .save-btn svg { transition: opacity 0.15s; }
   .save-btn .save-label { transition: opacity 0.15s; }
   .save-btn svg { flex-shrink: 0; }
@@ -152,8 +152,11 @@
   .loader-dot { opacity:0; transform:scale(0); transform-origin:22px 10px; animation:popLoaderDot 2s cubic-bezier(0.34,1.56,0.64,1) infinite; }
   .loading-overlay-text { font-size:14px; font-weight:600; color:var(--green-dark); letter-spacing:-0.2px; text-align:center; max-width:240px; line-height:1.5; }
 
+  @media (min-width: 769px) {
+    .save-btn { min-width: 90px; }
+  }
   @media (max-width: 768px) {
-    .save-btn { width: 40px; height: 40px; padding: 0; border-radius: 50%; justify-content: center; }
+    .save-btn { width: 40px; height: 40px; padding: 0; border-radius: 50%; justify-content: center; min-width: unset; }
     .save-btn .save-label { display: none; }
     .save-btn svg { width: 20px; height: 20px; }
   }
@@ -943,7 +946,7 @@ function buildCard(c){
         </button>
         ${c.avail==='sold'
           ?`<a class="book-btn" href="${bookingUrl}" target="_blank" rel="noopener" onclick="openNotifyModal('${safeTitle}');return false;">Notify me</a>`
-          :`<a class="book-btn" href="${bookingUrl}" target="_blank" rel="noopener" onclick="setTimeout(showToast,800)">Book Now ↗</a>`
+          :`<a class="book-btn" href="${bookingUrl}" target="_blank" rel="noopener" onclick="setTimeout(showToast,800)">Book Now <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-left:2px;"><path d="M7 17L17 7"/><path d="M7 7h10v10"/></svg></a>`
         }
       </div>
     </div>
