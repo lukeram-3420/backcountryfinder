@@ -27,6 +27,20 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
 
+ACTIVITY_LABELS = {
+    "skiing":         "Backcountry Skiing",
+    "climbing":       "Rock Climbing",
+    "mountaineering": "Mountaineering",
+    "hiking":         "Hiking",
+    "biking":         "Mountain Biking",
+    "fishing":        "Fly Fishing",
+    "hunting":        "Hunting",
+    "heli":           "Heli Skiing",
+    "cat":            "Cat Skiing",
+    "huts":           "Alpine Huts",
+    "guided":         "Guided Tour",
+}
+
 REZDY_PROVIDERS = [
     {
         "id":       "altus",
@@ -60,12 +74,14 @@ REZDY_PROVIDERS = [
 
 # Activity keyword mapping
 ACTIVITY_KEYWORDS = {
-    "skiing":         ["ast", "avalanche", "backcountry ski", "ski touring", "splitboard", "avy"],
-    "climbing":       ["climb", "rock", "multi-pitch", "rappel", "belay", "trad", "sport climb"],
-    "mountaineering": ["glacier", "mountaineer", "alpine", "crampon", "crevasse", "scramble", "summit"],
-    "hiking":         ["hik", "backpack", "navigation", "wilderness travel"],
+    # Order matters — checked top to bottom, first match wins
+    "skiing":         ["ast", "avalanche", "backcountry ski", "ski touring", "splitboard", "avy", "heli ski", "cat ski"],
+    "hiking":         ["hik", "backpack", "navigation", "wilderness travel", "heli-accessed hik", "heli access"],
+    "climbing":       ["climb", "rock", "multi-pitch", "rappel", "belay", "trad", "sport climb", "via ferrata", "ferrata"],
+    "mountaineering": ["glacier", "mountaineer", "alpine", "crampon", "crevasse", "scramble", "summit", "alpine climb"],
     "biking":         ["bike", "biking", "mtb", "mountain bike", "cycling"],
     "fishing":        ["fish", "fly fish", "angl", "cast", "river guide"],
+    "heli":           ["heli adventure", "heli tour", "heli experience"],
 }
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -123,6 +139,19 @@ def load_location_mappings() -> dict:
     return {r["location_raw"].lower().strip(): r["location_canonical"] for r in rows}
 
 
+def load_activity_overrides() -> dict:
+    """Load manual activity overrides from courses table — {course_id: activity_override}."""
+    try:
+        rows = sb_get("courses", {
+            "select": "id,activity_override",
+            "activity_override": "not.is.null"
+        })
+        return {r["id"]: r["activity_override"] for r in rows if r.get("activity_override")}
+    except Exception as e:
+        log.warning(f"Could not load activity overrides: {e}")
+        return {}
+
+
 def normalise_location(raw: str, mappings: dict) -> Optional[str]:
     if not raw:
         return None
@@ -145,6 +174,13 @@ def detect_activity(title: str, description: str = "") -> str:
         if any(kw in text for kw in keywords):
             return activity
     return "guided"  # default
+
+
+def get_activity(course_id: str, detected: str, existing_overrides: dict) -> tuple:
+    """Return (activity_raw, activity_override, activity) respecting any manual override."""
+    override = existing_overrides.get(course_id)
+    activity = override if override else detected
+    return detected, override, activity
 
 
 # ── AVAILABILITY ──
@@ -326,6 +362,7 @@ def scrape_rezdy_page(provider: dict, url: str) -> list:
                     "provider_id":   provider["id"],
                     "badge":         badge,
                     "activity":      activity,
+                    "activity_raw":  activity,
                     "location_raw":  location_raw,
                     "date_display":  None,   # fetched from course page in future
                     "date_sort":     None,
@@ -489,6 +526,10 @@ def main():
     mappings = load_location_mappings()
     log.info(f"Loaded {len(mappings)} location mappings")
 
+    # Load existing activity overrides so scraper doesn't clobber manual fixes
+    overrides = load_activity_overrides()
+    log.info(f"Loaded {len(overrides)} activity overrides")
+
     all_courses = []
     location_flags = []
     provider_summary = []
@@ -518,12 +559,25 @@ def main():
             # Build stable ID
             course_id = stable_id(provider["id"], c["activity"], c.get("date_sort"), c["title"])
 
+            # Respect manual activity override
+            activity_raw = c["activity"]
+            activity_override = overrides.get(course_id)
+            final_activity = activity_override if activity_override else activity_raw
+
+            # Rebuild badge with correct activity if override applied
+            badge = c.get("badge") or ""
+            if activity_override and activity_raw != activity_override:
+                dur = c.get("duration_days")
+                dur_str = f" · {int(dur)} day{'s' if dur and dur > 1 else ''}" if dur else ""
+                badge = f"{ACTIVITY_LABELS.get(activity_override, activity_override.title())}{dur_str}"
+
             processed.append({
                 "id":               course_id,
                 "title":            c["title"],
                 "provider_id":      provider["id"],
-                "badge":            c.get("badge"),
-                "activity":         c["activity"],
+                "badge":            badge,
+                "activity":         final_activity,
+                "activity_raw":     activity_raw,
                 "location_raw":     loc_raw or None,
                 "location_canonical": loc_canonical,
                 "date_display":     c.get("date_display"),
