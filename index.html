@@ -410,24 +410,6 @@
         <label>I want to</label>
         <select id="search-activity">
           <option value="">Everything backcountry</option>
-          <optgroup label="── winter ──">
-            <option value="skiing">Backcountry skiing / AST</option>
-            <option value="heli">Heli skiing</option>
-            <option value="cat">Cat skiing</option>
-            <option value="snowshoe">Snowshoeing</option>
-          </optgroup>
-          <optgroup label="── summer ──">
-            <option value="climbing">Rock climbing</option>
-            <option value="mountaineering">Mountaineering</option>
-            <option value="fishing">Guided fly fishing</option>
-            <option value="biking">Mountain biking</option>
-            <option value="hiking">Hiking & backpacking</option>
-            <option value="hunting">Hunting trips</option>
-          </optgroup>
-          <optgroup label="── all season ──">
-            <option value="huts">Alpine huts</option>
-            <option value="guided">Guided tours</option>
-          </optgroup>
         </select>
       </div>
       <div class="search-field" style="flex:1.5;">
@@ -850,7 +832,7 @@ async function fetchFromSupabase(page = 0, append = false, background = false) {
     }
 
     renderCards(courses, append);
-    await loadLocationsDropdown();
+    await Promise.all([loadActivitiesDropdown(), loadLocationsDropdown()]);
 
   } catch(err) {
     console.error('Fetch error:', err);
@@ -894,6 +876,24 @@ function showError() {
   const grid = document.getElementById('card-grid');
   grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="empty-icon">⚠</div><h3>couldn't load experiences</h3><p>Check your connection and try again.</p></div>`;
   hideSkeleton();
+}
+
+// ── ACTIVITY DROPDOWN ──
+async function loadActivitiesDropdown() {
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/courses?select=activity_canonical&active=eq.true`,
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+    );
+    const rows = await res.json();
+    const activities = new Set();
+    rows.forEach(r => { if (r.activity_canonical) activities.add(r.activity_canonical); });
+    const select = document.getElementById('search-activity');
+    const currentVal = select.value;
+    select.innerHTML = '<option value="">Everything backcountry</option>' +
+      [...activities].sort().map(a => `<option value="${a}">${ACTIVITY_LABELS[a] || a}</option>`).join('');
+    if (currentVal) select.value = currentVal;
+  } catch(e) { /* keep default option */ }
 }
 
 // ── LOCATION DROPDOWN ──
