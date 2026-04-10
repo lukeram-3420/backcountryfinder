@@ -80,7 +80,7 @@
   .search-go:hover { opacity: 0.88; }
 
   /* MAIN */
-  .main { max-width: 1200px; margin: 0 auto; padding: 28px 36px 120px; }
+  .main { max-width: 1200px; margin: 0 auto; padding: 28px 36px 120px; position: relative; }
 
   /* FILTERS */
   .filter-row { display: flex; align-items: center; justify-content: flex-end; margin-bottom: 20px; gap: 12px; }
@@ -131,6 +131,27 @@
   .save-btn .save-label { transition: opacity 0.15s; }
   .save-btn svg { flex-shrink: 0; }
   /* Mobile: icon only */
+  /* ── SKELETON LOADING ── */
+  @keyframes shimmer { 0%{background-position:-600px 0} 100%{background-position:600px 0} }
+  .skel { background: linear-gradient(90deg,#ececec 25%,#f5f5f5 50%,#ececec 75%); background-size:600px 100%; animation:shimmer 1.4s infinite linear; border-radius:6px; }
+  .skel-card { background:var(--bg-card); border-radius:var(--radius); border:1px solid var(--border); overflow:hidden; }
+  .skel-img { height:200px; border-radius:0; }
+  .skel-body { padding:18px 18px 0; }
+  .skel-title { height:16px; margin-bottom:8px; }
+  .skel-meta { height:11px; margin-bottom:5px; }
+  .skel-footer { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-top:1px solid var(--border); margin-top:14px; }
+  .skel-price { height:20px; width:60px; }
+  .skel-avail { height:14px; width:50px; margin-top:5px; border-radius:20px; }
+  .skel-btn { height:38px; width:100px; border-radius:var(--radius-sm); }
+
+  /* ── LOADING OVERLAY ── */
+  @keyframes drawLoaderTrack { to { stroke-dashoffset:0; } }
+  @keyframes popLoaderDot { 0%,65%{opacity:0;transform:scale(0)} 78%{opacity:1;transform:scale(1.3)} 85%,100%{opacity:1;transform:scale(1)} }
+  .loading-overlay { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; background:rgba(248,250,248,0.88); backdrop-filter:blur(4px); z-index:10; border-radius:var(--radius); }
+  .loader-track { stroke-dasharray:2 2.5; stroke-dashoffset:80; animation:drawLoaderTrack 2s cubic-bezier(0.4,0,0.2,1) infinite; }
+  .loader-dot { opacity:0; transform:scale(0); transform-origin:22px 10px; animation:popLoaderDot 2s cubic-bezier(0.34,1.56,0.64,1) infinite; }
+  .loading-overlay-text { font-size:14px; font-weight:600; color:var(--green-dark); letter-spacing:-0.2px; text-align:center; max-width:240px; line-height:1.5; }
+
   @media (max-width: 768px) {
     .save-btn { width: 40px; height: 40px; padding: 0; border-radius: 50%; justify-content: center; }
     .save-btn .save-label { display: none; }
@@ -435,6 +456,18 @@
     <div class="load-more-wrap" id="load-more-wrap" style="display:none;">
       <button class="load-more-btn" onclick="loadMore()">show more</button>
     </div>
+
+    <!-- LOADING OVERLAY -->
+    <div class="loading-overlay" id="loading-overlay" style="display:none;">
+      <svg width="64" height="64" viewBox="0 0 32 32" fill="none">
+        <path d="M5 27 L11 17 L16 22 L21 13 L27 27" stroke="#4ade80" stroke-width="1.1" fill="none" stroke-linejoin="round" opacity="0.2"/>
+        <path d="M2 27 L10 14 L16 20 L22 10 L30 27 Z" fill="#4ade80" opacity="0.1"/>
+        <path d="M2 27 L10 14 L16 20 L22 10 L30 27" stroke="#4ade80" stroke-width="1.4" fill="none" stroke-linejoin="round" opacity="0.5"/>
+        <path class="loader-track" d="M0.3 25.95 L9.77 12.01 L15.76 18.01 L22 10" stroke="#1a2e1a" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle class="loader-dot" cx="22" cy="10" r="2.8" fill="#4ade80"/>
+      </svg>
+      <div class="loading-overlay-text">Just a moment — checking what's open out there.</div>
+    </div>
   </div>
 </div>
 
@@ -656,90 +689,276 @@ const IMG = {
   fishing:       "https://images.unsplash.com/photo-1541512416146-3cf58d6b27cc?w=800&q=80&fit=crop",
 };
 
-const ALL_COURSES = [
-  {id:1,title:"Avalanche Skills Training 1 — Whistler",provider:"Altus",badge:"AST 1 · 2 days",date:"Apr 19–20, 2026",dateSort:"2026-04-19",location:"Whistler / Blackcomb",activity:"skiing",price:275,avail:"open",rating:"4.9",url:"https://altusmountainguides.rezdy.com/409466/ast-1-whistler?utm_source=backcountryfinder&utm_medium=referral"},
-  {id:2,title:"Intro to Outdoor Rock Climbing — Squamish",provider:"MSAA",badge:"Rock climbing · 1 day",date:"May 3, 2026",dateSort:"2026-05-03",location:"Squamish / Stawamus",activity:"climbing",price:199,avail:"low",rating:"4.8",url:"https://mountainskillsacademy.rezdy.com?utm_source=backcountryfinder&utm_medium=referral"},
-  {id:3,title:"AST-1 Classic — North Shore / Seymour",provider:"Canada West",badge:"AST 1 · 2.5 days",date:"Apr 26–27, 2026",dateSort:"2026-04-26",location:"Mt Seymour",activity:"skiing",price:325,avail:"open",rating:"4.7",url:"https://themountainschool.com/program/ast-1-whistler/?utm_source=backcountryfinder&utm_medium=referral"},
-  {id:4,title:"Intro Mountain Biking Skills — Whistler",provider:"Altus",badge:"Biking · 1 day",date:"May 10, 2026",dateSort:"2026-05-10",location:"Whistler",activity:"biking",price:225,avail:"open",rating:"4.9",url:"https://altusmountainguides.rezdy.com?utm_source=backcountryfinder&utm_medium=referral"},
-  {id:5,title:"Glacier Travel & Crevasse Rescue — Garibaldi",provider:"CWMS",badge:"Mountaineering · 3 days",date:"Jun 14–16, 2026",dateSort:"2026-06-14",location:"Garibaldi Park",activity:"mountaineering",price:495,avail:"low",rating:"4.7",url:"https://themountainschool.com?utm_source=backcountryfinder&utm_medium=referral"},
-  {id:6,title:"AST 1 — North Vancouver (Mt Seymour)",provider:"BC Ski Guides",badge:"AST 1 · 1 day",date:"Apr 22, 2026",dateSort:"2026-04-22",location:"Mt Seymour",activity:"skiing",price:225,avail:"open",rating:"4.6",url:"https://www.bcskiguides.com/tours/ast-1-north-vancouver/?utm_source=backcountryfinder&utm_medium=referral"},
-  {id:7,title:"Women's AST 1 — Whistler",provider:"MSAA",badge:"AST 1 · 2 days",date:"May 17–18, 2026",dateSort:"2026-05-17",location:"Whistler",activity:"skiing",price:299,avail:"low",rating:"4.8",url:"https://mountainskillsacademy.rezdy.com?utm_source=backcountryfinder&utm_medium=referral"},
-  {id:8,title:"Multi-Pitch Rock Climbing — Squamish",provider:"MSAA",badge:"Climbing · 2 days",date:"Jun 6–7, 2026",dateSort:"2026-06-06",location:"Squamish",activity:"climbing",price:350,avail:"open",rating:"4.8",url:"https://mountainskillsacademy.rezdy.com?utm_source=backcountryfinder&utm_medium=referral"},
-  {id:9,title:"Intro to Backcountry Skiing — Squamish",provider:"Altus",badge:"Skiing · 1 day",date:"Apr 29, 2026",dateSort:"2026-04-29",location:"Squamish",activity:"skiing",price:250,avail:"open",rating:"4.9",url:"https://altusmountainguides.rezdy.com?utm_source=backcountryfinder&utm_medium=referral"},
-  {id:10,title:"Scrambling Skills Course — Tantalus Range",provider:"Altus",badge:"Mountaineering · 2 days",date:"Jul 5–6, 2026",dateSort:"2026-07-05",location:"Tantalus Range",activity:"mountaineering",price:420,avail:"open",rating:"4.9",url:"https://altusmountainguides.rezdy.com?utm_source=backcountryfinder&utm_medium=referral"},
-  {id:11,title:"Hiking & Navigation — Garibaldi",provider:"CWMS",badge:"Hiking · 1 day",date:"Jun 20, 2026",dateSort:"2026-06-20",location:"Garibaldi Park",activity:"hiking",price:175,avail:"open",rating:"4.7",url:"https://themountainschool.com?utm_source=backcountryfinder&utm_medium=referral"},
-  {id:12,title:"AST 2 — Whistler / Duffey Lake",provider:"Altus",badge:"AST 2 · 4 days",date:"May 24–27, 2026",dateSort:"2026-05-24",location:"Whistler / Pemberton",activity:"skiing",price:675,avail:"low",rating:"4.9",url:"https://altusmountainguides.rezdy.com?utm_source=backcountryfinder&utm_medium=referral"},
-];
+// ── DATA STATE ──
+let currentSort = 'date';
+let currentPage = 0;
+let totalCount = 0;
+let isLoading = false;
+let currentFilters = { activity: '', location: '', date: '' };
+const PAGE_SIZE = 12;
+const CACHE_KEY = 'bcf_cache';
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
-let currentFilter='all',currentSort='date',visibleCount=6,filteredCourses=[...ALL_COURSES];
-
+// ── SAVED / CAIRN ──
 function getSaved(){try{return JSON.parse(localStorage.getItem('bcf_saved')||'[]');}catch(e){return[];}}
 function setSaved(arr){try{localStorage.setItem('bcf_saved',JSON.stringify(arr));}catch(e){}}
 function isSaved(id){return getSaved().includes(id);}
 function toggleSave(id){
   const wasUnsaved = !isSaved(id);
-  let s=getSaved();s=s.includes(id)?s.filter(x=>x!==id):[...s,id];setSaved(s);renderCards();renderSaved();
-  if(wasUnsaved) {
+  let s=getSaved();s=s.includes(id)?s.filter(x=>x!==id):[...s,id];setSaved(s);
+  renderSaved();
+  // Re-render the specific card to update its state
+  const btn = document.querySelector(`[onclick="toggleSave('${id}')"]`);
+  if (btn) {
+    const card = btn.closest('.course-card');
+    if (card) {
+      const course = currentCourses.find(c => c.id === id);
+      if (course) card.outerHTML = buildCard(course);
+    }
+  }
+  if(wasUnsaved){
     showMicroToast();
-    // After re-render, mark this button as needing a mouse-leave before remove shows
-    requestAnimationFrame(() => {
-      const btn = document.querySelector(`[onclick="toggleSave(${id})"]`);
-      if (btn) {
-        btn.classList.remove('remove-ready');
-        btn.addEventListener('mouseleave', function onLeave() {
-          btn.classList.add('remove-ready');
-          btn.removeEventListener('mouseleave', onLeave);
-        }, { once: true });
+    requestAnimationFrame(()=>{
+      const newBtn=document.querySelector(`[onclick="toggleSave('${id}')"]`);
+      if(newBtn){
+        newBtn.classList.remove('remove-ready');
+        newBtn.addEventListener('mouseleave',function onLeave(){
+          newBtn.classList.add('remove-ready');
+          newBtn.removeEventListener('mouseleave',onLeave);
+        },{once:true});
       }
     });
   }
 }
 
-function availSort(a){return a.avail==='open'?0:a.avail==='low'?1:2;}
-function applySort(arr){return[...arr].sort((a,b)=>{if(currentSort==='date')return a.dateSort.localeCompare(b.dateSort);if(currentSort==='price')return a.price-b.price;if(currentSort==='availability')return availSort(a)-availSort(b);return 0;});}
-function applyFilter(arr){return currentFilter==='all'?arr:arr.filter(c=>c.activity===currentFilter);}
+// ── CACHE ──
+let currentCourses = [];
+
+function getCached() {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const { data, ts, filters, sort } = JSON.parse(raw);
+    if (Date.now() - ts > CACHE_TTL) return null;
+    if (JSON.stringify(filters) !== JSON.stringify(currentFilters)) return null;
+    if (sort !== currentSort) return null;
+    return data;
+  } catch(e) { return null; }
+}
+
+function setCache(data) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({
+      data, ts: Date.now(),
+      filters: currentFilters,
+      sort: currentSort
+    }));
+  } catch(e) {}
+}
+
+// ── SUPABASE QUERY ──
+async function fetchCourses(page = 0, append = false) {
+  if (isLoading) return;
+  isLoading = true;
+
+  const cached = page === 0 ? getCached() : null;
+  if (cached) {
+    currentCourses = cached;
+    renderCards(cached, false);
+    isLoading = false;
+    // Refresh in background
+    fetchFromSupabase(page, append, true);
+    return;
+  }
+
+  showSkeleton();
+  await fetchFromSupabase(page, append, false);
+}
+
+async function fetchFromSupabase(page = 0, append = false, background = false) {
+  try {
+    const from = page * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+    const today = new Date().toISOString().split('T')[0];
+
+    let url = `${SUPABASE_URL}/rest/v1/courses?select=*,providers(name,rating,review_count)&active=eq.true&date_sort=gte.${today}`;
+
+    if (currentFilters.activity) url += `&activity=eq.${encodeURIComponent(currentFilters.activity)}`;
+    if (currentFilters.location) url += `&or=(location_canonical.eq.${encodeURIComponent(currentFilters.location)},location_raw.eq.${encodeURIComponent(currentFilters.location)})`;
+    if (currentFilters.date)     url += `&date_sort=gte.${currentFilters.date}`;
+
+    // Sort
+    if (currentSort === 'date')         url += '&order=date_sort.asc';
+    else if (currentSort === 'price')   url += '&order=price.asc';
+    else if (currentSort === 'availability') url += '&order=avail.asc';
+
+    url += `&limit=${PAGE_SIZE}&offset=${from}`;
+
+    const res = await fetch(url, {
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Prefer': 'count=exact',
+      }
+    });
+
+    if (!res.ok) throw new Error(`Supabase error: ${res.status}`);
+
+    const contentRange = res.headers.get('content-range');
+    if (contentRange) {
+      const match = contentRange.match(/\/(\d+)$/);
+      if (match) totalCount = parseInt(match[1]);
+    }
+
+    const courses = await res.json();
+
+    if (append) {
+      currentCourses = [...currentCourses, ...courses];
+    } else {
+      currentCourses = courses;
+      if (!background) setCache(courses);
+    }
+
+    renderCards(courses, append);
+    await loadLocationsDropdown();
+
+  } catch(err) {
+    console.error('Fetch error:', err);
+    if (!background) showError();
+  } finally {
+    isLoading = false;
+    hideSkeleton();
+  }
+}
+
+// ── SKELETON / LOADING ──
+function showSkeleton() {
+  const grid = document.getElementById('card-grid');
+  const overlay = document.getElementById('loading-overlay');
+  grid.innerHTML = Array(6).fill(0).map(() => `
+    <div class="skel-card">
+      <div class="skel skel-img"></div>
+      <div class="skel-body">
+        <div class="skel skel-title" style="width:85%;"></div>
+        <div class="skel skel-meta" style="width:65%;"></div>
+        <div class="skel skel-meta" style="width:45%;"></div>
+      </div>
+      <div class="skel-footer">
+        <div><div class="skel skel-price"></div><div class="skel skel-avail"></div></div>
+        <div class="skel skel-btn"></div>
+      </div>
+    </div>`).join('');
+  if (overlay) overlay.style.display = 'flex';
+}
+
+function hideSkeleton() {
+  const overlay = document.getElementById('loading-overlay');
+  if (overlay) {
+    overlay.style.opacity = '0';
+    overlay.style.transition = 'opacity 0.3s ease';
+    setTimeout(() => { overlay.style.display = 'none'; overlay.style.opacity = '1'; }, 300);
+  }
+}
+
+function showError() {
+  const grid = document.getElementById('card-grid');
+  grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="empty-icon">⚠</div><h3>couldn't load experiences</h3><p>Check your connection and try again.</p></div>`;
+  hideSkeleton();
+}
+
+// ── LOCATION DROPDOWN ──
+async function loadLocationsDropdown() {
+  try {
+    // Fetch all distinct canonical + raw locations from active courses
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/courses?select=location_canonical,location_raw&active=eq.true`,
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+    );
+    const rows = await res.json();
+    const locations = new Set();
+    rows.forEach(r => {
+      if (r.location_canonical) locations.add(r.location_canonical);
+      else if (r.location_raw) locations.add(r.location_raw);
+    });
+    const select = document.getElementById('search-location');
+    const currentVal = select.value;
+    select.innerHTML = '<option value="">Anywhere</option>' +
+      [...locations].sort().map(l => `<option value="${l}">${l}</option>`).join('');
+    if (currentVal) select.value = currentVal;
+  } catch(e) { /* keep static options */ }
+}
 
 function buildCard(c){
-  const saved=isSaved(c.id);
-  const availLabel=c.avail==='open'?'Open':c.avail==='low'?'Few spots left':'Sold out';
-  const imgUrl=IMG[c.activity]||IMG.hiking;
-  return`<div class="course-card">
-    <div class="card-img"><img src="${imgUrl}" alt="${c.title}" loading="lazy" onerror="this.style.display='none'">
-      <div class="card-overlay"><div class="card-badge">${c.badge}</div><div class="card-provider-tag">${c.provider}</div></div>
+  const saved = isSaved(c.id);
+  const availLabel = c.avail==='open'?'Open':c.avail==='low'?'Few spots left':'Sold out';
+  const provider = c.providers || {};
+  const providerName = provider.name || c.provider_id || '';
+  const rating = provider.rating ? `★ ${provider.rating}` : '';
+  const location = c.location_canonical || c.location_raw || '';
+  const imgUrl = c.image_url || IMG[c.activity] || IMG.hiking;
+  const bookingUrl = c.booking_url || '#';
+  const safeTitle = (c.title||'').replace(/'/g,"\'");
+  return `<div class="course-card">
+    <div class="card-img">
+      <img src="${imgUrl}" alt="${c.title}" loading="lazy" onerror="this.src='${IMG[c.activity]||IMG.hiking}'">
+      <div class="card-overlay">
+        <div class="card-badge">${c.badge||''}</div>
+        <div class="card-provider-tag">${providerName}</div>
+      </div>
     </div>
     <div class="card-body">
       <div class="card-title">${c.title}</div>
-      <div class="card-meta"><span>${c.date}</span><span class="sep">·</span><span>${c.location}</span><span class="sep">·</span><span>★ ${c.rating}</span></div>
+      <div class="card-meta">
+        <span>${c.date_display||''}</span>
+        ${location?`<span class="sep">·</span><span>${location}</span>`:''}
+        ${rating?`<span class="sep">·</span><span>${rating}</span>`:''}
+      </div>
     </div>
     <div class="card-footer">
       <div class="price-block">
-        <div class="card-price">$${c.price} <sub>CAD</sub></div>
+        <div class="card-price">$${c.price||'—'} <sub>CAD</sub></div>
         <div class="avail ${c.avail}">${availLabel}</div>
       </div>
       <div class="card-actions">
-        <button class="save-btn ${saved?'saved':''}" onclick="toggleSave(${c.id})">
+        <button class="save-btn ${saved?'saved remove-ready':''}" onclick="toggleSave('${c.id}')">
           ${saved
             ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="20" rx="6" ry="2.5" fill="#1a2e1a"/><ellipse cx="12" cy="14.5" rx="4.5" ry="2" fill="#1a2e1a"/><ellipse cx="12" cy="9.5" rx="3" ry="1.8" fill="#4ade80"/></svg>`
             : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="20" rx="6" ry="2.5" stroke="currentColor" stroke-width="1.5" fill="none"/><ellipse cx="12" cy="14.5" rx="4.5" ry="2" stroke="currentColor" stroke-width="1.5" fill="none"/><ellipse cx="12" cy="9.5" rx="3" ry="1.8" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>`
           }
           <span class="save-label">my list</span>
         </button>
-        ${c.avail==='sold'?`<a class="book-btn" href="${c.url}" target="_blank" rel="noopener" onclick="openNotifyModal('${c.title.replace(/'/g,"\\'")}');return false;">Notify me</a>`:`<a class="book-btn" href="${c.url}" target="_blank" rel="noopener" onclick="setTimeout(showToast,800)">Book Now ↗</a>`}
+        ${c.avail==='sold'
+          ?`<a class="book-btn" href="${bookingUrl}" target="_blank" rel="noopener" onclick="openNotifyModal('${safeTitle}');return false;">Notify me</a>`
+          :`<a class="book-btn" href="${bookingUrl}" target="_blank" rel="noopener" onclick="setTimeout(showToast,800)">Book Now ↗</a>`
+        }
       </div>
     </div>
-  </div>`;}
+  </div>`;
+}
 
-function renderCards(){
-  filteredCourses=applySort(applyFilter(ALL_COURSES));
+function renderCards(courses, append=false){
   const grid=document.getElementById('card-grid');
   const wrap=document.getElementById('load-more-wrap');
-  document.getElementById('results-count').textContent=filteredCourses.length+' results';
-  grid.innerHTML=filteredCourses.slice(0,visibleCount).map(c=>buildCard(c)).join('');
-  wrap.style.display=visibleCount>=filteredCourses.length?'none':'block';
+  const count=document.getElementById('results-count');
+  if(!grid)return;
+  if(!courses||courses.length===0){
+    if(!append){
+      grid.innerHTML=`<div class="empty-state" style="grid-column:1/-1;"><div class="empty-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="20" rx="6" ry="2.5" stroke="#ccc" stroke-width="1.5" fill="none"/><ellipse cx="12" cy="14.5" rx="4.5" ry="2" stroke="#ccc" stroke-width="1.5" fill="none"/><ellipse cx="12" cy="9.5" rx="3" ry="1.8" stroke="#ccc" stroke-width="1.5" fill="none"/></svg></div><h3>no experiences found</h3><p>Try adjusting your filters.</p></div>`;
+      if(count)count.textContent='0 results';
+    }
+    if(wrap)wrap.style.display='none';
+    return;
+  }
+  const cards=courses.map(c=>buildCard(c)).join('');
+  if(append){grid.innerHTML+=cards;}else{grid.innerHTML=cards;}
+  const showing=grid.querySelectorAll('.course-card').length;
+  if(count)count.textContent=`${totalCount||showing} results`;
+  if(wrap)wrap.style.display=showing<totalCount?'block':'none';
   addRemoveReadyListeners();
 }
 
-function renderSaved(){
+
+async function renderSaved(){
   const saved=getSaved();
   const empty=document.getElementById('saved-empty');
   const cards=document.getElementById('saved-cards');
@@ -749,13 +968,38 @@ function renderSaved(){
   empty.style.display='none';cards.style.display='grid';
   if(toolbar)toolbar.style.display='block';
   if(count)count.textContent=`${saved.length} saved`;
-  cards.innerHTML=ALL_COURSES.filter(c=>saved.includes(c.id)).map(c=>buildCard(c)).join('');
+  try {
+    const ids=saved.map(id=>`id.eq.${id}`).join(',');
+    const res=await fetch(
+      `${SUPABASE_URL}/rest/v1/courses?select=*,providers(name,rating,review_count)&or=(${ids})`,
+      {headers:{'apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`}}
+    );
+    const savedCourses=await res.json();
+    cards.innerHTML=savedCourses.map(c=>buildCard(c)).join('');
+    addRemoveReadyListeners();
+  } catch(e) {
+    cards.innerHTML='<p style="padding:20px;color:var(--text-tertiary);font-size:13px;">Could not load saved courses.</p>';
+  }
 }
 
-function loadMore(){visibleCount+=6;renderCards();}
-function filterChip(el,val){document.querySelectorAll('.filter-bar .chip').forEach(c=>c.classList.remove('active'));el.classList.add('active');currentFilter=val;visibleCount=6;renderCards();}
-function sortBy(el,val){document.querySelectorAll('.sort-btn').forEach(b=>b.classList.remove('active'));el.classList.add('active');currentSort=val;renderCards();}
-function runSearch(){visibleCount=6;renderCards();}
+function loadMore(){
+  currentPage++;
+  fetchCourses(currentPage, true);
+}
+function sortBy(el,val){
+  document.querySelectorAll('.sort-btn').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  currentSort=val;
+  currentPage=0;
+  fetchCourses(0, false);
+}
+function runSearch(){
+  currentFilters.activity = document.getElementById('search-activity').value;
+  currentFilters.location = document.getElementById('search-location').value;
+  currentFilters.date = document.getElementById('search-date').value;
+  currentPage=0;
+  fetchCourses(0, false);
+}
 
 function showPage(name){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
@@ -798,7 +1042,7 @@ setInterval(()=>{
 function getSharedIds(){const p=new URLSearchParams(window.location.search);const s=p.get('shared');return s?s.split(',').map(Number).filter(Boolean):[];}
 function initSharedCourses(){
   const ids=getSharedIds();if(ids.length===0)return;
-  const courses=ALL_COURSES.filter(c=>ids.includes(c.id));if(courses.length===0)return;
+  const courses=currentCourses.filter(c=>ids.includes(c.id));if(courses.length===0)return;
   let saved=getSaved();ids.forEach(id=>{if(!saved.includes(id))saved.push(id);});setSaved(saved);
   const banner=document.getElementById('shared-banner');
   const title=document.getElementById('shared-banner-title');
@@ -813,7 +1057,7 @@ function dismissSharedBanner(){const b=document.getElementById('shared-banner');
 function buildSharePopoverHTML(courseId,isMultiple){
   const ids=isMultiple?getSaved().join(','):String(courseId);
   const shareUrl=`https://backcountryfinder.com/?shared=${ids}`;
-  const courses=isMultiple?ALL_COURSES.filter(c=>getSaved().includes(c.id)):ALL_COURSES.filter(c=>c.id===courseId);
+  const courses=isMultiple?currentCourses.filter(c=>getSaved().includes(c.id)):currentCourses.filter(c=>c.id===courseId);
   const waMsg=encodeURIComponent(`These courses and dates work for me, take a look — ${shareUrl}`);
   const smsMsg=encodeURIComponent(`These courses and dates work for me, take a look — ${shareUrl}`);
   const canNative=typeof navigator.share==='function';
@@ -863,7 +1107,7 @@ async function nativeShare(url,title){try{await navigator.share({title:title||'B
 
 // EMAIL MY LIST
 function openEmailListModal(){
-  const saved=getSaved();const courses=ALL_COURSES.filter(c=>saved.includes(c.id));if(courses.length===0)return;
+  const saved=getSaved();const courses=currentCourses.filter(c=>saved.includes(c.id));if(courses.length===0)return;
   document.getElementById('elm-courses-preview').innerHTML=courses.map(c=>`<div class="elm-course-line">${c.activity==='skiing'?'⛷':c.activity==='climbing'?'🧗':c.activity==='fishing'?'🎣':c.activity==='biking'?'🚵':'🏔'} ${c.title.split('—')[0].trim()} · ${c.date.split(',')[0]} · $${c.price}</div>`).join('');
   document.getElementById('elm-email').value='';
   document.getElementById('elm-form-content').style.display='block';
@@ -877,7 +1121,7 @@ async function submitEmailList(){
   if(!email||!email.includes('@')){document.getElementById('elm-email').style.borderColor='#e24b4a';document.getElementById('elm-email').focus();return;}
   document.getElementById('elm-email').style.borderColor='';
   const btn=document.querySelector('.elm-submit');btn.textContent='sending...';btn.disabled=true;
-  const saved=getSaved();const courses=ALL_COURSES.filter(c=>saved.includes(c.id));
+  const saved=getSaved();const courses=currentCourses.filter(c=>saved.includes(c.id));
   try{await fetch(SUPABASE_EDGE_URL,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_KEY}`,'apikey':SUPABASE_KEY},body:JSON.stringify({email,courses,optIn})});}catch(e){}
   document.getElementById('elm-form-content').style.display='none';
   document.getElementById('elm-success').style.display='block';
@@ -957,7 +1201,8 @@ function showToast(){clearTimeout(toastTimer);const toast=document.getElementByI
 function closeToast(){document.getElementById('book-toast').classList.remove('active');clearTimeout(toastTimer);}
 async function submitToast(){const emailEl=document.getElementById('toast-email');if(!emailEl)return;const email=emailEl.value.trim();if(!email||!email.includes('@')){emailEl.style.borderColor='#e24b4a';emailEl.focus();return;}emailEl.style.borderColor='';await saveEmail(email,null,'book_now_toast');document.getElementById('book-toast').innerHTML=`<div style="text-align:center;padding:4px 0;"><div style="font-size:24px;margin-bottom:6px;">✓</div><div style="font-size:13px;font-weight:700;">You're on the list</div><div style="font-size:12px;color:var(--text-tertiary);margin-top:4px;font-weight:500;">We'll send you new experience alerts.</div></div>`;setTimeout(closeToast,2500);}
 
-renderCards();
+// ── INIT ──
+fetchCourses(0, false);
 initSharedCourses();
 
 // REMOVE-READY: saved buttons get remove-ready class after first mouse-leave
