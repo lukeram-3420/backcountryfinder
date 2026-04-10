@@ -265,10 +265,11 @@ serve(async (req) => {
       throw new Error(`Resend error ${resendRes.status}: ${resendBody}`);
     }
 
-    // Save one row per saved course if opt-in — captures interest data
+    // Save one row per saved course if opt-in — with session_id to group the list
     if (optIn) {
       const supabaseUrl = "https://owzrztaguehebkatnatc.supabase.co";
       const supabaseKey = Deno.env.get("ANON_KEY") ?? "";
+      const sessionId = crypto.randomUUID();
       if (supabaseKey) {
         await Promise.all(courses.map((c: Course) =>
           fetch(`${supabaseUrl}/rest/v1/email_signups`, {
@@ -283,6 +284,7 @@ serve(async (req) => {
               email,
               signup_type: "saved_list",
               course_title: c.title,
+              session_id: sessionId,
             }),
           })
         ));
