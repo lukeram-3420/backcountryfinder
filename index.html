@@ -441,7 +441,7 @@
       </div>
       <div class="search-field" style="flex:1;">
         <label>From when</label>
-        <input type="date" id="search-date">
+        <input type="text" id="search-date" placeholder="any date" onfocus="this.type='date'" onblur="if(!this.value)this.type='text'">
       </div>
       <button class="search-go" onclick="runSearch()">Search →</button>
     </div>
