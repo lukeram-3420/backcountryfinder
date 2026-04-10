@@ -913,7 +913,8 @@ function buildCard(c){
   const providerName = provider.name || c.provider_id || '';
   const rating = provider.rating ? `★ ${provider.rating}` : '';
   const location = c.location_canonical || c.location_raw || '';
-  const imgUrl = c.image_url || IMG[c.activity] || IMG.hiking;
+  const activity = c.activity_override || c.activity_raw || c.activity || 'guided';
+  const imgUrl = c.image_url || IMG[activity] || IMG.hiking;
   const bookingUrl = c.booking_url || '#';
   const safeTitle = (c.title||'').replace(/'/g,"\'");
   return `<div class="course-card">
