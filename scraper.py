@@ -21,9 +21,11 @@ SUPABASE_URL          = os.environ["SUPABASE_URL"]
 SUPABASE_KEY          = os.environ["SUPABASE_SERVICE_KEY"]
 RESEND_API_KEY        = os.environ["RESEND_API_KEY"]
 GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "")
+ANTHROPIC_API_KEY     = os.environ.get("ANTHROPIC_API_KEY", "")
 NOTIFY_EMAIL          = "luke@backcountryfinder.com"
 FROM_EMAIL            = "luke@backcountryfinder.com"
 PLACES_API_URL        = "https://maps.googleapis.com/maps/api/place"
+CLAUDE_MODEL          = "claude-haiku-4-5-20251001"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -151,15 +153,25 @@ def load_activity_mappings_table() -> list:
         return []
 
 
-def resolve_activity(title: str, description: str, mappings: list) -> str:
-    """Resolve activity using mappings table first, then keyword detection."""
+def resolve_activity(title, description, mappings, provider=""):
+    """
+    Resolve activity using mappings table first, then Claude, then keyword detection.
+    Returns (activity, is_new, should_add_mapping)
+    """
     text = (title + " " + description).lower()
-    # Check mappings table first — both sides lowercased
     for pattern, activity in mappings:
         if pattern.lower() in text:
-            return activity
-    # Fall back to keyword detection
-    return detect_activity(title, description)
+            return activity, False, False
+    if ANTHROPIC_API_KEY:
+        known = get_known_activities(mappings) if mappings else []
+        result = claude_classify_activity(title, description, provider, known)
+        if result.get("activity"):
+            activity = result["activity"]
+            is_new = result.get("is_new", False)
+            log.info(f"Claude classified '{title}' as '{activity}' (new={is_new}): {result.get('reasoning','')}")
+            return activity, is_new, True
+    return detect_activity(title, description), False, False
+
 
 
 def build_badge(activity: str, duration_days) -> str:
@@ -171,18 +183,28 @@ def build_badge(activity: str, duration_days) -> str:
     return label
 
 
-def normalise_location(raw: str, mappings: dict) -> Optional[str]:
+def normalise_location(raw, mappings):
+    """
+    Normalise a raw location string to canonical value.
+    Returns (canonical, is_new, should_add_mapping)
+    """
     if not raw:
-        return None
+        return None, False, False
     key = raw.lower().strip()
-    # Exact match
     if key in mappings:
-        return mappings[key]
-    # Partial match — check if any known raw string is contained in the scraped string
+        return mappings[key], False, False
     for known_raw, canonical in mappings.items():
         if known_raw in key or key in known_raw:
-            return canonical
-    return None
+            return canonical, False, False
+    if ANTHROPIC_API_KEY:
+        known = get_known_locations(mappings)
+        result = claude_classify_location(raw, known)
+        if result.get("location_canonical"):
+            canonical = result["location_canonical"]
+            is_new = result.get("is_new", False)
+            log.info(f"Claude normalised '{raw}' to '{canonical}' (new={is_new})")
+            return canonical, is_new, True
+    return None, False, False
 
 
 # ── ACTIVITY DETECTION ──
@@ -608,6 +630,88 @@ def send_scrape_summary(total: int, providers: list, flags_count: int) -> None:
 # ── MAIN ──
 
 
+
+# -- CLAUDE CLASSIFICATION --
+
+def claude_classify(prompt: str) -> dict:
+    """Call Claude API and return parsed JSON response."""
+    if not ANTHROPIC_API_KEY:
+        return {}
+    try:
+        r = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": CLAUDE_MODEL,
+                "max_tokens": 256,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            timeout=20
+        )
+        text = r.json()["content"][0]["text"].strip()
+        # Strip markdown fences if present
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        return json.loads(text.strip())
+    except Exception as e:
+        log.warning(f"Claude API call failed: {e}")
+        return {}
+
+
+def claude_classify_activity(title: str, description: str, provider: str, known_activities: list) -> dict:
+    """Ask Claude to classify the activity type for a course."""
+    activities_list = ", ".join(known_activities) if known_activities else "skiing, climbing, mountaineering, hiking, biking, fishing, heli, cat, guided"
+    prompt = f"""You are classifying backcountry outdoor experiences for a booking aggregator.
+
+Known activity types: {activities_list}
+
+Course title: "{title}"
+Description: "{description}"
+Provider: "{provider}"
+
+Classify this course. If it matches a known activity type, use that exact value.
+If it is genuinely a new type not in the list, suggest a short lowercase slug (e.g. "via_ferrata", "ice_climbing").
+
+Respond with JSON only, no other text:
+{{"activity": "the_canonical_value", "is_new": false, "confidence": "high", "reasoning": "one line explanation"}}"""
+
+    return claude_classify(prompt)
+
+
+def claude_classify_location(location_raw: str, known_locations: list) -> dict:
+    """Ask Claude to normalise a raw location string to a canonical value."""
+    locations_list = ", ".join(known_locations) if known_locations else "Whistler / Blackcomb, Squamish, North Shore / Seymour, Pemberton / Duffey, Garibaldi Park, Tantalus Range"
+    prompt = f"""You are normalising location strings for a backcountry booking aggregator in British Columbia, Canada.
+
+Known canonical locations: {locations_list}
+
+Raw location string: "{location_raw}"
+
+If this matches one of the known canonical locations, return that exact canonical value.
+If it is a genuinely new location not in the list, suggest a clean canonical name.
+
+Respond with JSON only, no other text:
+{{"location_canonical": "the_canonical_value", "is_new": false, "confidence": "high", "reasoning": "one line explanation"}}"""
+
+    return claude_classify(prompt)
+
+
+def get_known_activities(activity_maps: list) -> list:
+    """Extract unique activity values from the mappings list."""
+    return list(set(activity for _, activity in activity_maps))
+
+
+def get_known_locations(location_maps: dict) -> list:
+    """Extract unique canonical location values from the mappings dict."""
+    return list(set(location_maps.values()))
+
+
 # -- GOOGLE PLACES --
 
 def find_place_id(provider_name, location):
@@ -698,24 +802,35 @@ def main():
 
             # Normalise location
             loc_raw = c.get("location_raw") or ""
-            loc_canonical = normalise_location(loc_raw, mappings) if loc_raw else None
-
-            if loc_raw and not loc_canonical:
-                log.warning(f"Unmatched location: '{loc_raw}' for '{c['title']}'")
-                location_flags.append({
-                    "location_raw": loc_raw,
-                    "provider_id":  provider["id"],
-                    "course_title": c["title"],
-                })
+            if loc_raw:
+                loc_canonical, loc_is_new, loc_add_mapping = normalise_location(loc_raw, mappings)
+                if loc_add_mapping:
+                    # Write new mapping to Supabase immediately
+                    sb_insert("location_mappings", {"location_raw": loc_raw, "location_canonical": loc_canonical})
+                    mappings[loc_raw.lower().strip()] = loc_canonical
+                    if loc_is_new:
+                        log.info(f"New canonical location added: '{loc_raw}' -> '{loc_canonical}'")
+                if not loc_canonical:
+                    log.warning(f"Unmatched location: '{loc_raw}' for '{c['title']}'")
+                    location_flags.append({"location_raw": loc_raw, "provider_id": provider["id"], "course_title": c["title"]})
+            else:
+                loc_canonical = None
 
             # Build stable ID
             course_id = stable_id(provider["id"], c["activity"], c.get("date_sort"), c["title"])
 
-            # Resolve canonical activity using mappings table
+            # Resolve canonical activity
             activity_raw = c.get("activity_raw") or c.get("activity") or "guided"
             desc = ""
-            activity_canonical = resolve_activity(c["title"], desc, activity_maps)
+            activity_canonical, act_is_new, act_add_mapping = resolve_activity(c["title"], desc, activity_maps, provider["name"])
+            if act_add_mapping:
+                # Write new mapping to Supabase immediately
+                sb_insert("activity_mappings", {"title_contains": c["title"].lower()[:100], "activity": activity_canonical})
+                activity_maps.append((c["title"].lower()[:100], activity_canonical))
+                if act_is_new:
+                    log.info(f"New canonical activity added: '{activity_canonical}' for '{c['title']}'")
             badge_canonical = build_badge(activity_canonical, c.get("duration_days"))
+
 
             # Check individual course page for availability and dates
             booking_url = c.get("booking_url")
