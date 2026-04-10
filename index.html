@@ -592,7 +592,9 @@
           <p>Tell us about them and we'll reach out to get them listed.</p>
           <div class="pmodal-field"><label>provider name *</label><input type="text" id="suggest-school" placeholder="e.g. Whistler Alpine Guides"></div>
           <div class="pmodal-field"><label>their website</label><input type="url" id="suggest-website" placeholder="https://..."></div>
-          <div class="pmodal-field"><label>your email</label><input type="email" id="suggest-email" placeholder="your@email.com"></div>
+          <div class="pmodal-field"><label>who we should talk to</label><input type="text" id="suggest-contact-at-provider" placeholder="e.g. Sarah Jones (guide coordinator)"></div>
+          <div class="pmodal-field"><label>your name *</label><input type="text" id="suggest-submitter-name" placeholder="Your full name"></div>
+          <div class="pmodal-field"><label>your email *</label><input type="email" id="suggest-email" placeholder="your@email.com"></div>
           <div class="pmodal-field"><label>anything else?</label><textarea id="suggest-notes" placeholder="e.g. they run great heli trips out of Revelstoke..."></textarea></div>
           <button class="pmodal-submit" onclick="submitSuggest()">suggest this provider</button>
         </div>
@@ -641,6 +643,7 @@
 <script>
 const ADS_ENABLED = false;
 const SUPABASE_EDGE_URL = 'https://owzrztaguehebkatnatc.supabase.co/functions/v1/send-saved-list';
+const NOTIFY_URL = 'https://owzrztaguehebkatnatc.supabase.co/functions/v1/notify-submission';
 const SUPABASE_URL = 'https://owzrztaguehebkatnatc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_lqIyTGAgCn09Yfh1eacSPg_tcs9SJcB';
 
@@ -891,23 +894,53 @@ function openProviderModal(tab){
   switchProviderTab(tab||'suggest');
   ['suggest-form-content','listed-form-content'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='block';});
   ['suggest-success','listed-success'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
-  ['suggest-school','suggest-website','suggest-email','suggest-notes','listed-school','listed-website','listed-name','listed-email','listed-notes'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  ['suggest-school','suggest-website','suggest-contact-at-provider','suggest-submitter-name','suggest-email','suggest-notes','listed-school','listed-website','listed-name','listed-email','listed-notes'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   document.getElementById('provider-modal').classList.add('active');
 }
 function closeProviderModal(e){if(!e||e.target===document.getElementById('provider-modal'))document.getElementById('provider-modal').classList.remove('active');}
 function switchProviderTab(tab){document.querySelectorAll('.pmodal-tab').forEach(t=>t.classList.remove('active'));document.querySelectorAll('.pmodal-form').forEach(f=>f.classList.remove('active'));document.getElementById('tab-'+tab).classList.add('active');document.getElementById('form-'+tab).classList.add('active');}
 async function submitSuggest(){
   const school=document.getElementById('suggest-school').value.trim();
+  const submitterName=document.getElementById('suggest-submitter-name').value.trim();
+  const email=document.getElementById('suggest-email').value.trim();
   if(!school){document.getElementById('suggest-school').focus();return;}
-  await fetch(`${SUPABASE_URL}/rest/v1/provider_submissions`,{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`,'Prefer':'return=minimal'},body:JSON.stringify({submission_type:'suggest',school_name:school,website:document.getElementById('suggest-website').value.trim()||null,contact_email:document.getElementById('suggest-email').value.trim()||null,notes:document.getElementById('suggest-notes').value.trim()||null})});
+  if(!submitterName){document.getElementById('suggest-submitter-name').focus();return;}
+  if(!email||!email.includes('@')){document.getElementById('suggest-email').focus();return;}
+  const data={
+    type:'suggest',
+    submission_type:'suggest',
+    school_name:school,
+    website:document.getElementById('suggest-website').value.trim()||null,
+    contact_at_provider:document.getElementById('suggest-contact-at-provider').value.trim()||null,
+    submitter_name:submitterName,
+    contact_email:email,
+    notes:document.getElementById('suggest-notes').value.trim()||null
+  };
+  await Promise.all([
+    fetch(`${SUPABASE_URL}/rest/v1/provider_submissions`,{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`,'Prefer':'return=minimal'},body:JSON.stringify({submission_type:'suggest',school_name:school,website:data.website,contact_email:email,notes:data.notes})}),
+    fetch(NOTIFY_URL,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_KEY}`,'apikey':SUPABASE_KEY},body:JSON.stringify(data)})
+  ]);
   document.getElementById('suggest-form-content').style.display='none';document.getElementById('suggest-success').style.display='block';setTimeout(closeProviderModal,3000);
 }
 async function submitGetListed(){
   const school=document.getElementById('listed-school').value.trim();
   const email=document.getElementById('listed-email').value.trim();
+  const name=document.getElementById('listed-name').value.trim();
   if(!school){document.getElementById('listed-school').focus();return;}
   if(!email||!email.includes('@')){document.getElementById('listed-email').focus();return;}
-  await fetch(`${SUPABASE_URL}/rest/v1/provider_submissions`,{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`,'Prefer':'return=minimal'},body:JSON.stringify({submission_type:'get_listed',school_name:school,website:document.getElementById('listed-website').value.trim()||null,contact_name:document.getElementById('listed-name').value.trim()||null,contact_email:email,notes:document.getElementById('listed-notes').value.trim()||null})});
+  const data={
+    type:'get_listed',
+    submission_type:'get_listed',
+    school_name:school,
+    website:document.getElementById('listed-website').value.trim()||null,
+    contact_name:name||null,
+    contact_email:email,
+    notes:document.getElementById('listed-notes').value.trim()||null
+  };
+  await Promise.all([
+    fetch(`${SUPABASE_URL}/rest/v1/provider_submissions`,{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`,'Prefer':'return=minimal'},body:JSON.stringify({submission_type:'get_listed',school_name:school,website:data.website,contact_name:name||null,contact_email:email,notes:data.notes})}),
+    fetch(NOTIFY_URL,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_KEY}`,'apikey':SUPABASE_KEY},body:JSON.stringify(data)})
+  ]);
   document.getElementById('listed-form-content').style.display='none';document.getElementById('listed-success').style.display='block';setTimeout(closeProviderModal,3500);
 }
 
