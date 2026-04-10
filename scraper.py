@@ -152,9 +152,9 @@ def load_activity_mappings_table() -> list:
 def resolve_activity(title: str, description: str, mappings: list) -> str:
     """Resolve activity using mappings table first, then keyword detection."""
     text = (title + " " + description).lower()
-    # Check mappings table first (exact substring match)
+    # Check mappings table first — both sides lowercased
     for pattern, activity in mappings:
-        if pattern in text:
+        if pattern.lower() in text:
             return activity
     # Fall back to keyword detection
     return detect_activity(title, description)
