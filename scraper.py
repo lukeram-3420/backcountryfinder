@@ -189,138 +189,117 @@ def stable_id(provider_id: str, activity: str, date_sort: Optional[str], title: 
 # ── REZDY SCRAPER ──
 
 def scrape_rezdy(provider: dict) -> list:
-    """Scrape a Rezdy storefront and return list of course dicts."""
+    """Scrape a Rezdy storefront using confirmed HTML structure."""
     log.info(f"Scraping {provider['name']} — {provider['storefront']}")
     courses = []
 
     try:
-        # Fetch the storefront page
         r = requests.get(provider["storefront"], headers=HEADERS, timeout=20)
         r.raise_for_status()
         soup = BeautifulSoup(r.text, "html.parser")
 
-        # Rezdy storefronts list products in .product-item or similar containers
-        # Try multiple selectors as Rezdy layouts vary slightly
-        items = (
-            soup.select(".product-item") or
-            soup.select(".rezdy-product") or
-            soup.select("[data-product-code]") or
-            soup.select(".product-card") or
-            soup.select(".booking-item")
-        )
-
+        items = soup.select("div.products-list-item")
         if not items:
-            log.warning(f"No product items found on {provider['storefront']} — trying API endpoint")
+            log.warning(f"No products-list-item found for {provider['name']} — trying API")
             return scrape_rezdy_api(provider)
 
-        log.info(f"Found {len(items)} items on {provider['name']} storefront")
+        log.info(f"Found {len(items)} items on {provider['name']}")
 
         for item in items:
             try:
-                # Title
-                title_el = (
-                    item.select_one(".product-name") or
-                    item.select_one("h2") or
-                    item.select_one("h3") or
-                    item.select_one(".title")
-                )
+                # Title — h2 > a.rezdy-modal
+                title_el = item.select_one("h2 a")
                 title = title_el.get_text(strip=True) if title_el else None
                 if not title:
                     continue
 
-                # Price
+                # Booking URL — relative href on the title link
+                booking_url = None
+                if title_el:
+                    href = title_el.get("href", "")
+                    if href.startswith("http"):
+                        booking_url = f"{href}{'&' if '?' in href else '?'}{provider['utm']}"
+                    elif href.startswith("/"):
+                        booking_url = f"{provider['storefront']}{href}?{provider['utm']}"
+                    else:
+                        booking_url = f"{provider['storefront']}/{href}?{provider['utm']}"
+
+                # Price — span.price data-original-amount="CA$1,980.00"
                 price = None
-                price_el = item.select_one(".product-price, .price, [class*='price']")
+                price_el = item.select_one("span.price")
                 if price_el:
-                    price_text = price_el.get_text(strip=True)
-                    price_match = re.search(r"\d+", price_text.replace(",", ""))
+                    raw = price_el.get("data-original-amount", "") or price_el.get_text(strip=True)
+                    price_match = re.search(r"[\d,]+\.?\d*", raw.replace(",", ""))
                     if price_match:
-                        price = int(price_match.group())
+                        try:
+                            price = int(float(price_match.group().replace(",", "")))
+                        except ValueError:
+                            pass
 
-                # Date / next available
-                date_display = None
-                date_sort = None
-                date_el = item.select_one(".product-date, .date, .next-available, [class*='date']")
-                if date_el:
-                    date_display = date_el.get_text(strip=True)
-                    date_sort = parse_date_sort(date_display)
+                # Duration — li text after "Duration:"
+                duration_days = None
+                for li in item.select("ul.unstyled li"):
+                    text = li.get_text(strip=True)
+                    if "duration" in text.lower():
+                        dur_match = re.search(r"(\d+(?:\.\d+)?)\s*day", text, re.I)
+                        if dur_match:
+                            duration_days = float(dur_match.group(1))
+                        break
+                # Also try extracting from title
+                if not duration_days:
+                    dur_match = re.search(r"(\d+(?:\.\d+)?)\s*day", title, re.I)
+                    if dur_match:
+                        duration_days = float(dur_match.group(1))
 
-                # Location
-                location_raw = None
-                loc_el = item.select_one(".product-location, .location, [class*='location']")
-                if loc_el:
-                    location_raw = loc_el.get_text(strip=True)
-                if not location_raw:
-                    # Try to find location in description
-                    desc_el = item.select_one(".product-description, .description")
-                    if desc_el:
-                        desc_text = desc_el.get_text(strip=True)
-                        loc_match = re.search(r"(Whistler|Squamish|Seymour|Garibaldi|Pemberton|Tantalus)", desc_text, re.I)
-                        if loc_match:
-                            location_raw = loc_match.group(0)
-
-                # Image
+                # Image — div.products-list-image img src
                 image_url = None
-                img_el = item.select_one("img")
+                img_el = item.select_one("div.products-list-image img")
                 if img_el:
                     image_url = img_el.get("src") or img_el.get("data-src")
                     if image_url and image_url.startswith("//"):
                         image_url = "https:" + image_url
 
-                # Booking URL
-                link_el = item.select_one("a[href]")
-                booking_url = None
-                if link_el:
-                    href = link_el.get("href", "")
-                    if href.startswith("http"):
-                        booking_url = f"{href}{'&' if '?' in href else '?'}{provider['utm']}"
-                    elif href.startswith("/"):
-                        booking_url = f"{provider['storefront']}{href}?{provider['utm']}"
-
-                # Spots remaining
-                spots = None
-                spots_el = item.select_one("[class*='spots'], [class*='seats'], [class*='available']")
-                if spots_el:
-                    spots_text = spots_el.get_text(strip=True)
-                    spots_match = re.search(r"\d+", spots_text)
-                    if spots_match:
-                        spots = int(spots_match.group())
-
-                # Duration
-                duration_days = None
-                dur_match = re.search(r"(\d+(?:\.\d+)?)\s*day", title, re.I)
-                if dur_match:
-                    duration_days = float(dur_match.group(1))
-
-                # Activity detection
+                # Description — p tag in overview
                 desc_text = ""
-                desc_el = item.select_one(".product-description, .description")
+                desc_el = item.select_one("div.products-list-item-overview p")
                 if desc_el:
                     desc_text = desc_el.get_text(strip=True)
+
+                # Location — extract from title or description
+                location_raw = None
+                loc_match = re.search(
+                    r"(Whistler|Squamish|Seymour|Garibaldi|Pemberton|Tantalus|Vancouver|North Shore|Golden|Revelstoke|Banff|Canmore)",
+                    title + " " + desc_text, re.I
+                )
+                if loc_match:
+                    location_raw = loc_match.group(0).title()
+
+                # Activity detection
                 activity = detect_activity(title, desc_text)
 
-                # Build badge
-                badge = f"{activity.title()} · {int(duration_days)} day{'s' if duration_days and duration_days > 1 else ''}" if duration_days else activity.title()
+                # Badge
+                dur_str = f" · {int(duration_days)} day{'s' if duration_days > 1 else ''}" if duration_days else ""
+                badge = f"{activity.title()}{dur_str}"
 
                 courses.append({
-                    "title":        title,
-                    "provider_id":  provider["id"],
-                    "badge":        badge,
-                    "activity":     activity,
-                    "location_raw": location_raw,
-                    "date_display": date_display,
-                    "date_sort":    date_sort,
+                    "title":         title,
+                    "provider_id":   provider["id"],
+                    "badge":         badge,
+                    "activity":      activity,
+                    "location_raw":  location_raw,
+                    "date_display":  None,   # fetched from course page in future
+                    "date_sort":     None,
                     "duration_days": duration_days,
-                    "price":        price,
-                    "spots_remaining": spots,
-                    "avail":        spots_to_avail(spots),
-                    "image_url":    image_url,
-                    "booking_url":  booking_url,
-                    "scraped_at":   datetime.utcnow().isoformat(),
+                    "price":         price,
+                    "spots_remaining": None,
+                    "avail":         "open",
+                    "image_url":     image_url,
+                    "booking_url":   booking_url,
+                    "scraped_at":    datetime.utcnow().isoformat(),
                 })
 
             except Exception as e:
-                log.warning(f"Error parsing item: {e}")
+                log.warning(f"Error parsing item from {provider['name']}: {e}")
                 continue
 
     except Exception as e:
