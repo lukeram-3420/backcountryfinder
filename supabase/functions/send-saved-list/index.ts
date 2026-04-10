@@ -119,14 +119,8 @@ function buildShareSection(courses: Course[], sharedIds: string): string {
           <p style="margin:0 0 14px;font-size:12px;color:#3b6d11;font-family:Arial,sans-serif;">They'll see your saved courses when they open the link.</p>
           <table cellpadding="0" cellspacing="0">
             <tr>
-              <td style="padding-right:8px;">
-                <a href="https://wa.me/?text=${waText}" style="background:#25D366;color:#ffffff;font-size:12px;font-weight:500;padding:8px 16px;border-radius:6px;text-decoration:none;font-family:Arial,sans-serif;display:inline-block;">WhatsApp</a>
-              </td>
-              <td style="padding-right:8px;">
-                <a href="sms:&body=${smsText}" style="background:#1a2e1a;color:#7ec87e;font-size:12px;font-weight:500;padding:8px 16px;border-radius:6px;text-decoration:none;font-family:Arial,sans-serif;display:inline-block;">iMessage</a>
-              </td>
               <td>
-                <a href="${shareUrl}" style="background:#ffffff;color:#1a2e1a;font-size:12px;font-weight:500;padding:8px 16px;border-radius:6px;text-decoration:none;font-family:Arial,sans-serif;display:inline-block;border:1px solid #1a2e1a;">copy link</a>
+                <a href="https://wa.me/?text=${waText}" style="background:#25D366;color:#ffffff;font-size:12px;font-weight:500;padding:8px 16px;border-radius:6px;text-decoration:none;font-family:Arial,sans-serif;display:inline-block;">WhatsApp</a>
               </td>
             </tr>
           </table>
