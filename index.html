@@ -3,1165 +3,449 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BackcountryFinder — Find your course. Find your line.</title>
-<meta name="description" content="BC backcountry courses, all in one place. AST 1, AST 2, rock climbing, mountaineering, hiking and more.">
-<meta property="og:title" content="BackcountryFinder — Find your course. Find your line.">
-<meta property="og:description" content="BC backcountry courses, all in one place. No more 20 open tabs.">
+<title>BackcountryFinder — Without the 20 open tabs.</title>
+<meta name="description" content="Every backcountry experience, one place. Heli skiing, AST courses, guided fly fishing, climbing, mountaineering and more.">
+<meta property="og:title" content="BackcountryFinder — Without the 20 open tabs.">
+<meta property="og:description" content="Every backcountry experience, one place. No more tab switching.">
 <meta property="og:url" content="https://backcountryfinder.com">
 <meta property="og:type" content="website">
 <meta property="og:image" content="https://images.unsplash.com/photo-1673994841979-a8d3983d4a51?w=1200&q=80&fit=crop">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,700&display=swap" rel="stylesheet">
 <style>
   :root {
     --green-dark: #1a2e1a;
     --green-mid: #2d4a2d;
-    --green-accent: #7ec87e;
+    --green-accent: #4ade80;
     --green-light: #eaf3de;
     --amber-light: #faeeda;
     --amber-dark: #854f0b;
     --text-primary: #1a1a1a;
     --text-secondary: #555;
     --text-tertiary: #888;
-    --border: rgba(0,0,0,0.1);
-    --border-mid: rgba(0,0,0,0.15);
-    --bg: #f5f4f0;
+    --border: rgba(0,0,0,0.08);
+    --border-mid: rgba(0,0,0,0.13);
+    --bg: #f8faf8;
     --bg-card: #ffffff;
-    --bg-secondary: #f0efeb;
-    --radius: 10px;
-    --radius-sm: 6px;
-    --radius-pill: 20px;
+    --bg-secondary: #f2f4f2;
+    --radius: 12px;
+    --radius-sm: 8px;
+    --radius-pill: 24px;
+    --font: 'Plus Jakarta Sans', sans-serif;
   }
-
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--font); background: var(--bg); color: var(--text-primary); min-height: 100vh; -webkit-font-smoothing: antialiased; }
 
-  body {
-    font-family: 'DM Sans', sans-serif;
-    background: var(--bg);
-    color: var(--text-primary);
-    min-height: 100vh;
-    -webkit-font-smoothing: antialiased;
-  }
-
-  /* ── TOPNAV ── */
-  .topnav {
-    background: var(--green-dark);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 32px;
-    height: 54px;
-    position: sticky;
-    top: 0;
-    z-index: 100;
-  }
-  .logo {
-    font-family: 'DM Serif Display', serif;
-    color: #fff;
-    font-size: 20px;
-    letter-spacing: -0.3px;
-    cursor: pointer;
-  }
-  .logo span { color: var(--green-accent); font-style: italic; }
-  .topnav-links { display: flex; gap: 6px; }
-  .nav-link {
-    color: rgba(255,255,255,0.55);
-    font-size: 13px;
-    font-weight: 400;
-    padding: 6px 14px;
-    border-radius: var(--radius-pill);
-    cursor: pointer;
-    transition: all 0.15s;
-    border: none;
-    background: transparent;
-    font-family: 'DM Sans', sans-serif;
-  }
+  /* NAV */
+  .topnav { background: var(--green-dark); display: flex; align-items: center; justify-content: space-between; padding: 0 36px; height: 60px; position: sticky; top: 0; z-index: 100; }
+  .logo { display: flex; align-items: center; gap: 12px; cursor: pointer; text-decoration: none; }
+  .logo-wordmark { display: flex; flex-direction: column; line-height: 1.1; }
+  .logo-top { font-size: 15px; font-weight: 700; color: #fff; letter-spacing: -0.4px; }
+  .logo-bottom { font-size: 15px; font-weight: 700; font-style: italic; color: var(--green-accent); letter-spacing: -0.4px; }
+  .topnav-links { display: flex; gap: 4px; }
+  .nav-link { color: rgba(255,255,255,0.5); font-size: 13px; font-weight: 500; padding: 7px 16px; border-radius: var(--radius-pill); cursor: pointer; transition: all 0.15s; border: none; background: transparent; font-family: var(--font); }
   .nav-link:hover { color: #fff; background: rgba(255,255,255,0.08); }
-  .nav-link.active { color: var(--green-accent); background: rgba(126,200,126,0.12); }
-  .listed-btn {
-    background: var(--green-accent);
-    color: var(--green-dark);
-    border: none;
-    border-radius: var(--radius-sm);
-    padding: 8px 16px;
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    font-family: 'DM Sans', sans-serif;
-    transition: opacity 0.15s;
-  }
-  .listed-btn:hover { opacity: 0.88; }
+  .nav-link.active { color: var(--green-dark); background: var(--green-accent); font-weight: 700; }
 
-  /* ── PAGES ── */
-  .page { display: none; }
-  .page.active { display: block; }
+  /* LOGO ANIMATION */
+  .logo-track { stroke-dasharray: 2 2.5; stroke-dashoffset: 80; animation: drawLogoTrack 2s cubic-bezier(0.4,0,0.2,1) 0.5s forwards; }
+  .logo-summit { opacity: 0; transform: scale(0); transform-origin: 22px 10px; animation: popLogoSummit 0.35s cubic-bezier(0.34,1.56,0.64,1) 2.3s forwards; }
+  @keyframes drawLogoTrack { to { stroke-dashoffset: 0; } }
+  @keyframes popLogoSummit { to { opacity: 1; transform: scale(1); } }
+  .logo.replaying .logo-track { animation: drawLogoTrack 2s cubic-bezier(0.4,0,0.2,1) 0s forwards; }
+  .logo.replaying .logo-summit { animation: popLogoSummit 0.35s cubic-bezier(0.34,1.56,0.64,1) 1.8s forwards; }
 
-  /* ── HERO ── */
-  .hero {
-    background: var(--green-dark);
-    padding: 28px 32px 24px;
-  }
-  .hero h1 {
-    font-family: 'DM Serif Display', serif;
-    color: #fff;
-    font-size: 26px;
-    font-weight: 400;
-    margin-bottom: 18px;
-    line-height: 1.25;
-  }
-  .hero h1 em { color: var(--green-accent); font-style: italic; }
+  /* HERO */
+  .hero { background: var(--green-dark); padding: 52px 36px 44px; }
+  .hero-tagline { font-size: clamp(28px,5vw,42px); font-weight: 700; color: #fff; line-height: 1.25; margin-bottom: 6px; letter-spacing: -0.5px; }
+  .hero-tagline .word-slot { display: inline-block; overflow: hidden; vertical-align: bottom; height: 1.25em; position: relative; }
+  .word-inner { display: flex; flex-direction: column; transition: transform 0.55s cubic-bezier(0.4,0,0.2,1); }
+  .word-item { color: var(--green-accent); display: block; line-height: 1.25em; white-space: nowrap; }
+  .hero-sub { font-size: 15px; font-weight: 400; color: rgba(255,255,255,0.4); margin-bottom: 32px; }
 
-  .search-bar {
-    display: grid;
-    grid-template-columns: 2.2fr 2fr 1fr 1fr auto;
-    gap: 0;
-    background: var(--bg-card);
-    border-radius: var(--radius);
-    overflow: hidden;
-    border: 1px solid rgba(255,255,255,0.1);
-  }
-  .search-field {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: 10px 14px;
-    border-right: 1px solid var(--border);
-    cursor: pointer;
-  }
-  .search-field:hover { background: #fafaf8; }
-  .search-field label {
-    font-size: 9px;
-    color: var(--text-tertiary);
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-    font-weight: 500;
-    cursor: pointer;
-  }
-  .search-field select,
-  .search-field input[type=date] {
-    border: none;
-    background: transparent;
-    font-size: 13px;
-    font-weight: 400;
-    color: var(--text-primary);
-    -webkit-appearance: none;
-    appearance: none;
-    outline: none;
-    padding: 0;
-    cursor: pointer;
-    font-family: 'DM Sans', sans-serif;
-    width: 100%;
-  }
-  .search-field input[type=date] { color: var(--text-secondary); }
-  .search-go {
-    background: var(--green-dark);
-    color: #fff;
-    border: none;
-    padding: 0 28px;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    font-family: 'DM Sans', sans-serif;
-    transition: background 0.15s;
-    white-space: nowrap;
-  }
-  .search-go:hover { background: var(--green-mid); }
+  /* SEARCH */
+  .search-bar { background: #fff; border-radius: var(--radius); overflow: hidden; display: flex; align-items: stretch; max-width: 860px; }
+  .search-field { padding: 14px 20px; border-right: 1px solid #f0f0f0; cursor: pointer; flex: 1; display: flex; flex-direction: column; gap: 3px; }
+  .search-field:last-of-type { border-right: none; }
+  .search-field label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: #aaa; cursor: pointer; }
+  .search-field select, .search-field input[type=date] { border: none; background: transparent; font-size: 14px; font-weight: 600; color: var(--text-primary); font-family: var(--font); outline: none; cursor: pointer; width: 100%; -webkit-appearance: none; appearance: none; }
+  .search-go { background: var(--green-accent); color: var(--green-dark); border: none; padding: 0 28px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: var(--font); white-space: nowrap; flex-shrink: 0; transition: opacity 0.15s; }
+  .search-go:hover { opacity: 0.88; }
 
-  /* ── AD BANNER ── */
-  .ad-banner {
-    background: var(--bg-secondary);
-    border-bottom: 1px dashed var(--border-mid);
-    height: 50px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .ad-label { font-size: 10px; color: var(--text-tertiary); letter-spacing: 0.3px; }
+  /* MAIN */
+  .main { max-width: 1200px; margin: 0 auto; padding: 28px 36px 120px; }
 
-  /* ── RESULTS AREA ── */
-  .results-area { padding: 16px 32px 24px; }
-
-  /* ── FILTER BAR ── */
-  .filter-bar {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-bottom: 14px;
-    flex-wrap: wrap;
-  }
-  .filter-label { font-size: 12px; color: var(--text-tertiary); margin-right: 2px; }
-  .chip {
-    border: 1px solid var(--border-mid);
-    border-radius: var(--radius-pill);
-    padding: 5px 14px;
-    font-size: 12px;
-    color: var(--text-secondary);
-    white-space: nowrap;
-    cursor: pointer;
-    background: var(--bg-card);
-    font-family: 'DM Sans', sans-serif;
-    transition: all 0.12s;
-  }
+  /* FILTERS */
+  .filter-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
+  .filter-bar { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .chip { padding: 7px 16px; border-radius: var(--radius-pill); font-size: 12px; font-weight: 600; border: 1px solid var(--border-mid); cursor: pointer; background: var(--bg-card); color: var(--text-secondary); font-family: var(--font); transition: all 0.15s; white-space: nowrap; }
   .chip:hover { border-color: var(--green-dark); color: var(--green-dark); }
-  .chip.active {
-    background: var(--green-dark);
-    color: var(--green-accent);
-    border-color: var(--green-dark);
-    font-weight: 500;
-  }
-  .bar-divider { width: 1px; height: 18px; background: var(--border-mid); margin: 0 6px; }
-  .sort-label { font-size: 12px; color: var(--text-tertiary); }
-  .sort-btn {
-    font-size: 12px;
-    color: var(--text-secondary);
-    background: var(--bg-card);
-    border: 1px solid var(--border-mid);
-    border-radius: var(--radius-sm);
-    padding: 5px 12px;
-    cursor: pointer;
-    font-family: 'DM Sans', sans-serif;
-    transition: all 0.12s;
-  }
+  .chip.active { background: var(--green-dark); color: var(--green-accent); border-color: var(--green-dark); }
+  .sort-bar { display: flex; gap: 6px; align-items: center; }
+  .sort-label { font-size: 11px; color: var(--text-tertiary); font-weight: 500; white-space: nowrap; }
+  .sort-btn { padding: 7px 14px; border-radius: var(--radius-pill); font-size: 12px; font-weight: 600; border: 1px solid var(--border-mid); cursor: pointer; background: var(--bg-card); color: var(--text-secondary); font-family: var(--font); transition: all 0.15s; }
   .sort-btn:hover { border-color: var(--green-dark); color: var(--green-dark); }
   .sort-btn.active { background: var(--green-dark); color: var(--green-accent); border-color: var(--green-dark); }
-  .results-count { font-size: 12px; color: var(--text-tertiary); margin-left: auto; }
+  .results-count { font-size: 12px; color: var(--text-tertiary); font-weight: 500; }
 
-  /* ── CARD GRID ── */
-  .card-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 14px;
-  }
-
-  /* ── COURSE CARD ── */
-  .course-card {
-    background: var(--bg-card);
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    transition: transform 0.15s, box-shadow 0.15s;
-    cursor: default;
-  }
-  .course-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 24px rgba(0,0,0,0.08);
-  }
-  .card-img {
-    height: 148px;
-    position: relative;
-    overflow: hidden;
-    flex-shrink: 0;
-    background: #1a2e1a;
-  }
-  .card-img img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    object-position: center;
-    display: block;
-    transition: transform 0.3s;
-  }
+  /* CARDS */
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(300px,1fr)); gap: 20px; }
+  .course-card { background: var(--bg-card); border-radius: var(--radius); border: 1px solid var(--border); overflow: hidden; display: flex; flex-direction: column; transition: box-shadow 0.2s, border-color 0.2s; }
+  .course-card:hover { box-shadow: 0 8px 32px rgba(0,0,0,0.1); border-color: rgba(0,0,0,0.14); }
+  .card-img { position: relative; height: 200px; overflow: hidden; background: var(--green-dark); }
+  .card-img img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 0.4s ease; }
   .course-card:hover .card-img img { transform: scale(1.03); }
-  .card-overlay {
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(to bottom, rgba(0,0,0,0.04), rgba(0,0,0,0.5));
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    padding: 10px;
-  }
-  .card-badge {
-    background: rgba(0,0,0,0.42);
-    color: #fff;
-    font-size: 10px;
-    padding: 3px 9px;
-    border-radius: var(--radius-pill);
-    backdrop-filter: blur(4px);
-  }
-  .card-provider-tag {
-    background: rgba(26,46,26,0.82);
-    color: var(--green-accent);
-    font-size: 10px;
-    padding: 3px 9px;
-    border-radius: var(--radius-pill);
-    font-weight: 500;
-  }
-  .card-body {
-    flex: 1;
-    padding: 12px 14px;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-  }
-  .card-title {
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text-primary);
-    line-height: 1.35;
-    margin-bottom: 5px;
-  }
-  .card-meta {
-    display: flex;
-    gap: 5px;
-    flex-wrap: wrap;
-    align-items: center;
-    margin-bottom: 10px;
-  }
-  .card-meta span { font-size: 11px; color: var(--text-secondary); }
-  .card-meta .sep { color: var(--text-tertiary); }
-  .card-footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding-top: 10px;
-    border-top: 1px solid var(--border);
-  }
-  .price-block { display: flex; flex-direction: column; gap: 3px; }
-  .card-price { font-size: 17px; font-weight: 500; color: var(--text-primary); }
-  .card-price sub { font-size: 10px; color: var(--text-tertiary); font-weight: 400; vertical-align: baseline; }
-  .avail {
-    font-size: 10px;
-    padding: 2px 8px;
-    border-radius: var(--radius-pill);
-    width: fit-content;
-    font-weight: 500;
-  }
-  .avail.open { background: var(--green-light); color: #3b6d11; }
+  .card-overlay { position: absolute; inset: 0; background: linear-gradient(to bottom,rgba(0,0,0,0.15) 0%,rgba(0,0,0,0) 40%,rgba(0,0,0,0.35) 100%); display: flex; align-items: flex-end; justify-content: space-between; padding: 12px 14px; }
+  .card-badge { background: rgba(0,0,0,0.5); color: #fff; font-size: 10px; font-weight: 600; padding: 4px 10px; border-radius: var(--radius-pill); letter-spacing: 0.2px; }
+  .card-provider-tag { background: rgba(26,46,26,0.85); color: var(--green-accent); font-size: 10px; font-weight: 700; padding: 4px 10px; border-radius: var(--radius-pill); letter-spacing: 0.2px; }
+  .card-body { padding: 18px 18px 0; flex: 1; display: flex; flex-direction: column; gap: 8px; }
+  .card-title { font-size: 15px; font-weight: 700; color: var(--text-primary); line-height: 1.3; letter-spacing: -0.2px; }
+  .card-meta { font-size: 12px; color: var(--text-tertiary); line-height: 1.6; font-weight: 500; }
+  .card-meta .sep { margin: 0 4px; opacity: 0.4; }
+  .card-footer { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px 16px; border-top: 1px solid var(--border); margin-top: auto; }
+  .price-block { display: flex; flex-direction: column; gap: 4px; }
+  .card-price { font-size: 20px; font-weight: 800; color: var(--text-primary); letter-spacing: -0.5px; line-height: 1; }
+  .card-price sub { font-size: 11px; color: var(--text-tertiary); font-weight: 500; vertical-align: baseline; }
+  .avail { font-size: 10px; font-weight: 700; padding: 3px 9px; border-radius: var(--radius-pill); display: inline-block; letter-spacing: 0.2px; }
+  .avail.open { background: #eaf3de; color: #2d6a11; }
   .avail.low { background: var(--amber-light); color: var(--amber-dark); }
   .avail.sold { background: #fcebeb; color: #a32d2d; }
-  .card-actions { display: flex; gap: 6px; align-items: center; }
-  .save-btn {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-mid);
-    border-radius: var(--radius-sm);
-    padding: 7px 10px;
-    font-size: 13px;
-    cursor: pointer;
-    transition: all 0.12s;
-    line-height: 1;
-  }
-  .save-btn:hover { background: var(--green-light); border-color: var(--green-accent); }
-  .save-btn.saved { background: var(--green-light); border-color: var(--green-accent); }
-  .book-btn {
-    background: var(--green-dark);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius-sm);
-    padding: 7px 14px;
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    font-family: 'DM Sans', sans-serif;
-    transition: opacity 0.12s;
-    text-decoration: none;
-    display: inline-block;
-  }
+  .card-actions { display: flex; gap: 8px; align-items: center; }
+  .save-btn { width: 38px; height: 38px; border-radius: 50%; border: 1.5px solid var(--border-mid); background: var(--bg-card); cursor: pointer; font-size: 18px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; flex-shrink: 0; color: #ccc; }
+  .save-btn:hover { border-color: #e74c7c; color: #e74c7c; background: #fff0f4; }
+  .save-btn.saved { border-color: #e74c7c; color: #e74c7c; background: #fff0f4; }
+  .book-btn { background: var(--green-dark); color: #fff; border: none; border-radius: var(--radius-sm); padding: 10px 18px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: var(--font); text-decoration: none; display: inline-block; transition: opacity 0.15s; letter-spacing: -0.2px; }
   .book-btn:hover { opacity: 0.85; }
 
-  /* ── AD CARD ── */
-  .ad-card {
-    background: var(--bg-secondary);
-    border: 1px dashed var(--border-mid);
-    border-radius: var(--radius);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    min-height: 260px;
-  }
-  .ad-card .ad-size { font-size: 12px; color: var(--text-tertiary); font-weight: 500; }
-  .ad-card .ad-lbl { font-size: 10px; color: var(--text-tertiary); }
+  /* LOAD MORE */
+  .load-more-wrap { text-align: center; margin-top: 32px; }
+  .load-more-btn { background: var(--bg-card); border: 1.5px solid var(--border-mid); border-radius: var(--radius-pill); padding: 12px 32px; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--text-secondary); font-family: var(--font); transition: all 0.15s; }
+  .load-more-btn:hover { border-color: var(--green-dark); color: var(--green-dark); }
 
-  /* ── LOAD MORE ── */
-  .load-more-wrap { text-align: center; margin-top: 20px; }
-  .load-more-btn {
-    background: var(--bg-card);
-    border: 1px solid var(--border-mid);
-    border-radius: var(--radius-pill);
-    padding: 10px 32px;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text-secondary);
-    cursor: pointer;
-    font-family: 'DM Sans', sans-serif;
-    transition: all 0.15s;
-  }
-  .load-more-btn:hover { background: var(--green-dark); color: #fff; border-color: var(--green-dark); }
+  /* PAGES */
+  .page { display: none; }
+  .page.active { display: block; }
+  .page-header { padding: 32px 0 24px; border-bottom: 1px solid var(--border); margin-bottom: 28px; }
+  .page-header h2 { font-size: 26px; font-weight: 800; color: var(--text-primary); letter-spacing: -0.5px; margin-bottom: 4px; }
+  .page-header p { font-size: 14px; color: var(--text-tertiary); font-weight: 500; }
 
-  /* ── SAVED PAGE ── */
-  .page-header {
-    background: var(--green-dark);
-    padding: 24px 32px;
-  }
-  .page-header h2 {
-    font-family: 'DM Serif Display', serif;
-    color: #fff;
-    font-size: 22px;
-    font-weight: 400;
-    margin-bottom: 4px;
-  }
-  .page-header p { color: rgba(255,255,255,0.5); font-size: 13px; }
-  .saved-grid { padding: 20px 32px; }
-  .empty-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 80px 24px;
-    text-align: center;
-  }
-  .empty-icon { font-size: 40px; margin-bottom: 14px; opacity: 0.4; }
-  .empty-state h3 { font-size: 16px; font-weight: 500; color: var(--text-primary); margin-bottom: 6px; }
-  .empty-state p { font-size: 13px; color: var(--text-tertiary); line-height: 1.6; max-width: 280px; }
+  /* EMPTY */
+  .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 72px 24px; text-align: center; gap: 12px; }
+  .empty-icon { font-size: 40px; }
+  .empty-state h3 { font-size: 18px; font-weight: 700; color: var(--text-primary); }
+  .empty-state p { font-size: 14px; color: var(--text-tertiary); max-width: 280px; line-height: 1.6; font-weight: 500; }
 
-  /* ── PROVIDERS PAGE ── */
-  .providers-grid {
-    padding: 20px 32px;
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 14px;
-  }
-  .provider-card {
-    background: var(--bg-card);
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
-    padding: 18px 20px;
-    display: flex;
-    gap: 14px;
-    align-items: flex-start;
-    transition: transform 0.15s, box-shadow 0.15s;
-  }
-  .provider-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.07); }
-  .provider-logo {
-    width: 52px;
-    height: 52px;
-    border-radius: var(--radius-sm);
-    background: var(--bg-secondary);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 10px;
-    font-weight: 500;
-    color: var(--text-secondary);
-    text-align: center;
-    flex-shrink: 0;
-    border: 1px solid var(--border);
-    line-height: 1.3;
-  }
-  .provider-info { flex: 1; min-width: 0; }
-  .provider-name { font-size: 14px; font-weight: 500; color: var(--text-primary); margin-bottom: 2px; }
-  .provider-loc { font-size: 12px; color: var(--text-tertiary); margin-bottom: 8px; }
-  .provider-stats { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  .stars { font-size: 12px; color: #c47f17; }
-  .review-count { font-size: 11px; color: var(--text-tertiary); }
-  .course-count {
-    font-size: 11px;
-    background: var(--green-light);
-    color: #3b6d11;
-    padding: 2px 9px;
-    border-radius: var(--radius-pill);
-    font-weight: 500;
-  }
-  .provider-desc { font-size: 12px; color: var(--text-secondary); line-height: 1.5; margin-top: 8px; }
-
-  .cta-card {
-    margin: 0 32px 32px;
-    background: var(--green-dark);
-    border-radius: var(--radius);
-    padding: 24px 28px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 24px;
-  }
-  .cta-text h3 {
-    font-family: 'DM Serif Display', serif;
-    color: #fff;
-    font-size: 18px;
-    font-weight: 400;
-    margin-bottom: 5px;
-  }
-  .cta-text p { color: rgba(255,255,255,0.55); font-size: 13px; line-height: 1.5; }
-  .cta-btn {
-    background: #fff;
-    color: var(--green-dark);
-    border: none;
-    border-radius: var(--radius-sm);
-    padding: 11px 24px;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    font-family: 'DM Sans', sans-serif;
-    white-space: nowrap;
-    flex-shrink: 0;
-    transition: opacity 0.15s;
-  }
-  .cta-btn:hover { opacity: 0.88; }
-
-  /* ── ABOUT PAGE ── */
-  .about-content { max-width: 680px; margin: 0 auto; padding: 40px 32px; }
-  .about-tag {
-    font-size: 11px;
-    color: var(--green-accent);
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
-    font-weight: 500;
-    background: var(--green-dark);
-    display: inline-block;
-    padding: 3px 10px;
-    border-radius: var(--radius-pill);
-    margin-bottom: 16px;
-  }
-  .about-content h2 {
-    font-family: 'DM Serif Display', serif;
-    font-size: 30px;
-    font-weight: 400;
-    line-height: 1.25;
-    margin-bottom: 20px;
-    color: var(--text-primary);
-  }
-  .about-content h2 em { color: var(--green-dark); font-style: italic; }
-  .about-section { margin-bottom: 28px; }
-  .about-section h3 {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--text-tertiary);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-bottom: 8px;
-  }
-  .about-section p { font-size: 14px; color: var(--text-secondary); line-height: 1.7; }
-  .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 24px 0; }
-  .stat-box {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 16px;
-    text-align: center;
-  }
-  .stat-num {
-    font-family: 'DM Serif Display', serif;
-    font-size: 28px;
-    color: var(--green-dark);
-    line-height: 1;
-    margin-bottom: 4px;
-  }
-  .stat-lbl { font-size: 11px; color: var(--text-tertiary); }
-  .contact-block {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 18px 20px;
-    margin-top: 8px;
-  }
-  .contact-block p { font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
-  .contact-block a { color: var(--green-dark); font-weight: 500; text-decoration: none; }
-  .contact-block a:hover { text-decoration: underline; }
-  .divider { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
-
-  /* ── MOBILE ── */
-  @media (max-width: 768px) {
-    .topnav { padding: 0 16px; }
-    .topnav-links { display: none; }
-    .hero { padding: 20px 16px; }
-    .hero h1 { font-size: 20px; }
-    .search-bar { grid-template-columns: 1fr; }
-    .search-field { border-right: none; border-bottom: 1px solid var(--border); }
-    .search-field:last-of-type { border-bottom: none; }
-    .search-go { padding: 14px; }
-    .results-area { padding: 14px 16px 24px; }
-    .card-grid { grid-template-columns: 1fr; }
-    .providers-grid { grid-template-columns: 1fr; padding: 16px; }
-    .cta-card { flex-direction: column; margin: 0 16px 24px; }
-    .about-content { padding: 24px 16px; }
-    .stat-row { grid-template-columns: repeat(2, 1fr); }
-    .saved-grid { padding: 16px; }
-    .mobile-nav {
-      display: flex !important;
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      background: var(--bg-card);
-      border-top: 1px solid var(--border);
-      padding: 8px 16px 20px;
-      z-index: 100;
-    }
-    body { padding-bottom: 70px; }
-    .page-header { padding: 20px 16px; }
-    .listed-btn { display: none; }
-  }
-
-  /* ── MOBILE NAV ── */
-  .mobile-nav {
-    display: none;
-    gap: 4px;
-  }
-  .mobile-nav-inner {
-    display: flex;
-    background: var(--bg-secondary);
-    border-radius: 18px;
-    padding: 4px;
-    gap: 2px;
-    width: 100%;
-  }
-  .mnav-item {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 2px;
-    padding: 7px 4px;
-    border-radius: 14px;
-    cursor: pointer;
-    transition: background 0.12s;
-    border: none;
-    background: transparent;
-    font-family: 'DM Sans', sans-serif;
-  }
-  .mnav-item.active { background: var(--green-dark); }
-  .mnav-icon { font-size: 15px; line-height: 1; }
-  .mnav-label { font-size: 10px; color: var(--text-tertiary); }
-  .mnav-item.active .mnav-label { color: var(--green-accent); }
-
-  /* ── SHARE POPOVER ── */
-  .share-popover-wrap { position: relative; display: inline-block; }
-  .share-popover {
-    display: none;
-    position: fixed;
-    background: var(--bg-card);
-    border: 1px solid var(--border-mid);
-    border-radius: var(--radius);
-    padding: 12px;
-    width: min(220px, calc(100vw - 32px));
-    box-shadow: 0 8px 24px rgba(0,0,0,0.12);
-    z-index: 300;
-  }
-  .share-popover.active { display: block; animation: fadeUp 0.15s ease; }
-  .share-popover-title { font-size: 11px; font-weight: 500; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 8px; }
-  .share-popover-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-bottom: 5px; }
-  .sp-btn { display: flex; align-items: center; justify-content: center; gap: 5px; padding: 7px 8px; border-radius: var(--radius-sm); font-size: 11px; font-weight: 500; border: 1px solid var(--border-mid); cursor: pointer; background: var(--bg-card); color: var(--text-primary); text-decoration: none; font-family: 'DM Sans', sans-serif; transition: opacity 0.12s; }
-  .sp-btn:hover { opacity: 0.85; }
-  .sp-btn-wa { background: #25D366; color: #fff; border-color: #25D366; }
-  .sp-btn-im { background: var(--green-dark); color: var(--green-accent); border-color: var(--green-dark); }
-  .sp-btn-native { grid-column: 1 / -1; background: var(--bg-secondary); color: var(--text-secondary); }
-  .sp-btn-copy { grid-column: 1 / -1; background: var(--bg-secondary); color: var(--text-secondary); font-size: 10px; }
-  .sp-url { font-size: 10px; color: var(--text-tertiary); background: var(--bg-secondary); border-radius: 4px; padding: 4px 8px; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; }
-  .card-share-btn { background: var(--bg-secondary); border: 1px solid var(--border-mid); border-radius: var(--radius-sm); padding: 7px 10px; cursor: pointer; display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-secondary); font-weight: 500; font-family: 'DM Sans', sans-serif; transition: all 0.12s; }
-  .card-share-btn:hover { background: var(--green-light); border-color: var(--green-accent); color: var(--green-dark); }
-
-  /* ── SAVED PAGE EMAIL + SHARE ── */
-  .saved-toolbar { padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); background: var(--bg-secondary); flex-wrap: wrap; gap: 8px; }
-  .saved-toolbar-count { font-size: 12px; color: var(--text-tertiary); }
-  .saved-toolbar-actions { display: flex; gap: 6px; }
-  .toolbar-btn { display: flex; align-items: center; gap: 5px; padding: 7px 14px; border-radius: var(--radius-pill); font-size: 12px; font-weight: 500; border: 1px solid var(--border-mid); cursor: pointer; background: var(--bg-card); color: var(--text-secondary); font-family: 'DM Sans', sans-serif; transition: all 0.12s; }
+  /* SAVED TOOLBAR */
+  .saved-toolbar { padding: 12px 0; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); margin-bottom: 24px; flex-wrap: wrap; gap: 10px; }
+  .saved-toolbar-count { font-size: 13px; color: var(--text-tertiary); font-weight: 500; }
+  .saved-toolbar-actions { display: flex; gap: 8px; }
+  .toolbar-btn { display: flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: var(--radius-pill); font-size: 12px; font-weight: 600; border: 1.5px solid var(--border-mid); cursor: pointer; background: var(--bg-card); color: var(--text-secondary); font-family: var(--font); transition: all 0.15s; }
   .toolbar-btn:hover { border-color: var(--green-dark); color: var(--green-dark); }
   .toolbar-btn-primary { background: var(--green-dark); color: var(--green-accent); border-color: var(--green-dark); }
   .toolbar-btn-primary:hover { opacity: 0.88; color: var(--green-accent); }
 
-  /* ── EMAIL MY LIST MODAL ── */
-  .email-list-modal-overlay {
-    display: none;
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.5);
-    z-index: 200;
-    align-items: center;
-    justify-content: center;
-    padding: 20px;
-  }
+  /* PROVIDERS */
+  .providers-hero { background: var(--green-dark); border-radius: var(--radius); padding: 40px; margin-bottom: 28px; display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+  .providers-hero h2 { font-size: 22px; font-weight: 800; color: #fff; margin-bottom: 6px; letter-spacing: -0.4px; }
+  .providers-hero p { font-size: 14px; color: rgba(255,255,255,0.5); max-width: 420px; line-height: 1.6; font-weight: 500; }
+  .providers-hero-btns { display: flex; gap: 10px; flex-shrink: 0; flex-wrap: wrap; }
+  .provider-cta-btn { padding: 11px 22px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 700; cursor: pointer; font-family: var(--font); transition: opacity 0.15s; border: none; letter-spacing: -0.2px; }
+  .provider-cta-btn.primary { background: var(--green-accent); color: var(--green-dark); }
+  .provider-cta-btn.secondary { background: rgba(255,255,255,0.1); color: #fff; border: 1.5px solid rgba(255,255,255,0.2); }
+  .provider-cta-btn:hover { opacity: 0.85; }
+  .provider-cards { display: grid; grid-template-columns: repeat(auto-fill,minmax(260px,1fr)); gap: 16px; }
+  .provider-card { background: var(--bg-card); border-radius: var(--radius); border: 1px solid var(--border); padding: 22px; transition: box-shadow 0.2s; }
+  .provider-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.08); }
+  .provider-card-name { font-size: 15px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px; }
+  .provider-card-loc { font-size: 12px; color: var(--text-tertiary); font-weight: 500; margin-bottom: 10px; }
+  .provider-card-rating { font-size: 12px; font-weight: 600; color: var(--green-dark); margin-bottom: 12px; }
+  .provider-card-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+  .provider-tag { font-size: 10px; font-weight: 600; padding: 3px 10px; border-radius: var(--radius-pill); background: var(--green-light); color: var(--green-dark); }
+
+  /* ABOUT */
+  .about-wrap { max-width: 640px; }
+  .about-wrap h2 { font-size: 26px; font-weight: 800; color: var(--text-primary); margin-bottom: 16px; letter-spacing: -0.5px; }
+  .about-wrap p { font-size: 15px; color: var(--text-secondary); line-height: 1.75; margin-bottom: 20px; font-weight: 500; }
+  .about-wrap h3 { font-size: 17px; font-weight: 700; color: var(--text-primary); margin: 28px 0 10px; }
+  .contact-block { margin-top: 36px; padding-top: 28px; border-top: 1px solid var(--border); font-size: 14px; color: var(--text-secondary); font-weight: 500; }
+  .contact-block a { color: var(--green-dark); font-weight: 600; text-decoration: none; }
+
+  /* MOBILE NAV */
+  .mobile-nav { display: none; position: fixed; bottom: 0; left: 0; right: 0; z-index: 90; background: rgba(255,255,255,0.94); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-top: 1px solid rgba(0,0,0,0.07); padding: 0 8px; padding-bottom: env(safe-area-inset-bottom); }
+  .mobile-nav-inner { display: flex; align-items: stretch; height: 62px; }
+  .mnav-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border: none; background: transparent; cursor: pointer; font-family: var(--font); color: var(--text-tertiary); border-radius: var(--radius-sm); transition: all 0.15s; padding: 6px 4px; }
+  .mnav-item.active { color: var(--green-dark); }
+  .mnav-icon { font-size: 22px; line-height: 1; transition: transform 0.15s; }
+  .mnav-item.active .mnav-icon { transform: scale(1.1); }
+  .mnav-label { font-size: 10px; font-weight: 700; letter-spacing: 0.2px; }
+  .mnav-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--green-accent); display: none; margin-top: 1px; }
+  .mnav-item.active .mnav-dot { display: block; }
+
+  /* SHARED BANNER */
+  .shared-banner-wrap { background: var(--green-dark); padding: 14px 36px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .shared-banner-text h3 { font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 2px; }
+  .shared-banner-text p { color: rgba(255,255,255,0.5); font-size: 12px; font-weight: 500; }
+  .shared-banner-actions { display: flex; gap: 8px; flex-shrink: 0; }
+  .shared-save-btn { background: var(--green-accent); color: var(--green-dark); border: none; border-radius: var(--radius-sm); padding: 8px 16px; font-size: 12px; font-weight: 700; cursor: pointer; font-family: var(--font); }
+  .shared-dismiss { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.6); border: none; border-radius: var(--radius-sm); padding: 8px 14px; font-size: 12px; cursor: pointer; font-family: var(--font); font-weight: 500; }
+
+  /* SHARE POPOVER */
+  .share-popover-wrap { position: relative; display: inline-block; }
+  .share-popover { display: none; position: fixed; background: var(--bg-card); border: 1px solid var(--border-mid); border-radius: var(--radius); padding: 14px; width: min(230px,calc(100vw - 32px)); box-shadow: 0 8px 32px rgba(0,0,0,0.14); z-index: 999; }
+  .share-popover.active { display: block; }
+  .share-popover-title { font-size: 10px; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+  .share-popover-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px; }
+  .sp-btn { display: flex; align-items: center; justify-content: center; gap: 5px; padding: 8px 10px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 600; border: 1.5px solid var(--border-mid); cursor: pointer; background: var(--bg-card); color: var(--text-primary); text-decoration: none; font-family: var(--font); transition: opacity 0.12s; }
+  .sp-btn:hover { opacity: 0.82; }
+  .sp-btn-wa { background: #25D366; color: #fff; border-color: #25D366; }
+  .sp-btn-im { background: var(--green-dark); color: var(--green-accent); border-color: var(--green-dark); }
+  .sp-btn-native { grid-column: 1/-1; background: var(--bg-secondary); color: var(--text-secondary); }
+  .sp-btn-copy { grid-column: 1/-1; background: var(--bg-secondary); color: var(--text-secondary); font-size: 11px; }
+  .sp-url { font-size: 10px; color: var(--text-tertiary); background: var(--bg-secondary); border-radius: 4px; padding: 5px 8px; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; }
+
+  /* EMAIL MODAL */
+  .email-list-modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 200; align-items: center; justify-content: center; padding: 20px; }
   .email-list-modal-overlay.active { display: flex; }
-  .email-list-modal {
-    background: var(--bg-card);
-    border-radius: var(--radius);
-    padding: 28px;
-    max-width: 400px;
-    width: 100%;
-    position: relative;
-  }
-  .elm-close { position: absolute; top: 14px; right: 16px; background: none; border: none; font-size: 20px; cursor: pointer; color: var(--text-tertiary); font-family: 'DM Sans', sans-serif; }
-  .elm-tag { font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.6px; color: var(--green-accent); background: var(--green-dark); display: inline-block; padding: 3px 10px; border-radius: var(--radius-pill); margin-bottom: 12px; }
-  .elm-modal h3 { font-family: 'DM Serif Display', serif; font-size: 20px; font-weight: 400; color: var(--text-primary); margin-bottom: 6px; line-height: 1.3; }
-  .elm-modal p { font-size: 13px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 14px; }
-  .elm-courses-preview { background: var(--bg-secondary); border-radius: var(--radius-sm); padding: 10px 12px; margin-bottom: 14px; border-left: 3px solid var(--green-dark); }
-  .elm-course-line { font-size: 12px; color: var(--text-secondary); padding: 2px 0; }
-  .elm-input { width: 100%; border: 1px solid var(--border-mid); border-radius: var(--radius-sm); padding: 10px 14px; font-size: 14px; font-family: 'DM Sans', sans-serif; color: var(--text-primary); background: var(--bg-card); outline: none; margin-bottom: 10px; transition: border-color 0.15s; }
+  .email-list-modal { background: var(--bg-card); border-radius: var(--radius); padding: 32px; max-width: 420px; width: 100%; position: relative; }
+  .elm-close { position: absolute; top: 16px; right: 18px; background: none; border: none; font-size: 22px; cursor: pointer; color: var(--text-tertiary); font-family: var(--font); }
+  .elm-tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--green-accent); background: var(--green-dark); display: inline-block; padding: 3px 10px; border-radius: var(--radius-pill); margin-bottom: 14px; }
+  .elm-modal h3 { font-size: 20px; font-weight: 800; color: var(--text-primary); margin-bottom: 8px; letter-spacing: -0.4px; }
+  .elm-modal p { font-size: 13px; color: var(--text-secondary); line-height: 1.65; margin-bottom: 16px; font-weight: 500; }
+  .elm-courses-preview { background: var(--bg-secondary); border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 16px; border-left: 3px solid var(--green-dark); }
+  .elm-course-line { font-size: 12px; color: var(--text-secondary); padding: 2px 0; font-weight: 500; }
+  .elm-input { width: 100%; border: 1.5px solid var(--border-mid); border-radius: var(--radius-sm); padding: 11px 14px; font-size: 14px; font-family: var(--font); color: var(--text-primary); background: var(--bg-card); outline: none; margin-bottom: 10px; transition: border-color 0.15s; font-weight: 500; }
   .elm-input:focus { border-color: var(--green-dark); }
-  .elm-optin { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 14px; cursor: pointer; }
-  .elm-optin input { margin-top: 2px; accent-color: var(--green-dark); flex-shrink: 0; cursor: pointer; }
-  .elm-optin label { font-size: 12px; color: var(--text-secondary); line-height: 1.5; cursor: pointer; }
-  .elm-submit { width: 100%; background: var(--green-dark); color: #fff; border: none; border-radius: var(--radius-sm); padding: 11px; font-size: 14px; font-weight: 500; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: opacity 0.15s; }
+  .elm-optin { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 16px; cursor: pointer; }
+  .elm-optin input { margin-top: 2px; accent-color: var(--green-dark); flex-shrink: 0; }
+  .elm-optin label { font-size: 12px; color: var(--text-secondary); line-height: 1.5; cursor: pointer; font-weight: 500; }
+  .elm-submit { width: 100%; background: var(--green-dark); color: #fff; border: none; border-radius: var(--radius-sm); padding: 12px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: var(--font); transition: opacity 0.15s; }
   .elm-submit:hover { opacity: 0.85; }
   .elm-success { display: none; text-align: center; padding: 8px 0; }
-  .elm-success .tick { font-size: 32px; margin-bottom: 8px; }
-  .elm-success h4 { font-size: 16px; font-weight: 500; margin-bottom: 4px; }
-  .elm-success p { font-size: 13px; color: var(--text-tertiary); margin-bottom: 0; }
+  .elm-success .tick { font-size: 36px; margin-bottom: 10px; }
+  .elm-success h4 { font-size: 17px; font-weight: 700; margin-bottom: 6px; }
+  .elm-success p { font-size: 13px; color: var(--text-tertiary); font-weight: 500; }
 
-  /* ── SHARED COURSES BANNER ── */
-  .shared-banner { background: var(--green-dark); padding: 14px 32px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-  .shared-banner-text h3 { font-family: 'DM Serif Display', serif; color: #fff; font-size: 16px; font-weight: 400; margin-bottom: 2px; }
-  .shared-banner-text p { color: rgba(255,255,255,0.55); font-size: 12px; }
-  .shared-banner-actions { display: flex; gap: 8px; flex-shrink: 0; }
-  .shared-save-btn { background: var(--green-accent); color: var(--green-dark); border: none; border-radius: var(--radius-sm); padding: 8px 16px; font-size: 12px; font-weight: 500; cursor: pointer; font-family: 'DM Sans', sans-serif; }
-  .shared-dismiss { background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.7); border: none; border-radius: var(--radius-sm); padding: 8px 14px; font-size: 12px; cursor: pointer; font-family: 'DM Sans', sans-serif; }
-  @media (max-width: 768px) {
-    .shared-banner { padding: 14px 16px; }
-    .share-popover { right: auto; left: 0; }
-  }
-
-  /* ── PROVIDER MODAL ── */
-  .provider-modal-overlay {
-    display: none;
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.5);
-    z-index: 200;
-    align-items: center;
-    justify-content: center;
-    padding: 20px;
-  }
+  /* PROVIDER MODAL */
+  .provider-modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 200; align-items: center; justify-content: center; padding: 20px; overflow-y: auto; }
   .provider-modal-overlay.active { display: flex; }
-  .provider-modal {
-    background: var(--bg-card);
-    border-radius: var(--radius);
-    padding: 0;
-    max-width: 440px;
-    width: 100%;
-    position: relative;
-    overflow: hidden;
-  }
-  .pmodal-tabs {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    border-bottom: 1px solid var(--border);
-  }
-  .pmodal-tab {
-    padding: 14px 16px;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text-tertiary);
-    cursor: pointer;
-    text-align: center;
-    border: none;
-    background: var(--bg-secondary);
-    font-family: 'DM Sans', sans-serif;
-    transition: all 0.15s;
-    border-bottom: 2px solid transparent;
-  }
-  .pmodal-tab.active {
-    background: var(--bg-card);
-    color: var(--green-dark);
-    border-bottom: 2px solid var(--green-dark);
-  }
-  .pmodal-tab:first-child { border-right: 1px solid var(--border); }
-  .pmodal-body { padding: 24px; }
+  .provider-modal { background: var(--bg-card); border-radius: var(--radius); padding: 32px; max-width: 480px; width: 100%; position: relative; max-height: 90vh; overflow-y: auto; }
+  .pmodal-close { position: absolute; top: 16px; right: 18px; background: none; border: none; font-size: 22px; cursor: pointer; color: var(--text-tertiary); font-family: var(--font); }
+  .pmodal-tabs { display: flex; gap: 4px; margin-bottom: 24px; background: var(--bg-secondary); border-radius: var(--radius-sm); padding: 4px; }
+  .pmodal-tab { flex: 1; padding: 8px; border: none; background: transparent; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--text-tertiary); font-family: var(--font); transition: all 0.15s; }
+  .pmodal-tab.active { background: var(--bg-card); color: var(--text-primary); box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
   .pmodal-form { display: none; }
   .pmodal-form.active { display: block; }
-  .pmodal-close {
-    position: absolute;
-    top: 12px;
-    right: 14px;
-    background: none;
-    border: none;
-    font-size: 20px;
-    cursor: pointer;
-    color: var(--text-tertiary);
-    line-height: 1;
-    font-family: 'DM Sans', sans-serif;
-    z-index: 1;
-  }
-  .pmodal-close:hover { color: var(--text-primary); }
-  .pmodal-tag {
-    font-size: 10px;
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-    color: var(--green-accent);
-    background: var(--green-dark);
-    display: inline-block;
-    padding: 3px 10px;
-    border-radius: var(--radius-pill);
-    margin-bottom: 10px;
-  }
-  .pmodal-body h3 {
-    font-family: 'DM Serif Display', serif;
-    font-size: 18px;
-    font-weight: 400;
-    color: var(--text-primary);
-    margin-bottom: 5px;
-    line-height: 1.3;
-  }
-  .pmodal-body p {
-    font-size: 12px;
-    color: var(--text-secondary);
-    line-height: 1.6;
-    margin-bottom: 16px;
-  }
-  .pmodal-field { margin-bottom: 10px; }
-  .pmodal-field label {
-    display: block;
-    font-size: 11px;
-    color: var(--text-tertiary);
-    margin-bottom: 4px;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-  }
-  .pmodal-field input,
-  .pmodal-field textarea {
-    width: 100%;
-    border: 1px solid var(--border-mid);
-    border-radius: var(--radius-sm);
-    padding: 9px 12px;
-    font-size: 13px;
-    font-family: 'DM Sans', sans-serif;
-    color: var(--text-primary);
-    background: var(--bg-card);
-    outline: none;
-    transition: border-color 0.15s;
-  }
-  .pmodal-field input:focus,
-  .pmodal-field textarea:focus { border-color: var(--green-dark); }
-  .pmodal-field textarea { resize: vertical; min-height: 72px; }
-  .pmodal-submit {
-    width: 100%;
-    background: var(--green-dark);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius-sm);
-    padding: 11px;
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    font-family: 'DM Sans', sans-serif;
-    margin-top: 4px;
-    transition: opacity 0.15s;
-  }
+  .pmodal-tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--green-accent); background: var(--green-dark); display: inline-block; padding: 3px 10px; border-radius: var(--radius-pill); margin-bottom: 14px; }
+  .pmodal-body h3 { font-size: 20px; font-weight: 800; color: var(--text-primary); margin-bottom: 8px; letter-spacing: -0.4px; }
+  .pmodal-body p { font-size: 13px; color: var(--text-secondary); line-height: 1.65; margin-bottom: 20px; font-weight: 500; }
+  .pmodal-field { margin-bottom: 14px; }
+  .pmodal-field label { display: block; font-size: 11px; font-weight: 700; color: var(--text-tertiary); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.4px; }
+  .pmodal-field input, .pmodal-field textarea { width: 100%; border: 1.5px solid var(--border-mid); border-radius: var(--radius-sm); padding: 10px 14px; font-size: 14px; font-family: var(--font); color: var(--text-primary); background: var(--bg-card); outline: none; transition: border-color 0.15s; font-weight: 500; }
+  .pmodal-field input:focus, .pmodal-field textarea:focus { border-color: var(--green-dark); }
+  .pmodal-field textarea { min-height: 80px; resize: vertical; }
+  .pmodal-submit { width: 100%; background: var(--green-dark); color: #fff; border: none; border-radius: var(--radius-sm); padding: 12px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: var(--font); transition: opacity 0.15s; margin-top: 4px; }
   .pmodal-submit:hover { opacity: 0.85; }
-  .pmodal-success {
-    display: none;
-    text-align: center;
-    padding: 32px 24px;
-  }
-  .pmodal-success .tick { font-size: 32px; margin-bottom: 10px; }
-  .pmodal-success h4 { font-size: 16px; font-weight: 500; color: var(--text-primary); margin-bottom: 6px; }
-  .pmodal-success p { font-size: 13px; color: var(--text-tertiary); margin-bottom: 0; }
+  .pmodal-success { text-align: center; padding: 12px 0; }
+  .pmodal-success .tick { font-size: 36px; margin-bottom: 10px; }
+  .pmodal-success h4 { font-size: 17px; font-weight: 700; margin-bottom: 6px; }
+  .pmodal-success p { font-size: 13px; color: var(--text-tertiary); font-weight: 500; }
 
-  /* ── NOTIFY ME MODAL ── */
-  .modal-overlay {
-    display: none;
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.5);
-    z-index: 200;
-    align-items: center;
-    justify-content: center;
-    padding: 20px;
-  }
+  /* NOTIFY MODAL */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 200; align-items: center; justify-content: center; padding: 20px; }
   .modal-overlay.active { display: flex; }
-  .modal {
-    background: var(--bg-card);
-    border-radius: var(--radius);
-    padding: 28px;
-    max-width: 400px;
-    width: 100%;
-    position: relative;
-  }
-  .modal-close {
-    position: absolute;
-    top: 14px;
-    right: 16px;
-    background: none;
-    border: none;
-    font-size: 20px;
-    cursor: pointer;
-    color: var(--text-tertiary);
-    line-height: 1;
-    font-family: 'DM Sans', sans-serif;
-  }
-  .modal-close:hover { color: var(--text-primary); }
-  .modal-tag {
-    font-size: 10px;
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-    color: var(--green-accent);
-    background: var(--green-dark);
-    display: inline-block;
-    padding: 3px 10px;
-    border-radius: var(--radius-pill);
-    margin-bottom: 12px;
-  }
-  .modal h3 {
-    font-family: 'DM Serif Display', serif;
-    font-size: 20px;
-    font-weight: 400;
-    color: var(--text-primary);
-    margin-bottom: 6px;
-    line-height: 1.3;
-  }
-  .modal p {
-    font-size: 13px;
-    color: var(--text-secondary);
-    line-height: 1.6;
-    margin-bottom: 16px;
-  }
-  .modal-course {
-    background: var(--bg-secondary);
-    border-radius: var(--radius-sm);
-    padding: 10px 12px;
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--text-primary);
-    margin-bottom: 16px;
-    border-left: 3px solid var(--green-dark);
-  }
-  .modal-input {
-    width: 100%;
-    border: 1px solid var(--border-mid);
-    border-radius: var(--radius-sm);
-    padding: 10px 14px;
-    font-size: 14px;
-    font-family: 'DM Sans', sans-serif;
-    color: var(--text-primary);
-    background: var(--bg-card);
-    outline: none;
-    margin-bottom: 10px;
-    transition: border-color 0.15s;
-  }
+  .modal { background: var(--bg-card); border-radius: var(--radius); padding: 32px; max-width: 400px; width: 100%; position: relative; }
+  .modal-close { position: absolute; top: 16px; right: 18px; background: none; border: none; font-size: 22px; cursor: pointer; color: var(--text-tertiary); font-family: var(--font); }
+  .modal-tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--green-accent); background: var(--green-dark); display: inline-block; padding: 3px 10px; border-radius: var(--radius-pill); margin-bottom: 14px; }
+  .modal h3 { font-size: 20px; font-weight: 800; color: var(--text-primary); margin-bottom: 8px; letter-spacing: -0.4px; }
+  .modal p { font-size: 13px; color: var(--text-secondary); line-height: 1.65; margin-bottom: 16px; font-weight: 500; }
+  .modal-course { font-size: 13px; font-weight: 700; color: var(--text-primary); background: var(--bg-secondary); border-radius: var(--radius-sm); padding: 10px 14px; margin-bottom: 16px; border-left: 3px solid var(--green-dark); }
+  .modal-input { width: 100%; border: 1.5px solid var(--border-mid); border-radius: var(--radius-sm); padding: 11px 14px; font-size: 14px; font-family: var(--font); color: var(--text-primary); background: var(--bg-card); outline: none; margin-bottom: 12px; transition: border-color 0.15s; font-weight: 500; }
   .modal-input:focus { border-color: var(--green-dark); }
-  .modal-submit {
-    width: 100%;
-    background: var(--green-dark);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius-sm);
-    padding: 11px;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    font-family: 'DM Sans', sans-serif;
-    transition: opacity 0.15s;
-  }
+  .modal-submit { width: 100%; background: var(--green-dark); color: #fff; border: none; border-radius: var(--radius-sm); padding: 12px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: var(--font); transition: opacity 0.15s; }
   .modal-submit:hover { opacity: 0.85; }
-  .modal-success { display: none; text-align: center; padding: 12px 0 4px; }
-  .modal-success .tick { font-size: 32px; margin-bottom: 8px; }
-  .modal-success h4 { font-size: 16px; font-weight: 500; color: var(--text-primary); margin-bottom: 4px; }
-  .modal-success p { font-size: 13px; color: var(--text-tertiary); }
+  .modal-success { text-align: center; padding: 8px 0; }
+  .modal-success .tick { font-size: 36px; margin-bottom: 10px; }
+  .modal-success h4 { font-size: 17px; font-weight: 700; margin-bottom: 6px; }
+  .modal-success p { font-size: 13px; color: var(--text-tertiary); font-weight: 500; }
 
-  /* ── BOOK NOW TOAST ── */
-  .toast {
-    display: none;
-    position: fixed;
-    bottom: 24px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: var(--bg-card);
-    border: 1px solid var(--border-mid);
-    border-radius: var(--radius);
-    padding: 16px 20px;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.14);
-    z-index: 200;
-    width: calc(100% - 48px);
-    max-width: 460px;
-  }
+  /* TOAST */
+  .toast { display: none; position: fixed; bottom: 24px; right: 24px; background: var(--bg-card); border-radius: var(--radius); border: 1px solid var(--border-mid); padding: 18px 20px; width: 300px; box-shadow: 0 8px 32px rgba(0,0,0,0.14); z-index: 150; }
   .toast.active { display: block; animation: slideUp 0.25s ease; }
-  @keyframes slideUp {
-    from { opacity: 0; transform: translateX(-50%) translateY(12px); }
-    to { opacity: 1; transform: translateX(-50%) translateY(0); }
-  }
-  .toast-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 10px; gap: 12px; }
-  .toast-title { font-size: 13px; font-weight: 500; color: var(--text-primary); margin-bottom: 2px; }
-  .toast-sub { font-size: 12px; color: var(--text-secondary); line-height: 1.4; }
-  .toast-close { background: none; border: none; font-size: 18px; cursor: pointer; color: var(--text-tertiary); flex-shrink: 0; line-height: 1; font-family: 'DM Sans', sans-serif; padding: 0; }
+  @keyframes slideUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+  .toast-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; gap: 12px; }
+  .toast-title { font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px; }
+  .toast-sub { font-size: 12px; color: var(--text-secondary); line-height: 1.45; font-weight: 500; }
+  .toast-close { background: none; border: none; font-size: 18px; cursor: pointer; color: var(--text-tertiary); flex-shrink: 0; font-family: var(--font); padding: 0; }
   .toast-row { display: flex; gap: 8px; }
-  .toast-input {
-    flex: 1;
-    border: 1px solid var(--border-mid);
-    border-radius: var(--radius-sm);
-    padding: 9px 12px;
-    font-size: 13px;
-    font-family: 'DM Sans', sans-serif;
-    color: var(--text-primary);
-    background: var(--bg-secondary);
-    outline: none;
-    transition: border-color 0.15s;
-  }
-  .toast-input:focus { border-color: var(--green-dark); background: var(--bg-card); }
-  .toast-btn {
-    background: var(--green-dark);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius-sm);
-    padding: 9px 16px;
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    font-family: 'DM Sans', sans-serif;
-    white-space: nowrap;
-    transition: opacity 0.15s;
-  }
+  .toast-input { flex: 1; border: 1.5px solid var(--border-mid); border-radius: var(--radius-sm); padding: 9px 12px; font-size: 13px; font-family: var(--font); color: var(--text-primary); background: var(--bg-card); outline: none; transition: border-color 0.15s; font-weight: 500; }
+  .toast-input:focus { border-color: var(--green-dark); }
+  .toast-btn { background: var(--green-dark); color: #fff; border: none; border-radius: var(--radius-sm); padding: 9px 14px; font-size: 12px; font-weight: 700; cursor: pointer; font-family: var(--font); white-space: nowrap; transition: opacity 0.15s; }
   .toast-btn:hover { opacity: 0.85; }
-  .toast-dismiss { font-size: 11px; color: var(--text-tertiary); text-align: center; margin-top: 8px; cursor: pointer; background: none; border: none; font-family: 'DM Sans', sans-serif; width: 100%; }
-  .toast-dismiss:hover { color: var(--text-secondary); }
-  @media (max-width: 768px) { .toast { bottom: 80px; } }
+  .toast-dismiss { font-size: 11px; color: var(--text-tertiary); text-align: center; margin-top: 10px; cursor: pointer; background: none; border: none; font-family: var(--font); width: 100%; font-weight: 500; }
 
-  /* ── ANIMATIONS ── */
-  @keyframes fadeUp {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
+  @media (max-width: 768px) {
+    .topnav { padding: 0 16px; height: 54px; }
+    .topnav-links { display: none; }
+    .mobile-nav { display: flex; }
+    .hero { padding: 32px 16px 28px; }
+    .search-bar { flex-direction: column; }
+    .search-field { border-right: none; border-bottom: 1px solid #f0f0f0; padding: 12px 16px; }
+    .search-field:last-of-type { border-bottom: none; }
+    .search-go { padding: 14px; border-radius: 0 0 var(--radius) var(--radius); }
+    .main { padding: 20px 16px 100px; }
+    .card-grid { grid-template-columns: 1fr; gap: 14px; }
+    .providers-hero { padding: 24px; }
+    .toast { bottom: 80px; left: 12px; right: 12px; width: auto; }
+    .shared-banner-wrap { padding: 14px 16px; }
   }
-  .course-card { animation: fadeUp 0.25s ease both; }
-  .course-card:nth-child(1) { animation-delay: 0.04s; }
-  .course-card:nth-child(2) { animation-delay: 0.08s; }
-  .course-card:nth-child(3) { animation-delay: 0.12s; }
-  .course-card:nth-child(4) { animation-delay: 0.16s; }
-  .course-card:nth-child(5) { animation-delay: 0.20s; }
-  .course-card:nth-child(6) { animation-delay: 0.24s; }
 </style>
 </head>
 <body>
 
-<!-- TOP NAV -->
 <nav class="topnav">
-  <div class="logo" onclick="showPage('search')">backcountry<span>finder</span></div>
+  <div class="logo" id="logo-btn" onclick="showPage('search')">
+    <svg width="30" height="30" viewBox="0 0 32 32" fill="none">
+      <path d="M5 27 L11 17 L16 22 L21 13 L27 27" stroke="#4ade80" stroke-width="1.1" fill="none" stroke-linejoin="round" opacity="0.2"/>
+      <path d="M2 27 L10 14 L16 20 L22 10 L30 27 Z" fill="#4ade80" opacity="0.1"/>
+      <path d="M2 27 L10 14 L16 20 L22 10 L30 27" stroke="#4ade80" stroke-width="1.4" fill="none" stroke-linejoin="round" opacity="0.5"/>
+      <path class="logo-track" d="M0.3 25.95 L9.77 12.01 L15.76 18.01 L22 10" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle class="logo-summit" cx="22" cy="10" r="2.8" fill="#4ade80"/>
+    </svg>
+    <div class="logo-wordmark">
+      <span class="logo-top">backcountry</span>
+      <span class="logo-bottom">finder</span>
+    </div>
+  </div>
   <div class="topnav-links">
     <button class="nav-link active" id="nav-search" onclick="showPage('search')">search</button>
     <button class="nav-link" id="nav-saved" onclick="showPage('saved')">saved</button>
     <button class="nav-link" id="nav-providers" onclick="showPage('providers')">providers</button>
     <button class="nav-link" id="nav-about" onclick="showPage('about')">about</button>
   </div>
-  <button class="listed-btn" onclick="openProviderModal('listed')">get listed — it's free</button>
 </nav>
+
+<div id="shared-banner" style="display:none;">
+  <div class="shared-banner-wrap">
+    <div class="shared-banner-text">
+      <h3 id="shared-banner-title">Experiences saved to your list</h3>
+      <p id="shared-banner-sub">Someone shared these with you — view them in your saved tab.</p>
+    </div>
+    <div class="shared-banner-actions">
+      <button class="shared-save-btn" onclick="saveSharedCourses()">view saved →</button>
+      <button class="shared-dismiss" onclick="dismissSharedBanner()">dismiss</button>
+    </div>
+  </div>
+</div>
 
 <!-- SEARCH PAGE -->
 <div class="page active" id="page-search">
   <div class="hero">
-    <h1>Find your course. Find your line.<br><em>Without the 20 open tabs.</em></h1>
+    <div class="hero-tagline">
+      Find your <span class="word-slot" id="slot1" style="min-width:100px;"><div class="word-inner" id="track1"><span class="word-item">course</span><span class="word-item">line</span><span class="word-item">summit</span><span class="word-item">trip</span><span class="word-item">route</span><span class="word-item">powder</span><span class="word-item">hut</span><span class="word-item">guide</span><span class="word-item">drift</span><span class="word-item">run</span><span class="word-item">cast</span><span class="word-item">secret</span><span class="word-item">stash</span><span class="word-item">beta</span><span class="word-item">zone</span><span class="word-item">course</span></div></span><br>
+      Find your <span class="word-slot" id="slot2" style="min-width:140px;"><div class="word-inner" id="track2"><span class="word-item">adventure</span><span class="word-item">peak</span><span class="word-item">people</span><span class="word-item">escape</span><span class="word-item">wild</span><span class="word-item">silence</span><span class="word-item">horizon</span><span class="word-item">freedom</span><span class="word-item">solitude</span><span class="word-item">calling</span><span class="word-item">tracks</span><span class="word-item">flow</span><span class="word-item">crew</span><span class="word-item">way out</span><span class="word-item">next chapter</span><span class="word-item">adventure</span></div></span>
+    </div>
+    <div class="hero-sub">Without the 20 open tabs.</div>
     <div class="search-bar">
-      <div class="search-field">
-        <label>what do you want to do?</label>
-        <select id="activity-select">
-          <option value="">All activities</option>
+      <div class="search-field" style="flex:2;">
+        <label>I want to</label>
+        <select id="search-activity">
+          <option value="">Everything backcountry</option>
           <optgroup label="── winter ──">
-            <option value="skiing">Backcountry skiing / AST 1</option>
-            <option value="skiing">Backcountry skiing / AST 2</option>
-            <option value="skiing">Ski touring — intro</option>
-            <option value="skiing">Snowshoeing / AST</option>
-            <option value="climbing">Ice climbing</option>
-            <option value="skiing">Avalanche refresher</option>
+            <option value="skiing">Backcountry skiing / AST</option>
+            <option value="heli">Heli skiing</option>
+            <option value="cat">Cat skiing</option>
+            <option value="snowshoe">Snowshoeing</option>
           </optgroup>
           <optgroup label="── summer ──">
-            <option value="climbing">Rock climbing — intro</option>
-            <option value="climbing">Rock climbing — multi-pitch</option>
+            <option value="climbing">Rock climbing</option>
             <option value="mountaineering">Mountaineering</option>
-            <option value="mountaineering">Glacier travel / crevasse rescue</option>
+            <option value="fishing">Guided fly fishing</option>
             <option value="biking">Mountain biking</option>
-            <option value="hiking">Hiking &amp; backpacking</option>
-            <option value="climbing">Via ferrata</option>
-            <option value="hiking">Wilderness first aid</option>
+            <option value="hiking">Hiking & backpacking</option>
+            <option value="hunting">Hunting trips</option>
+          </optgroup>
+          <optgroup label="── all season ──">
+            <option value="huts">Alpine huts</option>
+            <option value="guided">Guided tours</option>
           </optgroup>
         </select>
       </div>
-      <div class="search-field">
-        <label>where?</label>
-        <select>
-          <optgroup label="── sea to sky ──">
-            <option>Whistler / Blackcomb</option>
-            <option>Squamish / Stawamus</option>
-            <option>Pemberton / Duffey Lake</option>
-            <option>Spearhead Range</option>
-            <option>Tantalus Range</option>
-            <option>Garibaldi Provincial Park</option>
-          </optgroup>
-          <optgroup label="── north shore ──">
-            <option>Mt Seymour</option>
-            <option>Cypress Mountain</option>
-            <option>Grouse Mountain</option>
-            <option>Howe Sound / Britannia</option>
-          </optgroup>
-          <optgroup label="── interior / other ──">
-            <option>Manning Park</option>
-            <option>Coquihalla Summit</option>
-            <option>Revelstoke</option>
-            <option>Bugaboos</option>
-            <option>Coast Mountains (general)</option>
-          </optgroup>
-          <option value="">Anywhere in BC</option>
+      <div class="search-field" style="flex:1.5;">
+        <label>Where</label>
+        <select id="search-location">
+          <option value="">Anywhere</option>
+          <option>Whistler / Blackcomb</option>
+          <option>Squamish</option>
+          <option>North Shore / Seymour</option>
+          <option>Pemberton / Duffey</option>
+          <option>Garibaldi Park</option>
+          <option>Tantalus Range</option>
         </select>
       </div>
-      <div class="search-field">
-        <label>from</label>
-        <input type="date" value="2026-04-08">
+      <div class="search-field" style="flex:1;">
+        <label>From when</label>
+        <input type="date" id="search-date" value="2026-04-09">
       </div>
-      <div class="search-field">
-        <label>to</label>
-        <input type="date" value="2026-06-30">
-      </div>
-      <button class="search-go" onclick="runSearch()">search →</button>
+      <button class="search-go" onclick="runSearch()">Search →</button>
     </div>
   </div>
-
-  <div class="ad-banner" id="ad-leaderboard"><span class="ad-label">advertisement · 728×90 leaderboard</span></div>
-
-  <div class="results-area">
-    <div class="filter-bar">
-      <span class="filter-label">filter</span>
-      <div class="chip active" onclick="filterChip(this,'all')">all</div>
-      <div class="chip" onclick="filterChip(this,'skiing')">skiing</div>
-      <div class="chip" onclick="filterChip(this,'climbing')">climbing</div>
-      <div class="chip" onclick="filterChip(this,'hiking')">hiking</div>
-      <div class="chip" onclick="filterChip(this,'biking')">biking</div>
-      <div class="chip" onclick="filterChip(this,'mountaineering')">mountaineering</div>
-      <div class="bar-divider"></div>
-      <span class="sort-label">sort by</span>
-      <button class="sort-btn active" onclick="sortBy(this,'date')">date</button>
-      <button class="sort-btn" onclick="sortBy(this,'price')">price</button>
-      <button class="sort-btn" onclick="sortBy(this,'availability')">availability</button>
-      <span class="results-count" id="results-count">24 results</span>
+  <div class="main">
+    <div class="filter-row">
+      <div class="filter-bar">
+        <button class="chip active" onclick="filterChip(this,'all')">All</button>
+        <button class="chip" onclick="filterChip(this,'skiing')">⛷ Skiing</button>
+        <button class="chip" onclick="filterChip(this,'climbing')">🧗 Climbing</button>
+        <button class="chip" onclick="filterChip(this,'mountaineering')">🏔 Mountaineering</button>
+        <button class="chip" onclick="filterChip(this,'biking')">🚵 Biking</button>
+        <button class="chip" onclick="filterChip(this,'hiking')">🥾 Hiking</button>
+        <button class="chip" onclick="filterChip(this,'fishing')">🎣 Fishing</button>
+      </div>
+      <div class="sort-bar">
+        <span class="sort-label">sort by</span>
+        <button class="sort-btn active" onclick="sortBy(this,'date')">date</button>
+        <button class="sort-btn" onclick="sortBy(this,'price')">price</button>
+        <button class="sort-btn" onclick="sortBy(this,'availability')">availability</button>
+      </div>
     </div>
-
+    <div style="margin-bottom:16px;"><span class="results-count" id="results-count">12 results</span></div>
     <div class="card-grid" id="card-grid"></div>
-    <div class="load-more-wrap" id="load-more-wrap">
-      <button class="load-more-btn" onclick="loadMore()">load more courses ↓</button>
+    <div class="load-more-wrap" id="load-more-wrap" style="display:none;">
+      <button class="load-more-btn" onclick="loadMore()">show more</button>
     </div>
   </div>
 </div>
 
 <!-- SAVED PAGE -->
 <div class="page" id="page-saved">
-  <div class="page-header">
-    <h2>saved courses</h2>
-    <p>Your bookmarked courses, stored locally in your browser.</p>
-  </div>
-  <div id="saved-toolbar-wrap" style="display:none;">
-    <div class="saved-toolbar">
-      <span class="saved-toolbar-count" id="saved-toolbar-count">0 courses saved</span>
-      <div class="saved-toolbar-actions">
-        <button class="toolbar-btn" onclick="openEmailListModal()">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 7 10 7 10-7"/></svg>
-          email my list
-        </button>
-        <div class="share-popover-wrap">
-          <button class="toolbar-btn toolbar-btn-primary" onclick="toggleSavedShare(event)">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13"/></svg>
-            share list
+  <div class="main">
+    <div class="page-header">
+      <h2>saved</h2>
+      <p>Your bookmarked experiences, stored in your browser.</p>
+    </div>
+    <div id="saved-toolbar-wrap" style="display:none;">
+      <div class="saved-toolbar">
+        <span class="saved-toolbar-count" id="saved-toolbar-count">0 saved</span>
+        <div class="saved-toolbar-actions">
+          <button class="toolbar-btn" onclick="openEmailListModal()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 7 10 7 10-7"/></svg>
+            email my list
           </button>
-          <div class="share-popover" id="saved-share-popover"></div>
+          <div class="share-popover-wrap">
+            <button class="toolbar-btn toolbar-btn-primary" onclick="toggleSavedShare(event)">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13"/></svg>
+              share list
+            </button>
+            <div class="share-popover" id="saved-share-popover"></div>
+          </div>
         </div>
       </div>
     </div>
-  </div>
-  <div class="saved-grid" id="saved-grid">
-    <div class="empty-state" id="saved-empty">
-      <div class="empty-icon">🔖</div>
+    <div id="saved-empty" class="empty-state">
+      <div class="empty-icon">♡</div>
       <h3>nothing saved yet</h3>
-      <p>Tap the bookmark on any course to save it for later. Great for comparing options before you commit.</p>
+      <p>Tap the heart on any experience to save it for later.</p>
     </div>
     <div class="card-grid" id="saved-cards" style="display:none;"></div>
   </div>
@@ -1169,119 +453,38 @@
 
 <!-- PROVIDERS PAGE -->
 <div class="page" id="page-providers">
-  <div class="page-header">
-    <h2>course providers</h2>
-    <p>BC's top backcountry schools. Ratings pulled from Google.</p>
-  </div>
-  <div class="providers-grid">
-    <div class="provider-card">
-      <div class="provider-logo">Altus</div>
-      <div class="provider-info">
-        <div class="provider-name">Altus Mountain Guides</div>
-        <div class="provider-loc">Whistler &amp; Squamish, BC</div>
-        <div class="provider-stats">
-          <span class="stars">★★★★★</span>
-          <span class="review-count">4.9 (186 reviews)</span>
-          <span class="course-count">8 courses</span>
-        </div>
-        <div class="provider-desc">ACMG-certified guides specialising in AST 1, AST 1+ ski touring, and AST 2. Based in Whistler since 2012.</div>
+  <div class="main">
+    <div class="providers-hero">
+      <div>
+        <h2>for providers</h2>
+        <p>Get your experiences in front of people who are actively looking. No commission, no fees — we drive traffic directly to your booking page.</p>
+      </div>
+      <div class="providers-hero-btns">
+        <button class="provider-cta-btn primary" onclick="openProviderModal('listed')">get listed — it's free</button>
+        <button class="provider-cta-btn secondary" onclick="openProviderModal('suggest')">suggest a provider</button>
       </div>
     </div>
-    <div class="provider-card">
-      <div class="provider-logo">MSAA</div>
-      <div class="provider-info">
-        <div class="provider-name">Mountain Skills Academy &amp; Adventures</div>
-        <div class="provider-loc">Whistler &amp; Squamish, BC</div>
-        <div class="provider-stats">
-          <span class="stars">★★★★★</span>
-          <span class="review-count">4.8 (312 reviews)</span>
-          <span class="course-count">12 courses</span>
-        </div>
-        <div class="provider-desc">30+ years of Sea-to-Sky expertise. BC's most comprehensive mountain skills program, from AST 1 to advanced mountaineering.</div>
-      </div>
-    </div>
-    <div class="provider-card">
-      <div class="provider-logo">CWMS</div>
-      <div class="provider-info">
-        <div class="provider-name">Canada West Mountain School</div>
-        <div class="provider-loc">North Shore &amp; Whistler, BC</div>
-        <div class="provider-stats">
-          <span class="stars">★★★★★</span>
-          <span class="review-count">4.7 (94 reviews)</span>
-          <span class="course-count">9 courses</span>
-        </div>
-        <div class="provider-desc">Operating since 1982. BC's original avalanche training school with 2 full field days on their AST-1 Classic Whistler course.</div>
-      </div>
-    </div>
-    <div class="provider-card">
-      <div class="provider-logo">BC Ski Guides</div>
-      <div class="provider-info">
-        <div class="provider-name">BC Ski Guides</div>
-        <div class="provider-loc">North Shore &amp; Whistler, BC</div>
-        <div class="provider-stats">
-          <span class="stars">★★★★☆</span>
-          <span class="review-count">4.6 (58 reviews)</span>
-          <span class="course-count">6 courses</span>
-        </div>
-        <div class="provider-desc">ACMG guides running AST 1 courses across North Shore, Whistler, Manning Park, and Coquihalla. Small groups, practical focus.</div>
-      </div>
-    </div>
-  </div>
-  <div class="cta-card">
-    <div class="cta-text">
-      <h3>are you a provider?</h3>
-      <p>List your courses for free. We drive traffic directly to your booking page — no commission, no fees, ever.</p>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-      <button class="cta-btn" onclick="openProviderModal('listed')">get listed</button>
-      <button class="cta-btn" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);" onclick="openProviderModal('suggest')">suggest a school</button>
+    <div class="provider-cards">
+      <div class="provider-card"><div class="provider-card-name">Altus Mountain Guides</div><div class="provider-card-loc">Whistler, BC</div><div class="provider-card-rating">★ 4.9 · 200+ reviews</div><div class="provider-card-tags"><span class="provider-tag">AST 1 & 2</span><span class="provider-tag">Mountaineering</span><span class="provider-tag">Biking</span></div></div>
+      <div class="provider-card"><div class="provider-card-name">Mountain Skills Academy</div><div class="provider-card-loc">Squamish, BC</div><div class="provider-card-rating">★ 4.8 · 150+ reviews</div><div class="provider-card-tags"><span class="provider-tag">Rock Climbing</span><span class="provider-tag">AST 1</span><span class="provider-tag">Alpinism</span></div></div>
+      <div class="provider-card"><div class="provider-card-name">Canada West Mountain School</div><div class="provider-card-loc">North Vancouver, BC</div><div class="provider-card-rating">★ 4.7 · 120+ reviews</div><div class="provider-card-tags"><span class="provider-tag">AST 1 & 2</span><span class="provider-tag">Mountaineering</span><span class="provider-tag">Hiking</span></div></div>
+      <div class="provider-card"><div class="provider-card-name">BC Ski Guides</div><div class="provider-card-loc">North Vancouver, BC</div><div class="provider-card-rating">★ 4.6 · 80+ reviews</div><div class="provider-card-tags"><span class="provider-tag">AST 1</span><span class="provider-tag">Ski Touring</span></div></div>
     </div>
   </div>
 </div>
 
 <!-- ABOUT PAGE -->
 <div class="page" id="page-about">
-  <div class="page-header">
-    <h2>about backcountryfinder</h2>
-    <p>Built in BC, for BC.</p>
-  </div>
-  <div class="about-content">
-    <div class="about-tag">our story</div>
-    <h2>Built out of <em>frustration.</em></h2>
-    <div class="about-section">
-      <h3>why this exists</h3>
-      <p>Every season I spend hours clicking between different websites just to find a course that fits my schedule. Multiple providers. Multiple booking systems. Multiple calendars to cross-reference. It shouldn't be this hard. So I built this.</p>
-    </div>
-    <div class="divider"></div>
-    <div class="about-section">
-      <h3>what we do</h3>
-      <p>BackcountryFinder pulls course listings from BC's top providers every 6 hours and surfaces them in one searchable place. We cover backcountry skiing, AST courses, rock climbing, mountaineering, hiking, mountain biking and more — summer and winter. Every "Book Now" goes directly to the provider's booking page. We don't take a commission. We don't mark up prices. We just make it easier to find what you're looking for.</p>
-    </div>
-    <div class="stat-row">
-      <div class="stat-box">
-        <div class="stat-num">4</div>
-        <div class="stat-lbl">providers</div>
-      </div>
-      <div class="stat-box">
-        <div class="stat-num">35+</div>
-        <div class="stat-lbl">courses tracked</div>
-      </div>
-      <div class="stat-box">
-        <div class="stat-num">6hr</div>
-        <div class="stat-lbl">refresh rate</div>
-      </div>
-      <div class="stat-box">
-        <div class="stat-num">$0</div>
-        <div class="stat-lbl">commission</div>
-      </div>
-    </div>
-    <div class="divider"></div>
-    <div class="about-section">
+  <div class="main">
+    <div class="about-wrap">
+      <div class="page-header"><h2>about</h2></div>
+      <p>BackcountryFinder exists because finding backcountry experiences is unnecessarily hard. You know what you want to do — ski a line, learn to climb, chase a river, spend a night in an alpine hut. But finding who runs it, when it's on, and whether there are spots left takes twenty open browser tabs and half an afternoon.</p>
+      <p>This is the fix. Every guided backcountry experience — courses, heli trips, cat skiing, fly fishing, hunting, huts, tours — in one place. Search, compare, save, and book directly with the provider. No middleman, no markup, no BS.</p>
+      <h3>how it works</h3>
+      <p>Providers list their experiences for free. We pull availability every few hours and surface it here. When you find something you like, you book directly with the provider — we just get you there faster.</p>
       <h3>the builder</h3>
-      <p>Built by a wannabe outdoor enthusiast in BC who fights fires for a living.</p>
-    </div>
-    <div class="contact-block">
-      <p>Questions, feedback, or want to get your courses listed? Reach out anytime at <a href="mailto:luke@backcountryfinder.com">luke@backcountryfinder.com</a></p>
+      <p>Built by a firefighter and wannabe mountain person who got tired of the tab problem. If you have experiences to list, providers to suggest, or feedback — the door is open.</p>
+      <div class="contact-block"><p>Questions or want to get listed? <a href="mailto:luke@backcountryfinder.com">luke@backcountryfinder.com</a></p></div>
     </div>
   </div>
 </div>
@@ -1289,683 +492,29 @@
 <!-- MOBILE NAV -->
 <nav class="mobile-nav">
   <div class="mobile-nav-inner">
-    <button class="mnav-item active" id="mnav-search" onclick="showPage('search')">
-      <span class="mnav-icon">⌖</span>
-      <span class="mnav-label">search</span>
-    </button>
-    <button class="mnav-item" id="mnav-saved" onclick="showPage('saved')">
-      <span class="mnav-icon">🔖</span>
-      <span class="mnav-label">saved</span>
-    </button>
-    <button class="mnav-item" id="mnav-providers" onclick="showPage('providers')">
-      <span class="mnav-icon">◈</span>
-      <span class="mnav-label">providers</span>
-    </button>
-    <button class="mnav-item" id="mnav-about" onclick="showPage('about')">
-      <span class="mnav-icon">○</span>
-      <span class="mnav-label">about</span>
-    </button>
+    <button class="mnav-item active" id="mnav-search" onclick="showPage('search')"><span class="mnav-icon">⌖</span><div class="mnav-dot"></div><span class="mnav-label">search</span></button>
+    <button class="mnav-item" id="mnav-saved" onclick="showPage('saved')"><span class="mnav-icon">♡</span><div class="mnav-dot"></div><span class="mnav-label">saved</span></button>
+    <button class="mnav-item" id="mnav-providers" onclick="showPage('providers')"><span class="mnav-icon">◈</span><div class="mnav-dot"></div><span class="mnav-label">providers</span></button>
+    <button class="mnav-item" id="mnav-about" onclick="showPage('about')"><span class="mnav-icon">○</span><div class="mnav-dot"></div><span class="mnav-label">about</span></button>
   </div>
 </nav>
 
-<script>
-const ADS_ENABLED = false; // flip to true when AdSense is live
-
-const IMG = {
-  skiing:        "https://images.unsplash.com/photo-1673994841979-a8d3983d4a51?w=800&q=80&fit=crop",
-  climbing:      "https://images.unsplash.com/photo-1698352607376-fb224335f560?w=800&q=80&fit=crop",
-  mountaineering:"https://plus.unsplash.com/premium_photo-1694475628847-78f7060d4132?w=800&q=80&fit=crop",
-  biking:        "https://images.unsplash.com/photo-1603614068906-c1ea9b6819ab?w=800&q=80&fit=crop",
-  hiking:        "https://images.unsplash.com/photo-1607895521752-bb2ddf4ef6e3?w=800&q=80&fit=crop",
-};
-
-const ALL_COURSES = [
-  { id:1,  title:"Avalanche Skills Training 1 — Whistler",        provider:"Altus",       badge:"AST 1 · 2 days",         date:"Apr 19–20, 2026",  dateSort:"2026-04-19", location:"Whistler / Blackcomb",  activity:"skiing",         price:275, avail:"open", rating:"4.9", url:"https://altusmountainguides.rezdy.com/409466/ast-1-whistler?utm_source=backcountryfinder&utm_medium=referral" },
-  { id:2,  title:"Intro to Outdoor Rock Climbing — Squamish",     provider:"MSAA",        badge:"Rock climbing · 1 day",   date:"May 3, 2026",      dateSort:"2026-05-03", location:"Squamish / Stawamus",   activity:"climbing",       price:199, avail:"low",  rating:"4.8", url:"https://mountainskillsacademy.rezdy.com?utm_source=backcountryfinder&utm_medium=referral" },
-  { id:3,  title:"AST-1 Classic — North Shore / Seymour",         provider:"Canada West", badge:"AST 1 · 2.5 days",        date:"Apr 26–27, 2026",  dateSort:"2026-04-26", location:"Mt Seymour",            activity:"skiing",         price:325, avail:"open", rating:"4.7", url:"https://themountainschool.com/program/ast-1-whistler/?utm_source=backcountryfinder&utm_medium=referral" },
-  { id:4,  title:"Intro Mountain Biking Skills — Whistler",        provider:"Altus",       badge:"Biking · 1 day",          date:"May 10, 2026",     dateSort:"2026-05-10", location:"Whistler",              activity:"biking",         price:225, avail:"open", rating:"4.9", url:"https://altusmountainguides.rezdy.com?utm_source=backcountryfinder&utm_medium=referral" },
-  { id:5,  title:"Glacier Travel &amp; Crevasse Rescue — Garibaldi", provider:"CWMS",     badge:"Mountaineering · 3 days", date:"Jun 14–16, 2026",  dateSort:"2026-06-14", location:"Garibaldi Park",        activity:"mountaineering", price:495, avail:"low",  rating:"4.7", url:"https://themountainschool.com?utm_source=backcountryfinder&utm_medium=referral" },
-  { id:6,  title:"AST 1 — North Vancouver (Mt Seymour)",           provider:"BC Ski Guides",badge:"AST 1 · 1 day",         date:"Apr 22, 2026",     dateSort:"2026-04-22", location:"Mt Seymour",            activity:"skiing",         price:225, avail:"open", rating:"4.6", url:"https://www.bcskiguides.com/tours/ast-1-north-vancouver/?utm_source=backcountryfinder&utm_medium=referral" },
-  { id:7,  title:"Women's AST 1 — Whistler",                       provider:"MSAA",        badge:"AST 1 · 2 days",         date:"May 17–18, 2026",  dateSort:"2026-05-17", location:"Whistler",              activity:"skiing",         price:299, avail:"low",  rating:"4.8", url:"https://mountainskillsacademy.rezdy.com?utm_source=backcountryfinder&utm_medium=referral" },
-  { id:8,  title:"Multi-Pitch Rock Climbing — Squamish",           provider:"MSAA",        badge:"Climbing · 2 days",       date:"Jun 6–7, 2026",    dateSort:"2026-06-06", location:"Squamish",              activity:"climbing",       price:350, avail:"open", rating:"4.8", url:"https://mountainskillsacademy.rezdy.com?utm_source=backcountryfinder&utm_medium=referral" },
-  { id:9,  title:"Intro to Backcountry Skiing — Squamish",         provider:"Altus",       badge:"Skiing · 1 day",          date:"Apr 29, 2026",     dateSort:"2026-04-29", location:"Squamish",              activity:"skiing",         price:250, avail:"open", rating:"4.9", url:"https://altusmountainguides.rezdy.com?utm_source=backcountryfinder&utm_medium=referral" },
-  { id:10, title:"Scrambling Skills Course — Tantalus Range",      provider:"Altus",       badge:"Mountaineering · 2 days", date:"Jul 5–6, 2026",    dateSort:"2026-07-05", location:"Tantalus Range",        activity:"mountaineering", price:420, avail:"open", rating:"4.9", url:"https://altusmountainguides.rezdy.com?utm_source=backcountryfinder&utm_medium=referral" },
-  { id:11, title:"Hiking &amp; Navigation — Garibaldi",            provider:"CWMS",        badge:"Hiking · 1 day",          date:"Jun 20, 2026",     dateSort:"2026-06-20", location:"Garibaldi Park",        activity:"hiking",         price:175, avail:"open", rating:"4.7", url:"https://themountainschool.com?utm_source=backcountryfinder&utm_medium=referral" },
-  { id:12, title:"AST 2 — Whistler / Duffey Lake",                 provider:"Altus",       badge:"AST 2 · 4 days",          date:"May 24–27, 2026",  dateSort:"2026-05-24", location:"Whistler / Pemberton",  activity:"skiing",         price:675, avail:"low",  rating:"4.9", url:"https://altusmountainguides.rezdy.com?utm_source=backcountryfinder&utm_medium=referral" },
-];
-
-let currentFilter = 'all';
-let currentSort = 'date';
-let visibleCount = 6;
-let filteredCourses = [...ALL_COURSES];
-
-function getSaved() {
-  try { return JSON.parse(localStorage.getItem('bcf_saved') || '[]'); } catch(e) { return []; }
-}
-function setSaved(arr) {
-  try { localStorage.setItem('bcf_saved', JSON.stringify(arr)); } catch(e) {}
-}
-function isSaved(id) { return getSaved().includes(id); }
-function toggleSave(id) {
-  let saved = getSaved();
-  if (saved.includes(id)) { saved = saved.filter(x => x !== id); }
-  else { saved.push(id); }
-  setSaved(saved);
-  renderCards();
-  renderSaved();
-}
-
-function availSort(a) { return a.avail === 'open' ? 0 : a.avail === 'low' ? 1 : 2; }
-
-function applySort(arr) {
-  return [...arr].sort((a,b) => {
-    if (currentSort === 'date') return a.dateSort.localeCompare(b.dateSort);
-    if (currentSort === 'price') return a.price - b.price;
-    if (currentSort === 'availability') return availSort(a) - availSort(b);
-    return 0;
-  });
-}
-
-function applyFilter(arr) {
-  if (currentFilter === 'all') return arr;
-  return arr.filter(c => c.activity === currentFilter);
-}
-
-function buildCard(c) {
-  const saved = isSaved(c.id);
-  const availLabel = c.avail === 'open' ? 'Open' : c.avail === 'low' ? 'Few spots left' : 'Sold out';
-  const imgUrl = IMG[c.activity] || IMG.hiking;
-  return `
-    <div class="course-card">
-      <div class="card-img">
-        <img src="${imgUrl}" alt="${c.title}" loading="lazy" onerror="this.style.display='none'">
-        <div class="card-overlay">
-          <div class="card-badge">${c.badge}</div>
-          <div class="card-provider-tag">${c.provider}</div>
-        </div>
-      </div>
-      <div class="card-body">
-        <div>
-          <div class="card-title">${c.title}</div>
-          <div class="card-meta">
-            <span>${c.date}</span><span class="sep">·</span>
-            <span>${c.location}</span><span class="sep">·</span>
-            <span>★ ${c.rating}</span>
-          </div>
-        </div>
-        <div class="card-footer">
-          <div class="price-block">
-            <div class="card-price">$${c.price} <sub>CAD</sub></div>
-            <div class="avail ${c.avail}">${availLabel}</div>
-          </div>
-          <div class="card-actions">
-            <button class="save-btn ${saved ? 'saved' : ''}" onclick="toggleSave(${c.id})" title="${saved ? 'Remove' : 'Save'}">🔖</button>
-
-            ${(c.avail === 'sold' || c.avail === 'low') ?
-              `<a class="book-btn" href="${c.url}" target="_blank" rel="noopener" onclick="openNotifyModal('${c.title.replace(/'/g, "\'")}');return false;">Notify me</a>` :
-              `<a class="book-btn" href="${c.url}" target="_blank" rel="noopener" onclick="setTimeout(showToast,800)">Book Now ↗</a>`
-            }
-          </div>
-        </div>
-      </div>
-    </div>`;
-}
-
-function renderCards() {
-  filteredCourses = applySort(applyFilter(ALL_COURSES));
-  const grid = document.getElementById('card-grid');
-  const wrap = document.getElementById('load-more-wrap');
-  const count = document.getElementById('results-count');
-  count.textContent = filteredCourses.length + ' results';
-
-  let html = '';
-  const showing = filteredCourses.slice(0, visibleCount);
-
-  showing.forEach((c, i) => {
-    html += buildCard(c);
-    if (i === 2 && ADS_ENABLED) {
-      html += `<div class="ad-card"><div class="ad-size">300×250</div><span class="ad-lbl">advertisement</span></div>`;
-    }
-  });
-
-  grid.innerHTML = html;
-  wrap.style.display = visibleCount >= filteredCourses.length ? 'none' : 'block';
-}
-
-function renderSaved() {
-  const saved = getSaved();
-  const empty = document.getElementById('saved-empty');
-  const cards = document.getElementById('saved-cards');
-  const toolbar = document.getElementById('saved-toolbar-wrap');
-  const count = document.getElementById('saved-toolbar-count');
-  if (saved.length === 0) {
-    empty.style.display = 'flex';
-    cards.style.display = 'none';
-    if (toolbar) toolbar.style.display = 'none';
-    return;
-  }
-  empty.style.display = 'none';
-  cards.style.display = 'grid';
-  if (toolbar) toolbar.style.display = 'block';
-  if (count) count.textContent = `${saved.length} course${saved.length !== 1 ? 's' : ''} saved`;
-  const savedCourses = ALL_COURSES.filter(c => saved.includes(c.id));
-  cards.innerHTML = savedCourses.map(c => buildCard(c)).join('');
-}
-
-function loadMore() {
-  visibleCount += 6;
-  renderCards();
-}
-
-function filterChip(el, val) {
-  document.querySelectorAll('.filter-bar .chip').forEach(c => c.classList.remove('active'));
-  el.classList.add('active');
-  currentFilter = val;
-  visibleCount = 6;
-  renderCards();
-}
-
-function sortBy(el, val) {
-  document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
-  el.classList.add('active');
-  currentSort = val;
-  renderCards();
-}
-
-function runSearch() {
-  visibleCount = 6;
-  renderCards();
-}
-
-function showPage(name) {
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.nav-link').forEach(n => n.classList.remove('active'));
-  document.querySelectorAll('.mnav-item').forEach(n => n.classList.remove('active'));
-  document.getElementById('page-' + name).classList.add('active');
-  const nl = document.getElementById('nav-' + name);
-  const ml = document.getElementById('mnav-' + name);
-  if (nl) nl.classList.add('active');
-  if (ml) ml.classList.add('active');
-  if (name === 'saved') renderSaved();
-  window.scrollTo(0, 0);
-}
-
-renderCards();
-initSharedCourses();
-
-// Hide ad slots until ADS_ENABLED is true
-if (!ADS_ENABLED) {
-  document.querySelectorAll('.ad-banner, .ad-card, #ad-leaderboard').forEach(el => {
-    el.style.display = 'none';
-  });
-}
-
-// ── SHARED COURSES (URL param) ──
-const SUPABASE_EDGE_URL = 'https://owzrztaguehebkatnatc.supabase.co/functions/v1/send-saved-list';
-
-function getSharedIds() {
-  const params = new URLSearchParams(window.location.search);
-  const shared = params.get('shared');
-  return shared ? shared.split(',').map(Number).filter(Boolean) : [];
-}
-
-function initSharedCourses() {
-  const ids = getSharedIds();
-  if (ids.length === 0) return;
-  const courses = ALL_COURSES.filter(c => ids.includes(c.id));
-  if (courses.length === 0) return;
-
-  // Silently save shared courses into recipient's localStorage
-  let saved = getSaved();
-  let added = 0;
-  ids.forEach(id => { if (!saved.includes(id)) { saved.push(id); added++; } });
-  setSaved(saved);
-
-  // Show banner confirming courses were saved
-  const banner = document.getElementById('shared-banner');
-  const title = document.getElementById('shared-banner-title');
-  const sub = document.getElementById('shared-banner-sub');
-  if (banner && title && sub) {
-    title.textContent = `${courses.length} course${courses.length !== 1 ? 's' : ''} saved to your list`;
-    sub.textContent = 'Someone shared these with you — view them in your saved tab.';
-    banner.style.display = 'block';
-  }
-
-  // Clean up URL so sharing the page again doesn't re-trigger
-  if (window.history && window.history.replaceState) {
-    window.history.replaceState({}, '', window.location.pathname);
-  }
-}
-
-function saveSharedCourses() {
-  dismissSharedBanner();
-  renderSaved();
-  showPage('saved');
-}
-
-function dismissSharedBanner() {
-  const banner = document.getElementById('shared-banner');
-  if (banner) banner.style.display = 'none';
-}
-
-// ── SHARE HELPERS ──
-function buildSharePopoverHTML(courseId, isMultiple) {
-  const ids = isMultiple ? getSaved().join(',') : String(courseId);
-  const shareUrl = `https://backcountryfinder.com/?shared=${ids}`;
-  const courses = isMultiple
-    ? ALL_COURSES.filter(c => getSaved().includes(c.id))
-    : ALL_COURSES.filter(c => c.id === courseId);
-  const courseLines = courses.map(c =>
-    `${c.activity === 'skiing' ? '🎿' : c.activity === 'climbing' ? '🧗' : c.activity === 'biking' ? '🚵' : '🏔'} ${c.title.split('—')[0].trim()} · ${c.date.split(',')[0]} · $${c.price}`
-  ).join('\n');
-  const waMsg = encodeURIComponent(
-    isMultiple
-      ? `Hey — found some great backcountry courses on BackcountryFinder. Opens with them already saved 👇\n\n${courseLines}\n\n${shareUrl}`
-      : `Check out this course on BackcountryFinder:\n\n${courseLines}\n\n${shareUrl}`
-  );
-  const smsMsg = encodeURIComponent(
-    isMultiple
-      ? `These courses and dates work for me, take a look — ${shareUrl}`
-      : `Check this course out — ${shareUrl}`
-  );
-  const canNative = typeof navigator.share === 'function';
-  return `
-    <div class="share-popover-title">${isMultiple ? 'share this list' : 'share this course'}</div>
-    <div class="share-popover-btns">
-      <a class="sp-btn sp-btn-wa" href="https://wa.me/?text=${waMsg}" target="_blank">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.136.564 4.14 1.548 5.871L0 24l6.335-1.521A11.934 11.934 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.818 9.818 0 01-5.006-1.369l-.36-.214-3.732.895.944-3.617-.235-.374A9.818 9.818 0 012.182 12C2.182 6.57 6.57 2.182 12 2.182S21.818 6.57 21.818 12 17.43 21.818 12 21.818z"/></svg>
-        WhatsApp
-      </a>
-      <a class="sp-btn sp-btn-im" href="sms:&body=${smsMsg}">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 4.925 0 11c0 3.39 1.643 6.425 4.219 8.399L3 24l4.797-2.561A13.03 13.03 0 0012 22c6.627 0 12-4.925 12-11S18.627 0 12 0z"/></svg>
-        iMessage
-      </a>
-      ${canNative ? `<button class="sp-btn sp-btn-native" data-native-share="${shareUrl}" data-native-title="${(isMultiple ? 'Backcountry courses' : (courses[0]?.title||'')).replace(/"/g,'&quot;')}">share via...</button>` : ''}
-      <button class="sp-btn sp-btn-copy" data-copy-url="${shareUrl}">copy link</button>
-    </div>
-    <div class="sp-url">${shareUrl}</div>`;
-}
-
-function positionPopover(popover, btn) {
-  const rect = btn.getBoundingClientRect();
-  const popW = Math.min(220, window.innerWidth - 32);
-  popover.style.width = popW + 'px';
-  // Horizontal — align right edge to button right, clamp to viewport
-  let left = rect.right - popW;
-  if (left < 8) left = 8;
-  if (left + popW > window.innerWidth - 8) left = window.innerWidth - popW - 8;
-  popover.style.left = left + 'px';
-  popover.style.right = 'auto';
-  // Vertical — below if space, else above
-  const spaceBelow = window.innerHeight - rect.bottom;
-  if (spaceBelow >= 200) {
-    popover.style.top = (rect.bottom + 6) + 'px';
-    popover.style.bottom = 'auto';
-  } else {
-    popover.style.top = 'auto';
-    popover.style.bottom = (window.innerHeight - rect.top + 6) + 'px';
-  }
-}
-
-function toggleCardShare(e, courseId) {
-  e.stopPropagation();
-  e.preventDefault();
-  const wasOpen = document.getElementById('share-popover-' + courseId)?.classList.contains('active');
-  closeAllPopovers();
-  if (wasOpen) return;
-  const popover = document.getElementById('share-popover-' + courseId);
-  if (!popover) { console.warn('No popover for id', courseId); return; }
-  popover.innerHTML = buildSharePopoverHTML(courseId, false);
-  positionPopover(popover, e.currentTarget);
-  popover.classList.add('active');
-}
-
-function toggleSavedShare(e) {
-  e.stopPropagation();
-  e.preventDefault();
-  const wasOpen = document.getElementById('saved-share-popover')?.classList.contains('active');
-  closeAllPopovers();
-  if (wasOpen) return;
-  const popover = document.getElementById('saved-share-popover');
-  if (!popover) return;
-  popover.innerHTML = buildSharePopoverHTML(null, true);
-  positionPopover(popover, e.currentTarget);
-  popover.classList.add('active');
-}
-
-function closeAllPopovers() {
-  document.querySelectorAll('.share-popover').forEach(p => p.classList.remove('active'));
-}
-
-document.addEventListener('click', function(e) {
-  // Share button on card
-  const shareBtn = e.target.closest('[data-share-id]');
-  if (shareBtn) {
-    e.stopPropagation();
-    e.preventDefault();
-    const courseId = parseInt(shareBtn.getAttribute('data-share-id'));
-    const popover = document.getElementById('share-popover-' + courseId);
-    const wasOpen = popover?.classList.contains('active');
-    closeAllPopovers();
-    if (!wasOpen && popover) {
-      popover.innerHTML = buildSharePopoverHTML(courseId, false);
-      // Use the wrap div for positioning, not the button (more stable on mobile)
-      const wrap = shareBtn.closest('.share-popover-wrap') || shareBtn;
-      positionPopover(popover, wrap);
-      popover.classList.add('active');
-    }
-    return;
-  }
-  // Copy link button inside popover
-  const copyBtn = e.target.closest('[data-copy-url]');
-  if (copyBtn) {
-    e.stopPropagation();
-    copyShareLink(copyBtn.getAttribute('data-copy-url'), copyBtn);
-    return;
-  }
-  // Native share button inside popover
-  const nativeBtn = e.target.closest('[data-native-share]');
-  if (nativeBtn) {
-    e.stopPropagation();
-    nativeShare(nativeBtn.getAttribute('data-native-share'), nativeBtn.getAttribute('data-native-title'));
-    return;
-  }
-  // Close if clicking outside
-  if (!e.target.closest('.share-popover')) closeAllPopovers();
-});
-
-async function copyShareLink(url, btn) {
-  try {
-    await navigator.clipboard.writeText(url);
-    const orig = btn.textContent;
-    btn.textContent = 'copied!';
-    setTimeout(() => { btn.textContent = orig; }, 2000);
-  } catch(e) {
-    prompt('Copy this link:', url);
-  }
-}
-
-async function nativeShare(url, title) {
-  try {
-    await navigator.share({ title: title || 'BackcountryFinder', url });
-  } catch(e) {}
-}
-
-// ── EMAIL MY LIST MODAL ──
-function openEmailListModal() {
-  const saved = getSaved();
-  const courses = ALL_COURSES.filter(c => saved.includes(c.id));
-  if (courses.length === 0) return;
-  const preview = document.getElementById('elm-courses-preview');
-  preview.innerHTML = courses.map(c =>
-    `<div class="elm-course-line">${c.activity === 'skiing' ? '🎿' : c.activity === 'climbing' ? '🧗' : c.activity === 'biking' ? '🚵' : '🏔'} ${c.title.split('—')[0].trim()} · ${c.date.split(',')[0]} · $${c.price}</div>`
-  ).join('');
-  document.getElementById('elm-email').value = '';
-  document.getElementById('elm-form-content').style.display = 'block';
-  document.getElementById('elm-success').style.display = 'none';
-  document.getElementById('email-list-modal').classList.add('active');
-}
-
-function closeEmailListModal(e) {
-  if (!e || e.target === document.getElementById('email-list-modal')) {
-    document.getElementById('email-list-modal').classList.remove('active');
-  }
-}
-
-async function submitEmailList() {
-  const email = document.getElementById('elm-email').value.trim();
-  const optIn = document.getElementById('elm-optin').checked;
-  if (!email || !email.includes('@')) {
-    document.getElementById('elm-email').focus();
-    document.getElementById('elm-email').style.borderColor = '#e24b4a';
-    return;
-  }
-  document.getElementById('elm-email').style.borderColor = '';
-  const btn = document.querySelector('.elm-submit');
-  btn.textContent = 'sending...';
-  btn.disabled = true;
-  const saved = getSaved();
-  const courses = ALL_COURSES.filter(c => saved.includes(c.id));
-  try {
-    await fetch(SUPABASE_EDGE_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
-        'apikey': SUPABASE_KEY
-      },
-      body: JSON.stringify({ email, courses, optIn })
-    });
-  } catch(e) {}
-  document.getElementById('elm-form-content').style.display = 'none';
-  document.getElementById('elm-success').style.display = 'block';
-  setTimeout(closeEmailListModal, 3500);
-}
-
-// ── SUPABASE CONFIG ──
-const SUPABASE_URL = 'https://owzrztaguehebkatnatc.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_lqIyTGAgCn09Yfh1eacSPg_tcs9SJcB';
-
-async function saveEmail(email, courseTitle, signupType) {
-  if (!email || !email.includes('@')) return false;
-  try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/email_signups`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': SUPABASE_KEY,
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
-        'Prefer': 'return=minimal'
-      },
-      body: JSON.stringify({ email, course_title: courseTitle || null, signup_type: signupType })
-    });
-    return res.ok;
-  } catch(e) { return false; }
-}
-
-// ── PROVIDER MODAL ──
-function openProviderModal(tab) {
-  switchProviderTab(tab || 'suggest');
-  // reset forms
-  ['suggest-form-content','listed-form-content'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.style.display = 'block';
-  });
-  ['suggest-success','listed-success'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.style.display = 'none';
-  });
-  ['suggest-school','suggest-website','suggest-email','suggest-notes',
-   'listed-school','listed-website','listed-name','listed-email','listed-notes'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.value = '';
-  });
-  document.getElementById('provider-modal').classList.add('active');
-}
-
-function closeProviderModal(e) {
-  if (!e || e.target === document.getElementById('provider-modal')) {
-    document.getElementById('provider-modal').classList.remove('active');
-  }
-}
-
-function switchProviderTab(tab) {
-  document.querySelectorAll('.pmodal-tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.pmodal-form').forEach(f => f.classList.remove('active'));
-  document.getElementById('tab-' + tab).classList.add('active');
-  document.getElementById('form-' + tab).classList.add('active');
-}
-
-async function submitSuggest() {
-  const school = document.getElementById('suggest-school').value.trim();
-  const email  = document.getElementById('suggest-email').value.trim();
-  if (!school) { document.getElementById('suggest-school').focus(); return; }
-  await fetch(`${SUPABASE_URL}/rest/v1/provider_submissions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': SUPABASE_KEY,
-      'Authorization': `Bearer ${SUPABASE_KEY}`,
-      'Prefer': 'return=minimal'
-    },
-    body: JSON.stringify({
-      submission_type: 'suggest',
-      school_name: school,
-      website: document.getElementById('suggest-website').value.trim() || null,
-      contact_email: email || null,
-      notes: document.getElementById('suggest-notes').value.trim() || null
-    })
-  });
-  document.getElementById('suggest-form-content').style.display = 'none';
-  document.getElementById('suggest-success').style.display = 'block';
-  setTimeout(closeProviderModal, 3000);
-}
-
-async function submitGetListed() {
-  const school = document.getElementById('listed-school').value.trim();
-  const email  = document.getElementById('listed-email').value.trim();
-  const name   = document.getElementById('listed-name').value.trim();
-  if (!school) { document.getElementById('listed-school').focus(); return; }
-  if (!email || !email.includes('@')) { document.getElementById('listed-email').focus(); return; }
-  await fetch(`${SUPABASE_URL}/rest/v1/provider_submissions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': SUPABASE_KEY,
-      'Authorization': `Bearer ${SUPABASE_KEY}`,
-      'Prefer': 'return=minimal'
-    },
-    body: JSON.stringify({
-      submission_type: 'get_listed',
-      school_name: school,
-      website: document.getElementById('listed-website').value.trim() || null,
-      contact_name: name || null,
-      contact_email: email,
-      notes: document.getElementById('listed-notes').value.trim() || null
-    })
-  });
-  document.getElementById('listed-form-content').style.display = 'none';
-  document.getElementById('listed-success').style.display = 'block';
-  setTimeout(closeProviderModal, 3500);
-}
-
-// ── NOTIFY ME MODAL ──
-let currentNotifyCourse = '';
-
-function openNotifyModal(courseTitle) {
-  currentNotifyCourse = courseTitle;
-  document.getElementById('modal-course-title').textContent = courseTitle;
-  document.getElementById('modal-email').value = '';
-  document.getElementById('modal-form-content').style.display = 'block';
-  document.getElementById('modal-success').style.display = 'none';
-  document.getElementById('notify-modal').classList.add('active');
-}
-
-function closeNotifyModal() {
-  document.getElementById('notify-modal').classList.remove('active');
-}
-
-function closeModal(e) {
-  if (e.target === document.getElementById('notify-modal')) closeNotifyModal();
-}
-
-async function submitNotify() {
-  const email = document.getElementById('modal-email').value.trim();
-  if (!email || !email.includes('@')) {
-    document.getElementById('modal-email').focus();
-    document.getElementById('modal-email').style.borderColor = '#e24b4a';
-    return;
-  }
-  document.getElementById('modal-email').style.borderColor = '';
-  await saveEmail(email, currentNotifyCourse, 'notify_me');
-  document.getElementById('modal-form-content').style.display = 'none';
-  document.getElementById('modal-success').style.display = 'block';
-  setTimeout(closeNotifyModal, 2800);
-}
-
-// ── BOOK NOW TOAST ──
-let toastTimer = null;
-
-function showToast() {
-  clearTimeout(toastTimer);
-  const toast = document.getElementById('book-toast');
-  toast.innerHTML = `
-    <div class="toast-top">
-      <div>
-        <div class="toast-title">Heading to book?</div>
-        <div class="toast-sub">Get new course alerts — no spam, unsubscribe anytime.</div>
-      </div>
-      <button class="toast-close" onclick="closeToast()">x</button>
-    </div>
-    <div class="toast-row">
-      <input class="toast-input" type="email" id="toast-email" placeholder="your@email.com">
-      <button class="toast-btn" onclick="submitToast()">yes please</button>
-    </div>
-    <button class="toast-dismiss" onclick="closeToast()">no thanks</button>`;
-  toast.classList.add('active');
-  toastTimer = setTimeout(closeToast, 12000);
-}
-
-function closeToast() {
-  document.getElementById('book-toast').classList.remove('active');
-  clearTimeout(toastTimer);
-}
-
-async function submitToast() {
-  const emailEl = document.getElementById('toast-email');
-  if (!emailEl) return;
-  const email = emailEl.value.trim();
-  if (!email || !email.includes('@')) {
-    emailEl.focus();
-    emailEl.style.borderColor = '#e24b4a';
-    return;
-  }
-  emailEl.style.borderColor = '';
-  await saveEmail(email, null, 'book_now_toast');
-  document.getElementById('book-toast').innerHTML = `
-    <div style="text-align:center;padding:4px 0;">
-      <div style="font-size:22px;margin-bottom:6px;">v</div>
-      <div style="font-size:13px;font-weight:500;color:var(--text-primary);">You are on the list</div>
-      <div style="font-size:12px;color:var(--text-tertiary);margin-top:3px;">We will send you new course alerts.</div>
-    </div>`;
-  setTimeout(closeToast, 2500);
-}
-</script>
-
-<!-- SHARED COURSES BANNER -->
-<div id="shared-banner" style="display:none;">
-  <div class="shared-banner">
-    <div class="shared-banner-text">
-      <h3 id="shared-banner-title">Someone shared courses with you</h3>
-      <p id="shared-banner-sub">Here are the courses they saved — click Book Now to grab a spot.</p>
-    </div>
-    <div class="shared-banner-actions">
-      <button class="shared-save-btn" onclick="saveSharedCourses()">view saved courses →</button>
-      <button class="shared-dismiss" onclick="dismissSharedBanner()">dismiss</button>
-    </div>
-  </div>
-</div>
-
-<!-- EMAIL MY LIST MODAL -->
+<!-- EMAIL MODAL -->
 <div class="email-list-modal-overlay" id="email-list-modal" onclick="closeEmailListModal(event)">
   <div class="email-list-modal elm-modal">
     <button class="elm-close" onclick="closeEmailListModal()">×</button>
     <div id="elm-form-content">
       <div class="elm-tag">email my list</div>
-      <h3>Send your saved courses to your inbox</h3>
-      <p>We'll email you a neat summary with Book Now links — and a shareable link to send to a friend.</p>
+      <h3>Send your saved list to your inbox</h3>
+      <p>We'll email you a neat summary with Book Now links — plus a shareable link to send to a friend.</p>
       <div class="elm-courses-preview" id="elm-courses-preview"></div>
       <input class="elm-input" type="email" id="elm-email" placeholder="your@email.com">
-      <label class="elm-optin">
-        <input type="checkbox" id="elm-optin" checked>
-        <span>Keep me updated when new courses are added — no spam, unsubscribe anytime.</span>
-      </label>
+      <label class="elm-optin"><input type="checkbox" id="elm-optin" checked><span>Keep me updated when new experiences are added — no spam, unsubscribe anytime.</span></label>
       <button class="elm-submit" onclick="submitEmailList()">send me my list</button>
     </div>
     <div class="elm-success" id="elm-success">
-      <div class="tick">✓</div>
-      <h4>Check your inbox!</h4>
-      <p>Your saved courses are on their way. Don't forget to check your spam folder if it doesn't arrive.</p>
+      <div class="tick">✓</div><h4>Check your inbox!</h4>
+      <p>Your saved list is on its way. Check spam if it doesn't arrive within a minute.</p>
     </div>
   </div>
 </div>
@@ -1974,106 +523,324 @@ async function submitToast() {
 <div class="provider-modal-overlay" id="provider-modal" onclick="closeProviderModal(event)">
   <div class="provider-modal">
     <button class="pmodal-close" onclick="closeProviderModal()">×</button>
-
     <div class="pmodal-tabs">
-      <button class="pmodal-tab active" id="tab-suggest" onclick="switchProviderTab('suggest')">suggest a school</button>
+      <button class="pmodal-tab active" id="tab-suggest" onclick="switchProviderTab('suggest')">suggest a provider</button>
       <button class="pmodal-tab" id="tab-listed" onclick="switchProviderTab('listed')">get listed</button>
     </div>
-
     <div class="pmodal-body">
-
-      <!-- SUGGEST FORM -->
       <div class="pmodal-form active" id="form-suggest">
         <div id="suggest-form-content">
-          <div class="pmodal-tag">suggest a school</div>
+          <div class="pmodal-tag">suggest a provider</div>
           <h3>Know a great provider we're missing?</h3>
-          <p>Tell us about them and we'll reach out to get them listed. Takes 30 seconds.</p>
-          <div class="pmodal-field">
-            <label>school name *</label>
-            <input type="text" id="suggest-school" placeholder="e.g. Whistler Alpine Guides">
-          </div>
-          <div class="pmodal-field">
-            <label>their website</label>
-            <input type="url" id="suggest-website" placeholder="https://...">
-          </div>
-          <div class="pmodal-field">
-            <label>your email (so we can update you)</label>
-            <input type="email" id="suggest-email" placeholder="your@email.com">
-          </div>
-          <div class="pmodal-field">
-            <label>anything else we should know?</label>
-            <textarea id="suggest-notes" placeholder="e.g. they run great AST 2 courses in Revelstoke..."></textarea>
-          </div>
-          <button class="pmodal-submit" onclick="submitSuggest()">suggest this school</button>
+          <p>Tell us about them and we'll reach out to get them listed.</p>
+          <div class="pmodal-field"><label>provider name *</label><input type="text" id="suggest-school" placeholder="e.g. Whistler Alpine Guides"></div>
+          <div class="pmodal-field"><label>their website</label><input type="url" id="suggest-website" placeholder="https://..."></div>
+          <div class="pmodal-field"><label>your email</label><input type="email" id="suggest-email" placeholder="your@email.com"></div>
+          <div class="pmodal-field"><label>anything else?</label><textarea id="suggest-notes" placeholder="e.g. they run great heli trips out of Revelstoke..."></textarea></div>
+          <button class="pmodal-submit" onclick="submitSuggest()">suggest this provider</button>
         </div>
-        <div class="pmodal-success" id="suggest-success">
-          <div class="tick">✓</div>
-          <h4>Thanks for the tip!</h4>
-          <p>We'll reach out to them and get them added to BackcountryFinder.</p>
-        </div>
+        <div class="pmodal-success" id="suggest-success"><div class="tick">✓</div><h4>Thanks for the tip!</h4><p>We'll reach out to them and get them added.</p></div>
       </div>
-
-      <!-- GET LISTED FORM -->
       <div class="pmodal-form" id="form-listed">
         <div id="listed-form-content">
           <div class="pmodal-tag">get listed</div>
-          <h3>List your courses for free</h3>
-          <p>We drive traffic directly to your booking page — no commission, no fees, ever. Fill this in and we'll be in touch within 48 hours.</p>
-          <div class="pmodal-field">
-            <label>school name *</label>
-            <input type="text" id="listed-school" placeholder="e.g. Whistler Alpine Guides">
-          </div>
-          <div class="pmodal-field">
-            <label>your website *</label>
-            <input type="url" id="listed-website" placeholder="https://...">
-          </div>
-          <div class="pmodal-field">
-            <label>your name *</label>
-            <input type="text" id="listed-name" placeholder="First and last name">
-          </div>
-          <div class="pmodal-field">
-            <label>your email *</label>
-            <input type="email" id="listed-email" placeholder="you@yourschool.com">
-          </div>
-          <div class="pmodal-field">
-            <label>anything you'd like us to know?</label>
-            <textarea id="listed-notes" placeholder="e.g. we run AST 1 & 2 courses out of Squamish and Whistler..."></textarea>
-          </div>
+          <h3>List your experiences for free</h3>
+          <p>No commission, no fees, ever. We'll be in touch within 48 hours.</p>
+          <div class="pmodal-field"><label>provider name *</label><input type="text" id="listed-school" placeholder="e.g. Whistler Alpine Guides"></div>
+          <div class="pmodal-field"><label>your website *</label><input type="url" id="listed-website" placeholder="https://..."></div>
+          <div class="pmodal-field"><label>your name *</label><input type="text" id="listed-name" placeholder="First and last name"></div>
+          <div class="pmodal-field"><label>your email *</label><input type="email" id="listed-email" placeholder="you@yourprovider.com"></div>
+          <div class="pmodal-field"><label>anything you'd like us to know?</label><textarea id="listed-notes" placeholder="e.g. we run heli and cat skiing out of Golden..."></textarea></div>
           <button class="pmodal-submit" onclick="submitGetListed()">get listed on backcountryfinder</button>
         </div>
-        <div class="pmodal-success" id="listed-success">
-          <div class="tick">✓</div>
-          <h4>We'll be in touch!</h4>
-          <p>Expect an email from luke@backcountryfinder.com within 48 hours to get you set up.</p>
-        </div>
+        <div class="pmodal-success" id="listed-success"><div class="tick">✓</div><h4>We'll be in touch!</h4><p>Expect an email from luke@backcountryfinder.com within 48 hours.</p></div>
       </div>
-
     </div>
   </div>
 </div>
 
-<!-- NOTIFY ME MODAL -->
+<!-- NOTIFY MODAL -->
 <div class="modal-overlay" id="notify-modal" onclick="closeModal(event)">
   <div class="modal">
-    <button class="modal-close" onclick="closeNotifyModal()">x</button>
+    <button class="modal-close" onclick="closeNotifyModal()">×</button>
     <div id="modal-form-content">
       <div class="modal-tag">notify me</div>
-      <h3>We will let you know when a spot opens up</h3>
-      <p>Drop your email and we will ping you the moment availability changes. No spam, ever.</p>
+      <h3>We'll let you know when a spot opens</h3>
+      <p>Drop your email and we'll ping you the moment availability changes.</p>
       <div class="modal-course" id="modal-course-title"></div>
       <input class="modal-input" type="email" id="modal-email" placeholder="your@email.com">
       <button class="modal-submit" onclick="submitNotify()">notify me when a spot opens</button>
     </div>
-    <div class="modal-success" id="modal-success">
-      <div class="tick">v</div>
-      <h4>You are on the list</h4>
-      <p>We will email you as soon as a spot opens up on this course.</p>
-    </div>
+    <div class="modal-success" id="modal-success"><div class="tick">✓</div><h4>You're on the list</h4><p>We'll email you as soon as a spot opens.</p></div>
   </div>
 </div>
 
-<!-- BOOK NOW TOAST -->
 <div class="toast" id="book-toast"></div>
 
+<script>
+const ADS_ENABLED = false;
+const SUPABASE_EDGE_URL = 'https://owzrztaguehebkatnatc.supabase.co/functions/v1/send-saved-list';
+const SUPABASE_URL = 'https://owzrztaguehebkatnatc.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_lqIyTGAgCn09Yfh1eacSPg_tcs9SJcB';
+
+const IMG = {
+  skiing:        "https://images.unsplash.com/photo-1673994841979-a8d3983d4a51?w=800&q=80&fit=crop",
+  climbing:      "https://images.unsplash.com/photo-1698352607376-fb224335f560?w=800&q=80&fit=crop",
+  mountaineering:"https://plus.unsplash.com/premium_photo-1694475628847-78f7060d4132?w=800&q=80&fit=crop",
+  biking:        "https://images.unsplash.com/photo-1603614068906-c1ea9b6819ab?w=800&q=80&fit=crop",
+  hiking:        "https://images.unsplash.com/photo-1607895521752-bb2ddf4ef6e3?w=800&q=80&fit=crop",
+  fishing:       "https://images.unsplash.com/photo-1541512416146-3cf58d6b27cc?w=800&q=80&fit=crop",
+};
+
+const ALL_COURSES = [
+  {id:1,title:"Avalanche Skills Training 1 — Whistler",provider:"Altus",badge:"AST 1 · 2 days",date:"Apr 19–20, 2026",dateSort:"2026-04-19",location:"Whistler / Blackcomb",activity:"skiing",price:275,avail:"open",rating:"4.9",url:"https://altusmountainguides.rezdy.com/409466/ast-1-whistler?utm_source=backcountryfinder&utm_medium=referral"},
+  {id:2,title:"Intro to Outdoor Rock Climbing — Squamish",provider:"MSAA",badge:"Rock climbing · 1 day",date:"May 3, 2026",dateSort:"2026-05-03",location:"Squamish / Stawamus",activity:"climbing",price:199,avail:"low",rating:"4.8",url:"https://mountainskillsacademy.rezdy.com?utm_source=backcountryfinder&utm_medium=referral"},
+  {id:3,title:"AST-1 Classic — North Shore / Seymour",provider:"Canada West",badge:"AST 1 · 2.5 days",date:"Apr 26–27, 2026",dateSort:"2026-04-26",location:"Mt Seymour",activity:"skiing",price:325,avail:"open",rating:"4.7",url:"https://themountainschool.com/program/ast-1-whistler/?utm_source=backcountryfinder&utm_medium=referral"},
+  {id:4,title:"Intro Mountain Biking Skills — Whistler",provider:"Altus",badge:"Biking · 1 day",date:"May 10, 2026",dateSort:"2026-05-10",location:"Whistler",activity:"biking",price:225,avail:"open",rating:"4.9",url:"https://altusmountainguides.rezdy.com?utm_source=backcountryfinder&utm_medium=referral"},
+  {id:5,title:"Glacier Travel & Crevasse Rescue — Garibaldi",provider:"CWMS",badge:"Mountaineering · 3 days",date:"Jun 14–16, 2026",dateSort:"2026-06-14",location:"Garibaldi Park",activity:"mountaineering",price:495,avail:"low",rating:"4.7",url:"https://themountainschool.com?utm_source=backcountryfinder&utm_medium=referral"},
+  {id:6,title:"AST 1 — North Vancouver (Mt Seymour)",provider:"BC Ski Guides",badge:"AST 1 · 1 day",date:"Apr 22, 2026",dateSort:"2026-04-22",location:"Mt Seymour",activity:"skiing",price:225,avail:"open",rating:"4.6",url:"https://www.bcskiguides.com/tours/ast-1-north-vancouver/?utm_source=backcountryfinder&utm_medium=referral"},
+  {id:7,title:"Women's AST 1 — Whistler",provider:"MSAA",badge:"AST 1 · 2 days",date:"May 17–18, 2026",dateSort:"2026-05-17",location:"Whistler",activity:"skiing",price:299,avail:"low",rating:"4.8",url:"https://mountainskillsacademy.rezdy.com?utm_source=backcountryfinder&utm_medium=referral"},
+  {id:8,title:"Multi-Pitch Rock Climbing — Squamish",provider:"MSAA",badge:"Climbing · 2 days",date:"Jun 6–7, 2026",dateSort:"2026-06-06",location:"Squamish",activity:"climbing",price:350,avail:"open",rating:"4.8",url:"https://mountainskillsacademy.rezdy.com?utm_source=backcountryfinder&utm_medium=referral"},
+  {id:9,title:"Intro to Backcountry Skiing — Squamish",provider:"Altus",badge:"Skiing · 1 day",date:"Apr 29, 2026",dateSort:"2026-04-29",location:"Squamish",activity:"skiing",price:250,avail:"open",rating:"4.9",url:"https://altusmountainguides.rezdy.com?utm_source=backcountryfinder&utm_medium=referral"},
+  {id:10,title:"Scrambling Skills Course — Tantalus Range",provider:"Altus",badge:"Mountaineering · 2 days",date:"Jul 5–6, 2026",dateSort:"2026-07-05",location:"Tantalus Range",activity:"mountaineering",price:420,avail:"open",rating:"4.9",url:"https://altusmountainguides.rezdy.com?utm_source=backcountryfinder&utm_medium=referral"},
+  {id:11,title:"Hiking & Navigation — Garibaldi",provider:"CWMS",badge:"Hiking · 1 day",date:"Jun 20, 2026",dateSort:"2026-06-20",location:"Garibaldi Park",activity:"hiking",price:175,avail:"open",rating:"4.7",url:"https://themountainschool.com?utm_source=backcountryfinder&utm_medium=referral"},
+  {id:12,title:"AST 2 — Whistler / Duffey Lake",provider:"Altus",badge:"AST 2 · 4 days",date:"May 24–27, 2026",dateSort:"2026-05-24",location:"Whistler / Pemberton",activity:"skiing",price:675,avail:"low",rating:"4.9",url:"https://altusmountainguides.rezdy.com?utm_source=backcountryfinder&utm_medium=referral"},
+];
+
+let currentFilter='all',currentSort='date',visibleCount=6,filteredCourses=[...ALL_COURSES];
+
+function getSaved(){try{return JSON.parse(localStorage.getItem('bcf_saved')||'[]');}catch(e){return[];}}
+function setSaved(arr){try{localStorage.setItem('bcf_saved',JSON.stringify(arr));}catch(e){}}
+function isSaved(id){return getSaved().includes(id);}
+function toggleSave(id){let s=getSaved();s=s.includes(id)?s.filter(x=>x!==id):[...s,id];setSaved(s);renderCards();renderSaved();}
+
+function availSort(a){return a.avail==='open'?0:a.avail==='low'?1:2;}
+function applySort(arr){return[...arr].sort((a,b)=>{if(currentSort==='date')return a.dateSort.localeCompare(b.dateSort);if(currentSort==='price')return a.price-b.price;if(currentSort==='availability')return availSort(a)-availSort(b);return 0;});}
+function applyFilter(arr){return currentFilter==='all'?arr:arr.filter(c=>c.activity===currentFilter);}
+
+function buildCard(c){
+  const saved=isSaved(c.id);
+  const availLabel=c.avail==='open'?'Open':c.avail==='low'?'Few spots left':'Sold out';
+  const imgUrl=IMG[c.activity]||IMG.hiking;
+  return`<div class="course-card">
+    <div class="card-img"><img src="${imgUrl}" alt="${c.title}" loading="lazy" onerror="this.style.display='none'">
+      <div class="card-overlay"><div class="card-badge">${c.badge}</div><div class="card-provider-tag">${c.provider}</div></div>
+    </div>
+    <div class="card-body">
+      <div class="card-title">${c.title}</div>
+      <div class="card-meta"><span>${c.date}</span><span class="sep">·</span><span>${c.location}</span><span class="sep">·</span><span>★ ${c.rating}</span></div>
+    </div>
+    <div class="card-footer">
+      <div class="price-block">
+        <div class="card-price">$${c.price} <sub>CAD</sub></div>
+        <div class="avail ${c.avail}">${availLabel}</div>
+      </div>
+      <div class="card-actions">
+        <button class="save-btn ${saved?'saved':''}" onclick="toggleSave(${c.id})">${saved?'♥':'♡'}</button>
+        ${c.avail==='sold'?`<a class="book-btn" href="${c.url}" target="_blank" rel="noopener" onclick="openNotifyModal('${c.title.replace(/'/g,"\\'")}');return false;">Notify me</a>`:`<a class="book-btn" href="${c.url}" target="_blank" rel="noopener" onclick="setTimeout(showToast,800)">Book Now ↗</a>`}
+      </div>
+    </div>
+  </div>`;}
+
+function renderCards(){
+  filteredCourses=applySort(applyFilter(ALL_COURSES));
+  const grid=document.getElementById('card-grid');
+  const wrap=document.getElementById('load-more-wrap');
+  document.getElementById('results-count').textContent=filteredCourses.length+' results';
+  grid.innerHTML=filteredCourses.slice(0,visibleCount).map(c=>buildCard(c)).join('');
+  wrap.style.display=visibleCount>=filteredCourses.length?'none':'block';
+}
+
+function renderSaved(){
+  const saved=getSaved();
+  const empty=document.getElementById('saved-empty');
+  const cards=document.getElementById('saved-cards');
+  const toolbar=document.getElementById('saved-toolbar-wrap');
+  const count=document.getElementById('saved-toolbar-count');
+  if(saved.length===0){empty.style.display='flex';cards.style.display='none';if(toolbar)toolbar.style.display='none';return;}
+  empty.style.display='none';cards.style.display='grid';
+  if(toolbar)toolbar.style.display='block';
+  if(count)count.textContent=`${saved.length} saved`;
+  cards.innerHTML=ALL_COURSES.filter(c=>saved.includes(c.id)).map(c=>buildCard(c)).join('');
+}
+
+function loadMore(){visibleCount+=6;renderCards();}
+function filterChip(el,val){document.querySelectorAll('.filter-bar .chip').forEach(c=>c.classList.remove('active'));el.classList.add('active');currentFilter=val;visibleCount=6;renderCards();}
+function sortBy(el,val){document.querySelectorAll('.sort-btn').forEach(b=>b.classList.remove('active'));el.classList.add('active');currentSort=val;renderCards();}
+function runSearch(){visibleCount=6;renderCards();}
+
+function showPage(name){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-link').forEach(n=>n.classList.remove('active'));
+  document.querySelectorAll('.mnav-item').forEach(n=>n.classList.remove('active'));
+  document.getElementById('page-'+name).classList.add('active');
+  const nl=document.getElementById('nav-'+name);
+  const ml=document.getElementById('mnav-'+name);
+  if(nl)nl.classList.add('active');
+  if(ml)ml.classList.add('active');
+  if(name==='saved')renderSaved();
+  window.scrollTo(0,0);
+}
+
+// LOGO HOVER
+const logoBtn=document.getElementById('logo-btn');
+logoBtn.addEventListener('mouseenter',()=>{logoBtn.classList.remove('replaying');void logoBtn.offsetWidth;logoBtn.classList.add('replaying');});
+logoBtn.addEventListener('mouseleave',()=>{setTimeout(()=>logoBtn.classList.remove('replaying'),2500);});
+
+// TAGLINE ANIMATION
+let idx1=0,idx2=0;
+const track1=document.getElementById('track1');
+const track2=document.getElementById('track2');
+const words1=['course','line','summit','trip','route','powder','hut','guide','drift','run','cast','secret','stash','beta','zone'];
+const words2=['adventure','peak','people','escape','wild','silence','horizon','freedom','solitude','calling','tracks','flow','crew','way out','next chapter'];
+
+setInterval(()=>{
+  idx1=(idx1+1)%words1.length;
+  if(idx1>=words1.length-1){setTimeout(()=>{track1.style.transition='none';track1.style.transform='translateY(0)';idx1=0;setTimeout(()=>{track1.style.transition='transform 0.55s cubic-bezier(0.4,0,0.2,1)';},50);},600);}
+  else{track1.style.transform=`translateY(-${idx1*1.25}em)`;}
+},2800);
+
+setInterval(()=>{
+  idx2=(idx2+1)%words2.length;
+  if(idx2>=words2.length-1){setTimeout(()=>{track2.style.transition='none';track2.style.transform='translateY(0)';idx2=0;setTimeout(()=>{track2.style.transition='transform 0.55s cubic-bezier(0.4,0,0.2,1)';},50);},600);}
+  else{track2.style.transform=`translateY(-${idx2*1.25}em)`;}
+},3700);
+
+// SHARED COURSES
+function getSharedIds(){const p=new URLSearchParams(window.location.search);const s=p.get('shared');return s?s.split(',').map(Number).filter(Boolean):[];}
+function initSharedCourses(){
+  const ids=getSharedIds();if(ids.length===0)return;
+  const courses=ALL_COURSES.filter(c=>ids.includes(c.id));if(courses.length===0)return;
+  let saved=getSaved();ids.forEach(id=>{if(!saved.includes(id))saved.push(id);});setSaved(saved);
+  const banner=document.getElementById('shared-banner');
+  const title=document.getElementById('shared-banner-title');
+  const sub=document.getElementById('shared-banner-sub');
+  if(banner&&title&&sub){title.textContent=`${courses.length} experience${courses.length!==1?'s':''} saved to your list`;sub.textContent='Someone shared these with you — view them in your saved tab.';banner.style.display='block';}
+  if(window.history&&window.history.replaceState)window.history.replaceState({},'',window.location.pathname);
+}
+function saveSharedCourses(){dismissSharedBanner();renderSaved();showPage('saved');}
+function dismissSharedBanner(){const b=document.getElementById('shared-banner');if(b)b.style.display='none';}
+
+// SHARE
+function buildSharePopoverHTML(courseId,isMultiple){
+  const ids=isMultiple?getSaved().join(','):String(courseId);
+  const shareUrl=`https://backcountryfinder.com/?shared=${ids}`;
+  const courses=isMultiple?ALL_COURSES.filter(c=>getSaved().includes(c.id)):ALL_COURSES.filter(c=>c.id===courseId);
+  const waMsg=encodeURIComponent(`These courses and dates work for me, take a look — ${shareUrl}`);
+  const smsMsg=encodeURIComponent(`These courses and dates work for me, take a look — ${shareUrl}`);
+  const canNative=typeof navigator.share==='function';
+  const safeTitle=(isMultiple?'Backcountry experiences':(courses[0]?.title||'')).replace(/"/g,'&quot;');
+  return`<div class="share-popover-title">${isMultiple?'share this list':'share this experience'}</div>
+    <div class="share-popover-btns">
+      <a class="sp-btn sp-btn-wa" href="https://wa.me/?text=${waMsg}" target="_blank" rel="noopener"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.136.564 4.14 1.548 5.871L0 24l6.335-1.521A11.934 11.934 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.818 9.818 0 01-5.006-1.369l-.36-.214-3.732.895.944-3.617-.235-.374A9.818 9.818 0 012.182 12C2.182 6.57 6.57 2.182 12 2.182S21.818 6.57 21.818 12 17.43 21.818 12 21.818z"/></svg>WhatsApp</a>
+      <a class="sp-btn sp-btn-im" href="sms:&body=${smsMsg}"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 4.925 0 11c0 3.39 1.643 6.425 4.219 8.399L3 24l4.797-2.561A13.03 13.03 0 0012 22c6.627 0 12-4.925 12-11S18.627 0 12 0z"/></svg>iMessage</a>
+      ${canNative?`<button class="sp-btn sp-btn-native" data-native-share="${shareUrl}" data-native-title="${safeTitle}">share via...</button>`:''}
+      <button class="sp-btn sp-btn-copy" data-copy-url="${shareUrl}">copy link</button>
+    </div>
+    <div class="sp-url">${shareUrl}</div>`;}
+
+function positionPopover(popover,btn){
+  const rect=btn.getBoundingClientRect();
+  const popW=Math.min(230,window.innerWidth-32);
+  popover.style.width=popW+'px';
+  let left=rect.right-popW;
+  if(left<8)left=8;
+  if(left+popW>window.innerWidth-8)left=window.innerWidth-popW-8;
+  popover.style.left=left+'px';popover.style.right='auto';
+  const spaceBelow=window.innerHeight-rect.bottom;
+  if(spaceBelow>=220){popover.style.top=(rect.bottom+6)+'px';popover.style.bottom='auto';}
+  else{popover.style.bottom=(window.innerHeight-rect.top+6)+'px';popover.style.top='auto';}
+}
+
+function toggleSavedShare(e){
+  e.stopPropagation();e.preventDefault();
+  const popover=document.getElementById('saved-share-popover');
+  const wasOpen=popover?.classList.contains('active');
+  closeAllPopovers();
+  if(!wasOpen&&popover){popover.innerHTML=buildSharePopoverHTML(null,true);positionPopover(popover,e.currentTarget);popover.classList.add('active');}
+}
+
+function closeAllPopovers(){document.querySelectorAll('.share-popover').forEach(p=>p.classList.remove('active'));}
+
+document.addEventListener('click',function(e){
+  const copyBtn=e.target.closest('[data-copy-url]');
+  if(copyBtn){e.stopPropagation();copyShareLink(copyBtn.getAttribute('data-copy-url'),copyBtn);return;}
+  const nativeBtn=e.target.closest('[data-native-share]');
+  if(nativeBtn){e.stopPropagation();nativeShare(nativeBtn.getAttribute('data-native-share'),nativeBtn.getAttribute('data-native-title'));return;}
+  if(!e.target.closest('.share-popover'))closeAllPopovers();
+});
+
+async function copyShareLink(url,btn){try{await navigator.clipboard.writeText(url);const orig=btn.textContent;btn.textContent='copied!';setTimeout(()=>{btn.textContent=orig;},2000);}catch(e){prompt('Copy this link:',url);}}
+async function nativeShare(url,title){try{await navigator.share({title:title||'BackcountryFinder',url});}catch(e){}}
+
+// EMAIL MY LIST
+function openEmailListModal(){
+  const saved=getSaved();const courses=ALL_COURSES.filter(c=>saved.includes(c.id));if(courses.length===0)return;
+  document.getElementById('elm-courses-preview').innerHTML=courses.map(c=>`<div class="elm-course-line">${c.activity==='skiing'?'⛷':c.activity==='climbing'?'🧗':c.activity==='fishing'?'🎣':c.activity==='biking'?'🚵':'🏔'} ${c.title.split('—')[0].trim()} · ${c.date.split(',')[0]} · $${c.price}</div>`).join('');
+  document.getElementById('elm-email').value='';
+  document.getElementById('elm-form-content').style.display='block';
+  document.getElementById('elm-success').style.display='none';
+  document.getElementById('email-list-modal').classList.add('active');
+}
+function closeEmailListModal(e){if(!e||e.target===document.getElementById('email-list-modal'))document.getElementById('email-list-modal').classList.remove('active');}
+async function submitEmailList(){
+  const email=document.getElementById('elm-email').value.trim();
+  const optIn=document.getElementById('elm-optin').checked;
+  if(!email||!email.includes('@')){document.getElementById('elm-email').style.borderColor='#e24b4a';document.getElementById('elm-email').focus();return;}
+  document.getElementById('elm-email').style.borderColor='';
+  const btn=document.querySelector('.elm-submit');btn.textContent='sending...';btn.disabled=true;
+  const saved=getSaved();const courses=ALL_COURSES.filter(c=>saved.includes(c.id));
+  try{await fetch(SUPABASE_EDGE_URL,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_KEY}`,'apikey':SUPABASE_KEY},body:JSON.stringify({email,courses,optIn})});}catch(e){}
+  document.getElementById('elm-form-content').style.display='none';
+  document.getElementById('elm-success').style.display='block';
+  setTimeout(closeEmailListModal,3500);
+}
+
+async function saveEmail(email,courseTitle,signupType){
+  if(!email||!email.includes('@'))return false;
+  try{const res=await fetch(`${SUPABASE_URL}/rest/v1/email_signups`,{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`,'Prefer':'return=minimal'},body:JSON.stringify({email,course_title:courseTitle||null,signup_type:signupType})});return res.ok;}catch(e){return false;}
+}
+
+// PROVIDER MODAL
+function openProviderModal(tab){
+  switchProviderTab(tab||'suggest');
+  ['suggest-form-content','listed-form-content'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='block';});
+  ['suggest-success','listed-success'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
+  ['suggest-school','suggest-website','suggest-email','suggest-notes','listed-school','listed-website','listed-name','listed-email','listed-notes'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  document.getElementById('provider-modal').classList.add('active');
+}
+function closeProviderModal(e){if(!e||e.target===document.getElementById('provider-modal'))document.getElementById('provider-modal').classList.remove('active');}
+function switchProviderTab(tab){document.querySelectorAll('.pmodal-tab').forEach(t=>t.classList.remove('active'));document.querySelectorAll('.pmodal-form').forEach(f=>f.classList.remove('active'));document.getElementById('tab-'+tab).classList.add('active');document.getElementById('form-'+tab).classList.add('active');}
+async function submitSuggest(){
+  const school=document.getElementById('suggest-school').value.trim();
+  if(!school){document.getElementById('suggest-school').focus();return;}
+  await fetch(`${SUPABASE_URL}/rest/v1/provider_submissions`,{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`,'Prefer':'return=minimal'},body:JSON.stringify({submission_type:'suggest',school_name:school,website:document.getElementById('suggest-website').value.trim()||null,contact_email:document.getElementById('suggest-email').value.trim()||null,notes:document.getElementById('suggest-notes').value.trim()||null})});
+  document.getElementById('suggest-form-content').style.display='none';document.getElementById('suggest-success').style.display='block';setTimeout(closeProviderModal,3000);
+}
+async function submitGetListed(){
+  const school=document.getElementById('listed-school').value.trim();
+  const email=document.getElementById('listed-email').value.trim();
+  if(!school){document.getElementById('listed-school').focus();return;}
+  if(!email||!email.includes('@')){document.getElementById('listed-email').focus();return;}
+  await fetch(`${SUPABASE_URL}/rest/v1/provider_submissions`,{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`,'Prefer':'return=minimal'},body:JSON.stringify({submission_type:'get_listed',school_name:school,website:document.getElementById('listed-website').value.trim()||null,contact_name:document.getElementById('listed-name').value.trim()||null,contact_email:email,notes:document.getElementById('listed-notes').value.trim()||null})});
+  document.getElementById('listed-form-content').style.display='none';document.getElementById('listed-success').style.display='block';setTimeout(closeProviderModal,3500);
+}
+
+// NOTIFY
+let currentNotifyCourse='';
+function openNotifyModal(courseTitle){currentNotifyCourse=courseTitle;document.getElementById('modal-course-title').textContent=courseTitle;document.getElementById('modal-email').value='';document.getElementById('modal-form-content').style.display='block';document.getElementById('modal-success').style.display='none';document.getElementById('notify-modal').classList.add('active');}
+function closeNotifyModal(){document.getElementById('notify-modal').classList.remove('active');}
+function closeModal(e){if(e.target===document.getElementById('notify-modal'))closeNotifyModal();}
+async function submitNotify(){const email=document.getElementById('modal-email').value.trim();if(!email||!email.includes('@')){document.getElementById('modal-email').style.borderColor='#e24b4a';return;}document.getElementById('modal-email').style.borderColor='';await saveEmail(email,currentNotifyCourse,'notify_me');document.getElementById('modal-form-content').style.display='none';document.getElementById('modal-success').style.display='block';setTimeout(closeNotifyModal,2800);}
+
+// TOAST
+let toastTimer=null;
+function showToast(){clearTimeout(toastTimer);const toast=document.getElementById('book-toast');toast.innerHTML=`<div class="toast-top"><div><div class="toast-title">Heading to book?</div><div class="toast-sub">Get new experience alerts — no spam.</div></div><button class="toast-close" onclick="closeToast()">×</button></div><div class="toast-row"><input class="toast-input" type="email" id="toast-email" placeholder="your@email.com"><button class="toast-btn" onclick="submitToast()">yes please</button></div><button class="toast-dismiss" onclick="closeToast()">no thanks</button>`;toast.classList.add('active');toastTimer=setTimeout(closeToast,12000);}
+function closeToast(){document.getElementById('book-toast').classList.remove('active');clearTimeout(toastTimer);}
+async function submitToast(){const emailEl=document.getElementById('toast-email');if(!emailEl)return;const email=emailEl.value.trim();if(!email||!email.includes('@')){emailEl.style.borderColor='#e24b4a';emailEl.focus();return;}emailEl.style.borderColor='';await saveEmail(email,null,'book_now_toast');document.getElementById('book-toast').innerHTML=`<div style="text-align:center;padding:4px 0;"><div style="font-size:24px;margin-bottom:6px;">✓</div><div style="font-size:13px;font-weight:700;">You're on the list</div><div style="font-size:12px;color:var(--text-tertiary);margin-top:4px;font-weight:500;">We'll send you new experience alerts.</div></div>`;setTimeout(closeToast,2500);}
+
+renderCards();
+initSharedCourses();
+</script>
 </body>
 </html>
