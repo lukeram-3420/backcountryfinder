@@ -781,7 +781,7 @@ async function fetchFromSupabase(page = 0, append = false, background = false) {
     const to = from + PAGE_SIZE - 1;
     const today = new Date().toISOString().split('T')[0];
 
-    let url = `${SUPABASE_URL}/rest/v1/courses?select=*,providers(name,rating,review_count)&active=eq.true&date_sort=gte.${today}`;
+    let url = `${SUPABASE_URL}/rest/v1/courses?select=*,providers(name,rating,review_count)&active=eq.true`;
 
     if (currentFilters.activity) url += `&activity=eq.${encodeURIComponent(currentFilters.activity)}`;
     if (currentFilters.location) url += `&or=(location_canonical.eq.${encodeURIComponent(currentFilters.location)},location_raw.eq.${encodeURIComponent(currentFilters.location)})`;
