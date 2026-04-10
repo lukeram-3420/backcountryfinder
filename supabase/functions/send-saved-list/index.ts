@@ -265,25 +265,27 @@ serve(async (req) => {
       throw new Error(`Resend error ${resendRes.status}: ${resendBody}`);
     }
 
-    // Save to Supabase if opt-in — use publishable key for anon insert
+    // Save one row per saved course if opt-in — captures interest data
     if (optIn) {
       const supabaseUrl = "https://owzrztaguehebkatnatc.supabase.co";
       const supabaseKey = Deno.env.get("ANON_KEY") ?? "";
       if (supabaseKey) {
-        await fetch(`${supabaseUrl}/rest/v1/email_signups`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "apikey": supabaseKey,
-            "Authorization": `Bearer ${supabaseKey}`,
-            "Prefer": "return=minimal",
-          },
-          body: JSON.stringify({
-            email,
-            signup_type: "saved_list",
-            course_title: null,
-          }),
-        });
+        await Promise.all(courses.map((c: Course) =>
+          fetch(`${supabaseUrl}/rest/v1/email_signups`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "apikey": supabaseKey,
+              "Authorization": `Bearer ${supabaseKey}`,
+              "Prefer": "return=minimal",
+            },
+            body: JSON.stringify({
+              email,
+              signup_type: "saved_list",
+              course_title: c.title,
+            }),
+          })
+        ));
       }
     }
 
