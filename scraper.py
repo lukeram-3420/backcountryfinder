@@ -43,6 +43,11 @@ ACTIVITY_LABELS = {
     "cat":            "Cat Skiing",
     "huts":           "Alpine Huts",
     "guided":         "Guided Tour",
+    "glissading":     "Glissading",
+    "rappelling":     "Rappelling",
+    "snowshoeing":    "Snowshoeing",
+    "snowshoe":       "Snowshoeing",
+    "via_ferrata":    "Via Ferrata",
 }
 
 REZDY_PROVIDERS = [
