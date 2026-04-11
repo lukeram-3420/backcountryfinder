@@ -1271,8 +1271,7 @@ document.addEventListener('click',function(e){
 async function copyShareLink(url,btn){try{await navigator.clipboard.writeText(url);const orig=btn.textContent;btn.textContent='copied!';setTimeout(()=>{btn.textContent=orig;},2000);}catch(e){prompt('Copy this link:',url);}}
 async function nativeShare(url,title){try{await navigator.share({title:title||'BackcountryFinder',url});}catch(e){}}
 
-// EMAIL MY LIST
-async // NOTIFY ME
+// NOTIFY ME
 let _notifyCourseId = null;
 let _notifyProviderTitle = null;
 let _notifyProviderId = null;
