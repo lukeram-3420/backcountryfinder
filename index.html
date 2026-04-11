@@ -896,7 +896,7 @@ async function loadActivitiesDropdown() {
     const activities = new Set();
     rows.forEach(r => { if (r.activity_canonical) activities.add(r.activity_canonical); });
     const select = document.getElementById('search-activity');
-    const currentVal = select.value;
+    const currentVal = select.value || currentFilters.activity;
     select.innerHTML = '<option value="">Everything backcountry</option>' +
       [...activities].sort().map(a => `<option value="${a}">${ACTIVITY_LABELS[a] || a}</option>`).join('');
     if (currentVal) select.value = currentVal;
@@ -918,7 +918,7 @@ async function loadLocationsDropdown() {
       else if (r.location_raw) locations.add(r.location_raw);
     });
     const select = document.getElementById('search-location');
-    const currentVal = select.value;
+    const currentVal = select.value || currentFilters.location;
     select.innerHTML = '<option value="">Anywhere</option>' +
       [...locations].sort().map(l => `<option value="${l}">${l}</option>`).join('');
     if (currentVal) select.value = currentVal;
@@ -1063,6 +1063,9 @@ function runSearch(){
   currentFilters.date = document.getElementById('search-date').value;
   currentPage=0;
   fetchCourses(0, false);
+  // Ensure dropdowns visually reflect the selected filters
+  if (currentFilters.activity) document.getElementById('search-activity').value = currentFilters.activity;
+  if (currentFilters.location) document.getElementById('search-location').value = currentFilters.location;
 }
 
 function showPage(name){
