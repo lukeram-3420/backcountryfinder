@@ -1419,24 +1419,38 @@ def scrape_srg(provider):
                 r2.raise_for_status()
                 soup2 = BeautifulSoup(r2.text, "html.parser")
 
-                # Title
-                h1 = soup2.find("h1")
+                # Remove sidebar to avoid grabbing wrong h1/content
+                for sidebar in soup2.select("aside, #genesis-sidebar-primary, .sidebar"):
+                    sidebar.decompose()
+
+                # Title — second h1 is the course title (first is sidebar "Instruction")
+                h1s = soup2.find_all("h1")
+                h1 = h1s[-1] if h1s else None  # last h1 is the course title
                 title = h1.get_text(strip=True) if h1 else None
+                if not title or title.lower() in ("instruction", "courses", "guiding", "groups"):
+                    # Fallback to page title tag
+                    title_tag = soup2.find("title")
+                    if title_tag:
+                        title = title_tag.get_text(strip=True).split(" - ")[0].strip()
                 if not title:
                     continue
 
-                # Price
+                # Price — find the last price mentioned (most accurate)
                 price = None
+                price_matches = []
                 for el in soup2.find_all(string=re.compile(r"\$[\d,]+")):
-                    m = re.search(r"\$([\d,]+)", el)
+                    m = re.search(r"\$([\d,]+\.?\d*)", str(el))
                     if m:
                         try:
-                            price = int(m.group(1).replace(",", ""))
-                            break
+                            val = int(float(m.group(1).replace(",", "")))
+                            if val > 0:
+                                price_matches.append(val)
                         except ValueError:
                             pass
+                if price_matches:
+                    price = price_matches[-1]  # last price = actual course price
 
-                # Description — paragraphs after h1
+                # Description — paragraphs after the course title h1
                 desc_parts = []
                 if h1:
                     for p in h1.find_all_next("p"):
@@ -1445,9 +1459,9 @@ def scrape_srg(provider):
                             desc_parts.append(text)
                 description = " ".join(desc_parts)[:800]
 
-                # Image
+                # Image — first image in main content
                 image_url = None
-                img = soup2.select_one(".entry-content img, article img, .post img")
+                img = soup2.select_one(".entry-content img, main img, article img")
                 if img:
                     image_url = img.get("src") or img.get("data-src")
 
@@ -1466,26 +1480,33 @@ def scrape_srg(provider):
                 prog_id = prog_id_match.group(1)
                 prog_name = prog_name_match.group(1) if prog_name_match else title
 
-                # Step 3: Hit booking page to get dates
-                booking_url = f"{provider['booking_base']}?prg={prog_name}&progID={prog_id}"
-                time.sleep(0.5)
-                r3 = requests.get(booking_url, headers=HEADERS, timeout=20)
-                r3.raise_for_status()
-                soup3 = BeautifulSoup(r3.text, "html.parser")
+                # Booking URL
+                booking_url = f"{provider['booking_base']}?prg={prog_name}&progID={prog_id}&{provider['utm']}"
 
-                # Dates are in a select dropdown
-                date_select = soup3.find("select", {"name": re.compile(r"date|Date|program", re.I)})
-                if not date_select:
-                    # Try finding any select with date-like options
-                    for sel in soup3.find_all("select"):
-                        opts = [o.get_text(strip=True) for o in sel.find_all("option")]
-                        if any(re.match(r"\d{4}-\d{2}-\d{2}", o) for o in opts):
-                            date_select = sel
-                            break
+                # Dates are on the program page itself — look for date buttons/spans
+                # Structure: <div class="date-wrap"><span class="day">19</span><span class="month">Apr</span>
+                # Or plain text dates like "2026-04-19"
+                date_strs = []
 
-                if not date_select:
-                    log.warning(f"No date select found for {title}")
-                    # Add as flexible dates
+                # Try ISO dates in text nodes first
+                iso_dates = re.findall(r"(20\d{2}-\d{2}-\d{2})", soup2.get_text())
+                if iso_dates:
+                    date_strs = iso_dates
+                else:
+                    # Try date buttons: day + month displayed as "19 Apr"
+                    date_items = soup2.select(".ec-date, .date-item, [class*='date']")
+                    for item in date_items:
+                        text = item.get_text(strip=True)
+                        for fmt in ["%d %b %Y", "%b %d %Y", "%B %d %Y"]:
+                            try:
+                                dt = datetime.strptime(text, fmt)
+                                date_strs.append(dt.strftime("%Y-%m-%d"))
+                                break
+                            except ValueError:
+                                pass
+
+                if not date_strs:
+                    log.warning(f"No dates found for {title} — adding as flexible")
                     courses.append({
                         "title":        title,
                         "provider_id":  provider["id"],
@@ -1496,7 +1517,7 @@ def scrape_srg(provider):
                         "date_sort":    None,
                         "custom_dates": True,
                         "image_url":    image_url,
-                        "booking_url":  f"{booking_url}&{provider['utm']}",
+                        "booking_url":  booking_url,
                         "description":  description,
                         "summary":      "",
                         "avail":        "open",
@@ -1504,16 +1525,7 @@ def scrape_srg(provider):
                     })
                     continue
 
-                # One card per date
-                dates = [o.get("value") or o.get_text(strip=True)
-                         for o in date_select.find_all("option")
-                         if o.get("value") or o.get_text(strip=True)]
-
-                for date_str in dates:
-                    date_str = date_str.strip()
-                    if not re.match(r"\d{4}-\d{2}-\d{2}", date_str):
-                        continue
-                    # Skip past dates
+                for date_str in sorted(set(date_strs)):
                     if date_str < now.strftime("%Y-%m-%d"):
                         continue
                     try:
@@ -1532,7 +1544,7 @@ def scrape_srg(provider):
                         "date_sort":    date_str,
                         "custom_dates": False,
                         "image_url":    image_url,
-                        "booking_url":  f"{booking_url}&{provider['utm']}",
+                        "booking_url":  booking_url,
                         "description":  description,
                         "summary":      "",
                         "avail":        "open",
