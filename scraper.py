@@ -1336,16 +1336,24 @@ def scrape_summit_event_page(event_url):
         soup = BeautifulSoup(r.text, "html.parser")
 
         # Try common event description selectors
+        # Try specific tribe selectors first, then broader fallbacks
         desc_el = (
             soup.find("div", class_=lambda c: c and "tribe-events-single-description" in (c or "")) or
             soup.find("div", class_=lambda c: c and "tribe-events-content" in (c or "")) or
+            soup.find("div", {"itemprop": "description"}) or
             soup.find("div", class_="entry-content") or
-            soup.find("div", {"itemprop": "description"})
+            soup.find("div", id="tribe-events-content") or
+            soup.find("main")
         )
         if desc_el:
-            # Remove any nested script/style tags
-            for tag in desc_el.find_all(["script", "style"]):
+            for tag in desc_el.find_all(["script", "style", "nav", "header", "footer"]):
                 tag.decompose()
+            # Get all paragraphs and join — more robust than get_text on whole div
+            paragraphs = desc_el.find_all("p")
+            if paragraphs:
+                text = " ".join(p.get_text(strip=True) for p in paragraphs[:5] if len(p.get_text(strip=True)) > 30)
+                if text:
+                    return text[:800]
             return desc_el.get_text(separator=" ", strip=True)[:800]
     except Exception as e:
         log.warning(f"Could not fetch Summit event page {event_url}: {e}")
