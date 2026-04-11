@@ -1077,6 +1077,9 @@ function setProviderFilter(providerId, providerName) {
     label.textContent = `Viewing: ${providerName}`;
     chip.style.display = 'inline-flex';
   }
+  // Write to URL so it can be shared
+  if (window.history && window.history.replaceState)
+    window.history.replaceState({}, '', `?provider=${providerId}`);
   showPage('search');
   currentPage = 0;
   fetchCourses(0, false);
@@ -1088,7 +1091,6 @@ function clearProviderFilter() {
   if (chip) chip.style.display = 'none';
   currentPage = 0;
   fetchCourses(0, false);
-  // Clean up URL
   if (window.history && window.history.replaceState)
     window.history.replaceState({}, '', window.location.pathname);
 }
