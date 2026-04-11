@@ -1183,7 +1183,9 @@ def main():
 
                 # Build stable ID using date_sort
                 date_sort = session.get("date_sort")
-                session_id = stable_id(provider["id"], course["activity"], date_sort, course["title"])
+                # Include product_id as tiebreaker to avoid duplicate stable IDs
+                id_key = f"{course['title']} {session.get('product_id', '')}"
+                session_id = stable_id(provider["id"], course["activity"], date_sort, id_key)
 
                 session_course = dict(course)
                 session_course.update({
