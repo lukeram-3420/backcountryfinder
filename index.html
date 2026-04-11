@@ -1289,7 +1289,7 @@ async function loadProviders() {
         : null;
       const rating = p.rating
         ? reviewsUrl
-          ? `<a href="${reviewsUrl}" target="_blank" rel="noopener" class="provider-card-rating" style="text-decoration:none;">★ ${p.rating}${p.review_count ? ` · ${p.review_count}+ reviews` : ''}</a>`
+          ? `<a href="${reviewsUrl}" target="_blank" rel="noopener" class="provider-card-rating" style="display:block;text-decoration:none;margin-bottom:6px;">★ ${p.rating}${p.review_count ? ` · ${p.review_count}+ reviews` : ''}</a>`
           : `<div class="provider-card-rating">★ ${p.rating}${p.review_count ? ` · ${p.review_count}+ reviews` : ''}</div>`
         : '';
       const website = p.website
