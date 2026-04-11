@@ -1336,25 +1336,28 @@ def scrape_summit_event_page(event_url):
         soup = BeautifulSoup(r.text, "html.parser")
 
         # Try common event description selectors
-        # Try specific tribe selectors first, then broader fallbacks
-        desc_el = (
-            soup.find("div", class_=lambda c: c and "tribe-events-single-description" in (c or "")) or
-            soup.find("div", class_=lambda c: c and "tribe-events-content" in (c or "")) or
-            soup.find("div", {"itemprop": "description"}) or
-            soup.find("div", class_="entry-content") or
-            soup.find("div", id="tribe-events-content") or
-            soup.find("main")
-        )
-        if desc_el:
-            for tag in desc_el.find_all(["script", "style", "nav", "header", "footer"]):
-                tag.decompose()
-            # Get all paragraphs and join — more robust than get_text on whole div
-            paragraphs = desc_el.find_all("p")
-            if paragraphs:
-                text = " ".join(p.get_text(strip=True) for p in paragraphs[:5] if len(p.get_text(strip=True)) > 30)
-                if text:
-                    return text[:800]
-            return desc_el.get_text(separator=" ", strip=True)[:800]
+        # Remove nav/header/footer noise first
+        for tag in soup.find_all(["nav", "header", "footer", "script", "style"]):
+            tag.decompose()
+
+        # Find all paragraphs in the page, skip short ones (nav items etc)
+        # Look for the first substantial paragraph after the h1
+        h1 = soup.find("h1")
+        description_parts = []
+        if h1:
+            # Walk siblings and descendants after h1
+            for el in h1.find_all_next("p"):
+                text = el.get_text(strip=True)
+                if len(text) > 60 and len(description_parts) < 3:
+                    description_parts.append(text)
+        
+        if description_parts:
+            return " ".join(description_parts)[:800]
+        
+        # Final fallback: all substantial paragraphs
+        all_p = [p.get_text(strip=True) for p in soup.find_all("p") if len(p.get_text(strip=True)) > 60]
+        if all_p:
+            return " ".join(all_p[:3])[:800]
     except Exception as e:
         log.warning(f"Could not fetch Summit event page {event_url}: {e}")
     return ""
