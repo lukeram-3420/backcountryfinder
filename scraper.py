@@ -159,6 +159,15 @@ def load_location_mappings() -> dict:
     return {r["location_raw"].lower().strip(): r["location_canonical"] for r in rows}
 
 
+def load_activity_labels():
+    try:
+        rows = sb_get("activity_labels", {"select": "activity,label"})
+        return {r["activity"]: r["label"] for r in rows}
+    except Exception as e:
+        log.warning(f"Could not load activity labels: {e}")
+        return {}
+
+
 def load_activity_mappings_table() -> list:
     """Load activity mappings from Supabase — [{title_contains, activity}]."""
     try:
@@ -184,7 +193,9 @@ def resolve_activity(title, description, mappings, provider=""):
         if result.get("activity"):
             activity = result["activity"]
             is_new = result.get("is_new", False)
+            label = result.get("label", activity.replace("_", " ").title())
             log.info(f"Claude classified '{title}' as '{activity}' (new={is_new}): {result.get('reasoning','')}")
+            sb_insert("activity_labels", {"activity": activity, "label": label})
             return activity, is_new, True
     return detect_activity(title, description), False, False
 
@@ -797,8 +808,10 @@ Provider: "{provider}"
 Classify this course. If it matches a known activity type, use that exact value.
 If it is genuinely a new type not in the list, suggest a short lowercase slug (e.g. "via_ferrata", "ice_climbing").
 
+Also provide a short human-readable display label (e.g. "Via Ferrata", "Ice Climbing").
+
 Respond with JSON only, no other text:
-{{"activity": "the_canonical_value", "is_new": false, "confidence": "high", "reasoning": "one line explanation"}}"""
+{{"activity": "the_canonical_value", "label": "Human Readable Label", "is_new": false, "confidence": "high", "reasoning": "one line explanation"}}"""
 
     return claude_classify(prompt)
 
@@ -901,9 +914,12 @@ def main():
     mappings = load_location_mappings()
     log.info(f"Loaded {len(mappings)} location mappings")
 
-    # Load activity mappings table
+    # Load activity mappings and labels from Supabase
     activity_maps = load_activity_mappings_table()
     log.info(f"Loaded {len(activity_maps)} activity mappings")
+    global ACTIVITY_LABELS
+    ACTIVITY_LABELS = load_activity_labels()
+    log.info(f"Loaded {len(ACTIVITY_LABELS)} activity labels")
 
     all_courses = []
     location_flags = []
