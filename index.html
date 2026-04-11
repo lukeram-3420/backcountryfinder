@@ -409,15 +409,15 @@
     </div>
     <div class="hero-sub">Without the 20 open tabs.</div>
     <div class="search-bar">
-      <div class="search-field" style="flex:2;">
+      <div class="search-field" style="flex:2;" onclick="this.querySelector('select').click()">
         <label>I want to</label>
-        <select id="search-activity">
+        <select id="search-activity" onchange="debouncedSearch()">
           <option value="">Everything backcountry</option>
         </select>
       </div>
-      <div class="search-field" style="flex:1.5;">
+      <div class="search-field" style="flex:1.5;" onclick="this.querySelector('select').click()">
         <label>Where</label>
-        <select id="search-location">
+        <select id="search-location" onchange="debouncedSearch()">
           <option value="">Anywhere</option>
           <option>Whistler / Blackcomb</option>
           <option>Squamish</option>
@@ -427,9 +427,9 @@
           <option>Tantalus Range</option>
         </select>
       </div>
-      <div class="search-field" style="flex:1;">
+      <div class="search-field" style="flex:1;" onclick="this.querySelector('input').focus()">
         <label>From when</label>
-        <input type="date" id="search-date" onchange="this.classList.toggle('has-value', !!this.value)">
+        <input type="date" id="search-date" onchange="this.classList.toggle('has-value', !!this.value); debouncedSearch()">
       </div>
       <button class="search-go" onclick="runSearch()">Search →</button>
     </div>
@@ -1040,6 +1040,12 @@ function sortBy(el,val){
   currentPage=0;
   fetchCourses(0, false);
 }
+let _searchTimer = null;
+function debouncedSearch() {
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(runSearch, 300);
+}
+
 function runSearch(){
   currentFilters.activity = document.getElementById('search-activity').value;
   currentFilters.location = document.getElementById('search-location').value;
