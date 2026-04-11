@@ -1,1339 +1,1334 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231a2e1a'/%3E%3Cpath d='M5 27 L11 17 L16 22 L21 13 L27 27' stroke='%234ade80' stroke-width='1.1' fill='none' stroke-linejoin='round' opacity='0.3'/%3E%3Cpath d='M2 27 L10 14 L16 20 L22 10 L30 27 Z' fill='%234ade80' opacity='0.15'/%3E%3Cpath d='M2 27 L10 14 L16 20 L22 10 L30 27' stroke='%234ade80' stroke-width='1.4' fill='none' stroke-linejoin='round' opacity='0.6'/%3E%3Cpath d='M0.3 25.95 L9.77 12.01 L15.76 18.01 L22 10' stroke='%23ffffff' stroke-width='1.8' fill='none' stroke-linecap='round' stroke-linejoin='round' stroke-dasharray='2 2.5'/%3E%3Ccircle cx='22' cy='10' r='2.8' fill='%234ade80'/%3E%3C/svg%3E">
-<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231a2e1a'/%3E%3Cpath d='M5 27 L11 17 L16 22 L21 13 L27 27' stroke='%234ade80' stroke-width='1.1' fill='none' stroke-linejoin='round' opacity='0.3'/%3E%3Cpath d='M2 27 L10 14 L16 20 L22 10 L30 27 Z' fill='%234ade80' opacity='0.15'/%3E%3Cpath d='M2 27 L10 14 L16 20 L22 10 L30 27' stroke='%234ade80' stroke-width='1.4' fill='none' stroke-linejoin='round' opacity='0.6'/%3E%3Cpath d='M0.3 25.95 L9.77 12.01 L15.76 18.01 L22 10' stroke='%23ffffff' stroke-width='1.8' fill='none' stroke-linecap='round' stroke-linejoin='round' stroke-dasharray='2 2.5'/%3E%3Ccircle cx='22' cy='10' r='2.8' fill='%234ade80'/%3E%3C/svg%3E">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BackcountryFinder — Without the 20 open tabs.</title>
-<meta name="description" content="Every backcountry experience in one place — heli skiing, AST courses, guided fly fishing, climbing, mountaineering and more.">
-<meta property="og:title" content="BackcountryFinder — Without the 20 open tabs.">
-<meta property="og:description" content="Every backcountry experience in one place">
-<meta property="og:url" content="https://backcountryfinder.com">
-<meta property="og:type" content="website">
-<meta property="og:image" content="https://backcountryfinder.com/og-image.png">
-<meta property="og:image:width" content="1200">
-<meta property="og:image:height" content="630">
-<meta name="twitter:card" content="summary_large_image">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,700&display=swap" rel="stylesheet">
-<style>
-  :root {
-    --green-dark: #1a2e1a;
-    --green-mid: #2d4a2d;
-    --green-accent: #4ade80;
-    --green-light: #eaf3de;
-    --amber-light: #faeeda;
-    --amber-dark: #854f0b;
-    --text-primary: #1a1a1a;
-    --text-secondary: #555;
-    --text-tertiary: #888;
-    --border: rgba(0,0,0,0.08);
-    --border-mid: rgba(0,0,0,0.13);
-    --bg: #f8faf8;
-    --bg-card: #ffffff;
-    --bg-secondary: #f2f4f2;
-    --radius: 12px;
-    --radius-sm: 8px;
-    --radius-pill: 24px;
-    --font: 'Plus Jakarta Sans', sans-serif;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: var(--font); background: var(--bg); color: var(--text-primary); min-height: 100vh; -webkit-font-smoothing: antialiased; }
+#!/usr/bin/env python3
+"""
+BackcountryFinder scraper — Rezdy providers (Altus + MSAA)
+Runs every 6 hours via GitHub Actions
+"""
 
-  /* NAV */
-  .topnav { background: var(--green-dark); display: flex; align-items: center; justify-content: space-between; padding: 0 36px; height: 60px; position: sticky; top: 0; z-index: 100; }
-  .logo { display: flex; align-items: center; gap: 12px; cursor: pointer; text-decoration: none; }
-  .logo-wordmark { display: flex; flex-direction: column; line-height: 1.1; }
-  .logo-top { font-size: 15px; font-weight: 700; color: #fff; letter-spacing: -0.4px; }
-  .logo-bottom { font-size: 15px; font-weight: 700; font-style: italic; color: var(--green-accent); letter-spacing: -0.4px; }
-  .topnav-links { display: flex; gap: 4px; }
-  .nav-link { color: rgba(255,255,255,0.5); font-size: 13px; font-weight: 500; padding: 7px 16px; border-radius: var(--radius-pill); cursor: pointer; transition: all 0.15s; border: none; background: transparent; font-family: var(--font); }
-  .nav-link:hover { color: #fff; background: rgba(255,255,255,0.08); }
-  .nav-link.active { color: var(--green-dark); background: var(--green-accent); font-weight: 700; }
+import os
+import argparse
+import re
+import json
+import time
+import logging
+import hashlib
+from datetime import datetime, date
+from typing import Optional
 
-  /* LOGO ANIMATION */
-  .logo-track { stroke-dasharray: 2 2.5; stroke-dashoffset: 80; animation: drawLogoTrack 2s cubic-bezier(0.4,0,0.2,1) 0.5s forwards; }
-  .logo-summit { opacity: 0; transform: scale(0); transform-origin: 22px 10px; animation: popLogoSummit 0.35s cubic-bezier(0.34,1.56,0.64,1) 2.3s forwards; }
-  @keyframes drawLogoTrack { to { stroke-dashoffset: 0; } }
-  @keyframes popLogoSummit { to { opacity: 1; transform: scale(1); } }
-  .logo.replaying .logo-track { animation: drawLogoTrack 2s cubic-bezier(0.4,0,0.2,1) 0s forwards; }
-  .logo.replaying .logo-summit { animation: popLogoSummit 0.35s cubic-bezier(0.34,1.56,0.64,1) 1.8s forwards; }
+import requests
+from bs4 import BeautifulSoup
 
-  /* HERO */
-  .hero { background: var(--green-dark); padding: 52px 36px 44px; display: flex; flex-direction: column; align-items: center; }
-  .hero-inner { display: flex; flex-direction: column; align-items: flex-start; max-width: 860px; width: 100%; }
-  .hero-tagline { font-size: clamp(28px,5vw,42px); font-weight: 700; color: #fff; line-height: 1.25; margin-bottom: 6px; letter-spacing: -0.5px; }
-  .hero-tagline .word-slot { display: inline-block; overflow: hidden; vertical-align: bottom; height: 1.25em; position: relative; }
-  .word-inner { display: flex; flex-direction: column; transition: transform 0.55s cubic-bezier(0.4,0,0.2,1); }
-  .word-item { color: var(--green-accent); display: block; line-height: 1.25em; white-space: nowrap; }
-  .hero-sub { font-size: 15px; font-weight: 400; font-style: italic; color: rgba(255,255,255,0.4); margin-bottom: 32px; }
+# ── CONFIG ──
+SUPABASE_URL          = os.environ["SUPABASE_URL"]
+SUPABASE_KEY          = os.environ["SUPABASE_SERVICE_KEY"]
+RESEND_API_KEY        = os.environ["RESEND_API_KEY"]
+GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "")
+ANTHROPIC_API_KEY     = os.environ.get("ANTHROPIC_API_KEY", "")
+NOTIFY_EMAIL          = "luke@backcountryfinder.com"
+FROM_EMAIL            = "luke@backcountryfinder.com"
+PLACES_API_URL        = "https://maps.googleapis.com/maps/api/place"
+CLAUDE_MODEL          = "claude-haiku-4-5-20251001"
 
-  /* SEARCH */
-  .search-bar { background: #fff; border-radius: var(--radius); overflow: hidden; display: flex; align-items: stretch; max-width: 860px; width: 100%; text-align: left; }
-  .search-field { padding: 14px 20px; border-right: 1px solid #f0f0f0; cursor: pointer; flex: 1; display: flex; flex-direction: column; gap: 3px; }
-  .search-field:last-of-type { border-right: none; }
-  .search-field label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: #aaa; cursor: pointer; }
-  .search-field select, .search-field input[type=date] { border: none; background: transparent; font-size: 14px; font-weight: 600; color: var(--text-primary); font-family: var(--font); outline: none; cursor: pointer; width: 100%; -webkit-appearance: none; appearance: none; }
-  input[type=date]:not(:focus):not(.has-value) { color: transparent; }
-  input[type=date]:not(:focus):not(.has-value)::-webkit-datetime-edit { color: transparent; }
-  input[type=date]:not(:focus):not(.has-value)::-webkit-calendar-picker-indicator { opacity: 0.3; }
-  .search-go { background: var(--green-accent); color: var(--green-dark); border: none; padding: 0 28px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: var(--font); white-space: nowrap; flex-shrink: 0; transition: opacity 0.15s; }
-  .search-go:hover { opacity: 0.88; }
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+}
 
-  /* MAIN */
-  .main { max-width: 1200px; margin: 0 auto; padding: 28px 36px 120px; position: relative; }
+ACTIVITY_LABELS = {
+    "skiing":         "Backcountry Skiing",
+    "climbing":       "Rock Climbing",
+    "mountaineering": "Mountaineering",
+    "hiking":         "Hiking",
+    "biking":         "Mountain Biking",
+    "fishing":        "Fly Fishing",
+    "hunting":        "Hunting",
+    "heli":           "Heli Skiing",
+    "cat":            "Cat Skiing",
+    "huts":           "Alpine Huts",
+    "guided":         "Guided Tour",
+    "glissading":     "Glissading",
+    "rappelling":     "Rappelling",
+    "snowshoeing":    "Snowshoeing",
+    "snowshoe":       "Snowshoeing",
+    "via_ferrata":    "Via Ferrata",
+}
 
-  /* FILTERS */
-  .filter-row { display: flex; align-items: center; justify-content: flex-end; margin-bottom: 20px; gap: 12px; }
-  .filter-bar { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-  .chip { padding: 7px 16px; border-radius: var(--radius-pill); font-size: 12px; font-weight: 600; border: 1px solid var(--border-mid); cursor: pointer; background: var(--bg-card); color: var(--text-secondary); font-family: var(--font); transition: all 0.15s; white-space: nowrap; }
-  .chip:hover { border-color: var(--green-dark); color: var(--green-dark); }
-  .chip.active { background: var(--green-dark); color: var(--green-accent); border-color: var(--green-dark); }
-  .sort-bar { display: flex; gap: 6px; align-items: center; }
-  .sort-label { font-size: 11px; color: var(--text-tertiary); font-weight: 500; white-space: nowrap; }
-  .sort-btn { padding: 7px 14px; border-radius: var(--radius-pill); font-size: 12px; font-weight: 600; border: 1px solid var(--border-mid); cursor: pointer; background: var(--bg-card); color: var(--text-secondary); font-family: var(--font); transition: all 0.15s; }
-  .sort-btn:hover { border-color: var(--green-dark); color: var(--green-dark); }
-  .sort-btn.active { background: var(--green-dark); color: var(--green-accent); border-color: var(--green-dark); }
-  .results-count { font-size: 12px; color: var(--text-tertiary); font-weight: 500; }
+REZDY_PROVIDERS = [
+    {
+        "id":       "altus",
+        "name":     "Altus Mountain Guides",
+        "storefront": "https://altusmountainguides.rezdy.com",
+        "catalogs": [
+            "catalog/540907/altus-ast-1",
+            "catalog/540908/altus-ast-1",
+            "catalog/628633/altus-ast-2",
+        ],
+        "utm":      "utm_source=backcountryfinder&utm_medium=referral",
+    },
+    {
+        "id":       "msaa",
+        "name":     "Mountain Skills Academy",
+        "storefront": "https://mountainskillsacademy.rezdy.com",
+        "catalogs": [
+            "catalog/315469/luxury-experiences",
+            "catalog/517471/whistler-mountain-top",
+            "catalog/436573/squamish-via-ferrata",
+            "catalog/486576/hiking-tours",
+            "catalog/517472/climbing-adventures",
+            "catalog/517474/winter-tours",
+            "catalog/622663/via-ferrata-s-no-lift-ticket",
+            "catalog/628248/crevasse-rescue-refresher",
+            "catalog/633549/ast-1-online",
+        ],
+        "utm":      "utm_source=backcountryfinder&utm_medium=referral",
+    },
+]
 
-  /* CARDS */
-  .card-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(300px,1fr)); gap: 20px; }
-  .course-card { background: var(--bg-card); border-radius: var(--radius); border: 1px solid var(--border); overflow: hidden; display: flex; flex-direction: column; transition: box-shadow 0.2s, border-color 0.2s; }
-  .course-card:hover { box-shadow: 0 8px 32px rgba(0,0,0,0.1); border-color: rgba(0,0,0,0.14); }
-  .card-img { position: relative; height: 200px; overflow: hidden; background: var(--green-dark); }
-  .card-img img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 0.4s ease; }
-  .course-card:hover .card-img img { transform: scale(1.03); }
-  .card-overlay { position: absolute; inset: 0; background: linear-gradient(to bottom,rgba(0,0,0,0.15) 0%,rgba(0,0,0,0) 40%,rgba(0,0,0,0.35) 100%); display: flex; align-items: flex-end; justify-content: space-between; padding: 12px 14px; }
-  .card-badge { background: rgba(0,0,0,0.5); color: #fff; font-size: 10px; font-weight: 600; padding: 4px 10px; border-radius: var(--radius-pill); letter-spacing: 0.2px; }
-  .card-provider-tag { background: rgba(26,46,26,0.85); color: var(--green-accent); font-size: 10px; font-weight: 700; padding: 4px 10px; border-radius: var(--radius-pill); letter-spacing: 0.2px; }
-  .card-body { padding: 18px 18px 0; flex: 1; display: flex; flex-direction: column; gap: 8px; }
-  .card-title { font-size: 15px; font-weight: 700; color: var(--text-primary); line-height: 1.3; letter-spacing: -0.2px; }
-  .card-meta { font-size: 12px; color: var(--text-tertiary); line-height: 1.6; font-weight: 500; }
-  .card-meta .sep { margin: 0 4px; opacity: 0.4; }
-  .card-footer { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px 16px; border-top: 1px solid var(--border); margin-top: auto; }
-  .price-block { display: flex; flex-direction: column; gap: 4px; }
-  .card-price { font-size: 20px; font-weight: 800; color: var(--text-primary); letter-spacing: -0.5px; line-height: 1; }
-  .card-price sub { font-size: 11px; color: var(--text-tertiary); font-weight: 500; vertical-align: baseline; }
-  .avail { font-size: 10px; font-weight: 700; padding: 3px 9px; border-radius: var(--radius-pill); display: inline-block; letter-spacing: 0.2px; }
-  .avail.open     { background: #eaf3de; color: #2d6a11; }
-  .avail.low      { background: #fff3cd; color: #856404; }
-  .avail.critical { background: #fde8e8; color: #c0392b; }
-  .avail.sold     { background: #fcebeb; color: #a32d2d; }
-  .card-actions { display: flex; gap: 8px; align-items: center; }
-  /* CAIRN SAVE BUTTON */
-  .save-btn { display: flex; align-items: center; gap: 6px; padding: 7px 13px; border-radius: var(--radius-sm); border: 1.5px solid var(--border-mid); background: var(--bg-card); cursor: pointer; font-family: var(--font); font-size: 12px; font-weight: 700; color: var(--text-tertiary); transition: all 0.2s; flex-shrink: 0; white-space: nowrap; }
-  .save-btn:hover { border-color: var(--green-dark); color: var(--green-dark); }
-  .save-btn.saved { border-color: var(--green-dark); background: var(--green-light); color: var(--green-dark); }
-  .save-btn.remove-ready:hover { border-color: #c0392b; background: #fdf0f0; color: #c0392b; }
-  .save-btn.remove-ready:hover .save-label { opacity: 0; }
-  .save-btn.remove-ready:hover svg { opacity: 0; }
-  .save-btn.remove-ready:hover::after { content: 'remove'; font-size: 12px; font-weight: 700; position: absolute; left: 50%; transform: translateX(-50%); }
-  .save-btn { position: relative; }
-  .save-btn svg { transition: opacity 0.15s; }
-  .save-btn .save-label { transition: opacity 0.15s; }
-  .save-btn svg { flex-shrink: 0; }
-  /* Mobile: icon only */
-  /* ── SKELETON LOADING ── */
-  @keyframes shimmer { 0%{background-position:-600px 0} 100%{background-position:600px 0} }
-  .skel { background: linear-gradient(90deg,#ececec 25%,#f5f5f5 50%,#ececec 75%); background-size:600px 100%; animation:shimmer 1.4s infinite linear; border-radius:6px; }
-  .skel-card { background:var(--bg-card); border-radius:var(--radius); border:1px solid var(--border); overflow:hidden; }
-  .skel-img { height:200px; border-radius:0; }
-  .skel-body { padding:18px 18px 0; }
-  .skel-title { height:16px; margin-bottom:8px; }
-  .skel-meta { height:11px; margin-bottom:5px; }
-  .skel-footer { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-top:1px solid var(--border); margin-top:14px; }
-  .skel-price { height:20px; width:60px; }
-  .skel-avail { height:14px; width:50px; margin-top:5px; border-radius:20px; }
-  .skel-btn { height:38px; width:100px; border-radius:var(--radius-sm); }
+# Canada West uses WooCommerce — separate scraper
+CWMS_PROVIDERS = [
+    {
+        "id":       "cwms",
+        "name":     "Canada West Mountain School",
+        "listing_url": "https://themountainschool.com/programs-and-courses/",
+        "base_url": "https://themountainschool.com",
+        "utm":      "utm_source=backcountryfinder&utm_medium=referral",
+    },
+]
 
-  /* ── LOADING OVERLAY ── */
-  @keyframes drawLoaderTrack { to { stroke-dashoffset:0; } }
-  @keyframes popLoaderDot { 0%,65%{opacity:0;transform:scale(0)} 78%{opacity:1;transform:scale(1.3)} 85%,100%{opacity:1;transform:scale(1)} }
-  .loading-overlay { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; background:rgba(248,250,248,0.88); backdrop-filter:blur(4px); z-index:10; border-radius:var(--radius); }
-  .loader-track { stroke-dasharray:2 2.5; stroke-dashoffset:80; animation:drawLoaderTrack 2s cubic-bezier(0.4,0,0.2,1) infinite; }
-  .loader-dot { opacity:0; transform:scale(0); transform-origin:22px 10px; animation:popLoaderDot 2s cubic-bezier(0.34,1.56,0.64,1) infinite; }
-  .loading-overlay-text { font-size:14px; font-weight:600; color:var(--green-dark); letter-spacing:-0.2px; text-align:center; max-width:240px; line-height:1.5; }
+# Activity keyword mapping
+ACTIVITY_KEYWORDS = {
+    # Order matters — checked top to bottom, first match wins
+    "skiing":         ["ast", "avalanche", "backcountry ski", "ski touring", "splitboard", "avy", "heli ski", "cat ski"],
+    "hiking":         ["hik", "backpack", "navigation", "wilderness travel", "heli-accessed hik", "heli access"],
+    "climbing":       ["climb", "rock", "multi-pitch", "rappel", "belay", "trad", "sport climb", "via ferrata", "ferrata"],
+    "mountaineering": ["glacier", "mountaineer", "alpine", "crampon", "crevasse", "scramble", "summit", "alpine climb"],
+    "biking":         ["bike", "biking", "mtb", "mountain bike", "cycling"],
+    "fishing":        ["fish", "fly fish", "angl", "cast", "river guide"],
+    "heli":           ["heli adventure", "heli tour", "heli experience"],
+}
 
-  @media (min-width: 769px) {
-    .save-btn { min-width: 90px; }
-  }
-  @media (max-width: 768px) {
-    .save-btn { width: 38px; height: 38px; padding: 0; border-radius: var(--radius-sm); justify-content: center; min-width: unset; }
-    .save-btn .save-label { display: none; }
-    .save-btn svg { width: 20px; height: 20px; }
-  }
-  .book-btn { background: var(--green-dark); color: #fff; border: none; border-radius: var(--radius-sm); padding: 10px 18px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: var(--font); text-decoration: none; display: inline-block; transition: opacity 0.15s; letter-spacing: -0.2px; }
-  .book-btn:hover { opacity: 0.85; }
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+log = logging.getLogger(__name__)
 
-  /* LOAD MORE */
-  .load-more-wrap { text-align: center; margin-top: 32px; }
-  .load-more-btn { background: var(--bg-card); border: 1.5px solid var(--border-mid); border-radius: var(--radius-pill); padding: 12px 32px; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--text-secondary); font-family: var(--font); transition: all 0.15s; }
-  .load-more-btn:hover { border-color: var(--green-dark); color: var(--green-dark); }
 
-  /* PAGES */
-  .page { display: none; }
-  .page.active { display: block; }
-  .page-header { padding: 32px 0 24px; border-bottom: 1px solid var(--border); margin-bottom: 28px; }
-  .page-header h2 { font-size: 26px; font-weight: 800; color: var(--text-primary); letter-spacing: -0.5px; margin-bottom: 4px; }
-  .page-header p { font-size: 14px; color: var(--text-tertiary); font-weight: 500; }
+# ── SUPABASE HELPERS ──
 
-  /* EMPTY */
-  .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 72px 24px; text-align: center; gap: 12px; }
-  .empty-icon { font-size: 40px; }
-  .empty-state h3 { font-size: 18px; font-weight: 700; color: var(--text-primary); }
-  .empty-state p { font-size: 14px; color: var(--text-tertiary); max-width: 280px; line-height: 1.6; font-weight: 500; }
+def sb_get(table: str, params: dict = {}) -> list:
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+    }
+    r = requests.get(url, headers=headers, params=params)
+    r.raise_for_status()
+    return r.json()
 
-  /* SAVED TOOLBAR */
-  .saved-toolbar { padding: 12px 0; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); margin-bottom: 24px; flex-wrap: wrap; gap: 10px; }
-  .saved-toolbar-count { font-size: 13px; color: var(--text-tertiary); font-weight: 500; }
-  .saved-toolbar-actions { display: flex; gap: 8px; }
-  .toolbar-btn { display: flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: var(--radius-pill); font-size: 12px; font-weight: 600; border: 1.5px solid var(--border-mid); cursor: pointer; background: var(--bg-card); color: var(--text-secondary); font-family: var(--font); transition: all 0.15s; }
-  .toolbar-btn:hover { border-color: var(--green-dark); color: var(--green-dark); }
-  .toolbar-btn-primary { background: var(--green-dark); color: var(--green-accent); border-color: var(--green-dark); }
-  .toolbar-btn-primary:hover { opacity: 0.88; color: var(--green-accent); }
 
-  /* PROVIDERS */
-  .providers-hero { background: var(--green-dark); border-radius: var(--radius); padding: 40px; margin-bottom: 28px; display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
-  .providers-hero h2 { font-size: 22px; font-weight: 800; color: #fff; margin-bottom: 6px; letter-spacing: -0.4px; }
-  .providers-hero p { font-size: 14px; color: rgba(255,255,255,0.5); max-width: 420px; line-height: 1.6; font-weight: 500; }
-  .providers-hero-btns { display: flex; gap: 10px; flex-shrink: 0; flex-wrap: wrap; }
-  .provider-cta-btn { padding: 11px 22px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 700; cursor: pointer; font-family: var(--font); transition: opacity 0.15s; border: none; letter-spacing: -0.2px; }
-  .provider-cta-btn.primary { background: var(--green-accent); color: var(--green-dark); }
-  .provider-cta-btn.secondary { background: rgba(255,255,255,0.1); color: #fff; border: 1.5px solid rgba(255,255,255,0.2); }
-  .provider-cta-btn:hover { opacity: 0.85; }
-  .provider-cards { display: grid; grid-template-columns: repeat(auto-fill,minmax(260px,1fr)); gap: 16px; }
-  .provider-card { background: var(--bg-card); border-radius: var(--radius); border: 1px solid var(--border); padding: 22px; transition: box-shadow 0.2s; }
-  .provider-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.08); }
-  .provider-card-name { font-size: 15px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px; }
-  .provider-card-loc { font-size: 12px; color: var(--text-tertiary); font-weight: 500; margin-bottom: 10px; }
-  .provider-card-rating { display: block; font-size: 12px; font-weight: 600; color: var(--green-dark); margin-bottom: 6px; text-decoration: none; }
-  .provider-card-tags { display: flex; gap: 6px; flex-wrap: wrap; }
-  .provider-tag { font-size: 10px; font-weight: 600; padding: 3px 10px; border-radius: var(--radius-pill); background: var(--green-light); color: var(--green-dark); }
-  .provider-card-link { display: block; margin-bottom: 6px; font-size: 12px; font-weight: 600; color: var(--green-dark); text-decoration: none; }
-  .provider-card-link:hover { text-decoration: underline; }
+def sb_upsert(table: str, data: list) -> None:
+    if not data:
+        return
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "resolution=merge-duplicates",
+    }
+    r = requests.post(url, headers=headers, json=data)
+    if not r.ok:
+        log.error(f"Supabase upsert error {r.status_code}: {r.text}")
+    else:
+        log.info(f"Upserted {len(data)} rows to {table}")
 
-  /* ABOUT */
-  .about-wrap { max-width: 640px; }
-  .about-wrap h2 { font-size: 26px; font-weight: 800; color: var(--text-primary); margin-bottom: 16px; letter-spacing: -0.5px; }
-  .about-wrap p { font-size: 15px; color: var(--text-secondary); line-height: 1.75; margin-bottom: 20px; font-weight: 500; }
-  .about-wrap h3 { font-size: 17px; font-weight: 700; color: var(--text-primary); margin: 28px 0 10px; }
-  .contact-block { margin-top: 36px; padding-top: 28px; border-top: 1px solid var(--border); font-size: 14px; color: var(--text-secondary); font-weight: 500; }
-  .contact-block a { color: var(--green-dark); font-weight: 600; text-decoration: none; }
 
-  /* MOBILE NAV */
-  .mobile-nav { display: none; position: fixed; bottom: 0; left: 0; right: 0; z-index: 90; background: rgba(255,255,255,0.94); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-top: 1px solid rgba(0,0,0,0.07); padding: 0 8px; padding-bottom: env(safe-area-inset-bottom); }
-  .mobile-nav-inner { display: flex; align-items: stretch; height: 62px; width: 100%; justify-content: space-around; }
-  .mnav-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border: none; background: transparent; cursor: pointer; font-family: var(--font); color: var(--text-tertiary); border-radius: var(--radius-sm); transition: all 0.15s; padding: 6px 4px; }
-  .mnav-item.active { color: var(--green-dark); }
-  .mnav-item svg { transition: transform 0.15s; }
-  .mnav-item.active svg { transform: scale(1.08); }
-  .mnav-label { font-size: 10px; font-weight: 700; letter-spacing: 0.2px; white-space: nowrap; }
-  .mnav-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--green-accent); display: none; margin-top: 1px; }
-  .mnav-item.active .mnav-dot { display: block; }
-  .mnav-item.active svg { color: #1a2e1a; }
-  .mnav-item svg { color: #aaa; }
+def sb_insert(table: str, data: dict) -> None:
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal",
+    }
+    r = requests.post(url, headers=headers, json=data)
+    if not r.ok:
+        log.error(f"Supabase insert error {r.status_code}: {r.text}")
 
-  /* SHARED BANNER */
-  .shared-banner-wrap { background: var(--green-dark); padding: 14px 36px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-  .shared-banner-text h3 { font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 2px; }
-  .shared-banner-text p { color: rgba(255,255,255,0.5); font-size: 12px; font-weight: 500; }
-  .shared-banner-actions { display: flex; gap: 8px; flex-shrink: 0; }
-  .shared-save-btn { background: var(--green-accent); color: var(--green-dark); border: none; border-radius: var(--radius-sm); padding: 8px 16px; font-size: 12px; font-weight: 700; cursor: pointer; font-family: var(--font); }
-  .shared-dismiss { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.6); border: none; border-radius: var(--radius-sm); padding: 8px 14px; font-size: 12px; cursor: pointer; font-family: var(--font); font-weight: 500; }
 
-  /* SHARE POPOVER */
-  .share-popover-wrap { position: relative; display: inline-block; }
-  .share-popover { display: none; position: fixed; background: var(--bg-card); border: 1px solid var(--border-mid); border-radius: var(--radius); padding: 14px; width: min(230px,calc(100vw - 32px)); box-shadow: 0 8px 32px rgba(0,0,0,0.14); z-index: 999; }
-  .share-popover.active { display: block; }
-  .share-popover-title { font-size: 10px; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
-  .share-popover-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px; }
-  .sp-btn { display: flex; align-items: center; justify-content: center; gap: 5px; padding: 8px 10px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 600; border: 1.5px solid var(--border-mid); cursor: pointer; background: var(--bg-card); color: var(--text-primary); text-decoration: none; font-family: var(--font); transition: opacity 0.12s; }
-  .sp-btn:hover { opacity: 0.82; }
-  .sp-btn-wa { background: #25D366; color: #fff; border-color: #25D366; }
-  .sp-btn-im { background: var(--green-dark); color: var(--green-accent); border-color: var(--green-dark); }
-  .sp-btn-native { grid-column: 1/-1; background: var(--bg-secondary); color: var(--text-secondary); }
-  .sp-btn-copy { grid-column: 1/-1; background: var(--bg-secondary); color: var(--text-secondary); font-size: 11px; }
-  .sp-url { font-size: 10px; color: var(--text-tertiary); background: var(--bg-secondary); border-radius: 4px; padding: 5px 8px; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; }
+# ── LOCATION NORMALISATION ──
 
-  /* EMAIL MODAL */
-  .email-list-modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 200; align-items: center; justify-content: center; padding: 20px; }
-  .email-list-modal-overlay.active { display: flex; }
-  .email-list-modal { background: var(--bg-card); border-radius: var(--radius); padding: 32px; max-width: 420px; width: 100%; position: relative; }
-  .elm-close { position: absolute; top: 16px; right: 18px; background: none; border: none; font-size: 22px; cursor: pointer; color: var(--text-tertiary); font-family: var(--font); }
-  .elm-tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--green-accent); background: var(--green-dark); display: inline-block; padding: 3px 10px; border-radius: var(--radius-pill); margin-bottom: 14px; }
-  .elm-modal h3 { font-size: 20px; font-weight: 800; color: var(--text-primary); margin-bottom: 8px; letter-spacing: -0.4px; }
-  .elm-modal p { font-size: 13px; color: var(--text-secondary); line-height: 1.65; margin-bottom: 16px; font-weight: 500; }
-  .elm-courses-preview { background: var(--bg-secondary); border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 16px; border-left: 3px solid var(--green-dark); }
-  .elm-course-line { font-size: 12px; color: var(--text-secondary); padding: 2px 0; font-weight: 500; }
-  .elm-input { width: 100%; border: 1.5px solid var(--border-mid); border-radius: var(--radius-sm); padding: 11px 14px; font-size: 14px; font-family: var(--font); color: var(--text-primary); background: var(--bg-card); outline: none; margin-bottom: 10px; transition: border-color 0.15s; font-weight: 500; }
-  .elm-input:focus { border-color: var(--green-dark); }
-  .elm-optin { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 16px; cursor: pointer; }
-  .elm-optin input { margin-top: 2px; accent-color: var(--green-dark); flex-shrink: 0; }
-  .elm-optin label { font-size: 12px; color: var(--text-secondary); line-height: 1.5; cursor: pointer; font-weight: 500; }
-  .elm-submit { width: 100%; background: var(--green-dark); color: #fff; border: none; border-radius: var(--radius-sm); padding: 12px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: var(--font); transition: opacity 0.15s; }
-  .elm-submit:hover { opacity: 0.85; }
-  .elm-success { display: none; text-align: center; padding: 8px 0; }
-  .elm-success .tick { font-size: 36px; margin-bottom: 10px; }
-  .elm-success h4 { font-size: 17px; font-weight: 700; margin-bottom: 6px; }
-  .elm-success p { font-size: 13px; color: var(--text-tertiary); font-weight: 500; }
+def load_location_mappings() -> dict:
+    rows = sb_get("location_mappings", {"select": "location_raw,location_canonical"})
+    return {r["location_raw"].lower().strip(): r["location_canonical"] for r in rows}
 
-  /* PROVIDER MODAL */
-  .provider-modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 200; align-items: center; justify-content: center; padding: 20px; overflow-y: auto; }
-  .provider-modal-overlay.active { display: flex; }
-  .provider-modal { background: var(--bg-card); border-radius: var(--radius); padding: 32px; max-width: 480px; width: 100%; position: relative; max-height: 90vh; overflow-y: auto; }
-  .pmodal-close { position: absolute; top: 16px; right: 18px; background: none; border: none; font-size: 22px; cursor: pointer; color: var(--text-tertiary); font-family: var(--font); }
-  .pmodal-tabs { display: flex; gap: 4px; margin-bottom: 24px; background: var(--bg-secondary); border-radius: var(--radius-sm); padding: 4px; }
-  .pmodal-tab { flex: 1; padding: 8px; border: none; background: transparent; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--text-tertiary); font-family: var(--font); transition: all 0.15s; }
-  .pmodal-tab.active { background: var(--bg-card); color: var(--text-primary); box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
-  .pmodal-form { display: none; }
-  .pmodal-form.active { display: block; }
-  .pmodal-tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--green-accent); background: var(--green-dark); display: inline-block; padding: 3px 10px; border-radius: var(--radius-pill); margin-bottom: 14px; }
-  .pmodal-body h3 { font-size: 20px; font-weight: 800; color: var(--text-primary); margin-bottom: 8px; letter-spacing: -0.4px; }
-  .pmodal-body p { font-size: 13px; color: var(--text-secondary); line-height: 1.65; margin-bottom: 20px; font-weight: 500; }
-  .pmodal-field { margin-bottom: 14px; }
-  .pmodal-field label { display: block; font-size: 11px; font-weight: 700; color: var(--text-tertiary); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.4px; }
-  .pmodal-field input, .pmodal-field textarea { width: 100%; border: 1.5px solid var(--border-mid); border-radius: var(--radius-sm); padding: 10px 14px; font-size: 14px; font-family: var(--font); color: var(--text-primary); background: var(--bg-card); outline: none; transition: border-color 0.15s; font-weight: 500; }
-  .pmodal-field input:focus, .pmodal-field textarea:focus { border-color: var(--green-dark); }
-  .pmodal-field textarea { min-height: 80px; resize: vertical; }
-  .pmodal-submit { width: 100%; background: var(--green-dark); color: #fff; border: none; border-radius: var(--radius-sm); padding: 12px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: var(--font); transition: opacity 0.15s; margin-top: 4px; }
-  .pmodal-submit:hover { opacity: 0.85; }
-  .pmodal-success { text-align: center; padding: 12px 0; }
-  .pmodal-success .tick { font-size: 36px; margin-bottom: 10px; }
-  .pmodal-success h4 { font-size: 17px; font-weight: 700; margin-bottom: 6px; }
-  .pmodal-success p { font-size: 13px; color: var(--text-tertiary); font-weight: 500; }
 
-  /* NOTIFY MODAL */
-  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 200; align-items: center; justify-content: center; padding: 20px; }
-  .modal-overlay.active { display: flex; }
-  .modal { background: var(--bg-card); border-radius: var(--radius); padding: 32px; max-width: 400px; width: 100%; position: relative; }
-  .modal-close { position: absolute; top: 16px; right: 18px; background: none; border: none; font-size: 22px; cursor: pointer; color: var(--text-tertiary); font-family: var(--font); }
-  .modal-tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--green-accent); background: var(--green-dark); display: inline-block; padding: 3px 10px; border-radius: var(--radius-pill); margin-bottom: 14px; }
-  .modal h3 { font-size: 20px; font-weight: 800; color: var(--text-primary); margin-bottom: 8px; letter-spacing: -0.4px; }
-  .modal p { font-size: 13px; color: var(--text-secondary); line-height: 1.65; margin-bottom: 16px; font-weight: 500; }
-  .modal-course { font-size: 13px; font-weight: 700; color: var(--text-primary); background: var(--bg-secondary); border-radius: var(--radius-sm); padding: 10px 14px; margin-bottom: 16px; border-left: 3px solid var(--green-dark); }
-  .modal-input { width: 100%; border: 1.5px solid var(--border-mid); border-radius: var(--radius-sm); padding: 11px 14px; font-size: 14px; font-family: var(--font); color: var(--text-primary); background: var(--bg-card); outline: none; margin-bottom: 12px; transition: border-color 0.15s; font-weight: 500; }
-  .modal-input:focus { border-color: var(--green-dark); }
-  .modal-submit { width: 100%; background: var(--green-dark); color: #fff; border: none; border-radius: var(--radius-sm); padding: 12px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: var(--font); transition: opacity 0.15s; }
-  .modal-submit:hover { opacity: 0.85; }
-  .modal-success { text-align: center; padding: 8px 0; }
-  .modal-success .tick { font-size: 36px; margin-bottom: 10px; }
-  .modal-success h4 { font-size: 17px; font-weight: 700; margin-bottom: 6px; }
-  .modal-success p { font-size: 13px; color: var(--text-tertiary); font-weight: 500; }
+def load_activity_labels():
+    try:
+        rows = sb_get("activity_labels", {"select": "activity,label"})
+        return {r["activity"]: r["label"] for r in rows}
+    except Exception as e:
+        log.warning(f"Could not load activity labels: {e}")
+        return {}
 
-  /* MICRO TOAST */
-  .micro-toast { position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%) translateY(12px); background: var(--green-dark); color: #fff; border-radius: 10px; padding: 10px 18px; font-size: 12px; font-weight: 600; opacity: 0; pointer-events: none; transition: all 0.25s cubic-bezier(0.34,1.56,0.64,1); white-space: nowrap; z-index: 160; display: flex; align-items: center; gap: 8px; }
-  .micro-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-  @media (min-width: 769px) { .micro-toast { display: none !important; } }
 
-  /* TOAST */
-  .toast { display: none; position: fixed; bottom: 24px; right: 24px; background: var(--bg-card); border-radius: var(--radius); border: 1px solid var(--border-mid); padding: 18px 20px; width: 300px; box-shadow: 0 8px 32px rgba(0,0,0,0.14); z-index: 150; }
-  .toast.active { display: block; animation: slideUp 0.25s ease; }
-  @keyframes slideUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
-  .toast-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; gap: 12px; }
-  .toast-title { font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px; }
-  .toast-sub { font-size: 12px; color: var(--text-secondary); line-height: 1.45; font-weight: 500; }
-  .toast-close { background: none; border: none; font-size: 18px; cursor: pointer; color: var(--text-tertiary); flex-shrink: 0; font-family: var(--font); padding: 0; }
-  .toast-row { display: flex; gap: 8px; }
-  .toast-input { flex: 1; border: 1.5px solid var(--border-mid); border-radius: var(--radius-sm); padding: 9px 12px; font-size: 13px; font-family: var(--font); color: var(--text-primary); background: var(--bg-card); outline: none; transition: border-color 0.15s; font-weight: 500; }
-  .toast-input:focus { border-color: var(--green-dark); }
-  .toast-btn { background: var(--green-dark); color: #fff; border: none; border-radius: var(--radius-sm); padding: 9px 14px; font-size: 12px; font-weight: 700; cursor: pointer; font-family: var(--font); white-space: nowrap; transition: opacity 0.15s; }
-  .toast-btn:hover { opacity: 0.85; }
-  .toast-dismiss { font-size: 11px; color: var(--text-tertiary); text-align: center; margin-top: 10px; cursor: pointer; background: none; border: none; font-family: var(--font); width: 100%; font-weight: 500; }
+def load_activity_mappings_table() -> list:
+    """Load activity mappings from Supabase — [{title_contains, activity}]."""
+    try:
+        rows = sb_get("activity_mappings", {"select": "title_contains,activity"})
+        return [(r["title_contains"].lower(), r["activity"]) for r in rows]
+    except Exception as e:
+        log.warning(f"Could not load activity mappings: {e}")
+        return []
 
-  @media (max-width: 768px) {
-    .topnav { padding: 0 16px; height: 54px; }
-    .topnav-links { display: none; }
-    .mobile-nav { display: flex; }
-    .hero { padding: 32px 16px 28px; }
-    .hero-inner { padding: 0; }
-    .search-bar { flex-direction: column; }
-    .search-field { border-right: none; border-bottom: 1px solid #f0f0f0; padding: 12px 16px; }
-    .search-field:last-of-type { border-bottom: none; }
-    .search-go { padding: 14px; border-radius: 0 0 var(--radius) var(--radius); }
-    .main { padding: 20px 16px 100px; }
-    .card-grid { grid-template-columns: 1fr; gap: 14px; }
-    .providers-hero { padding: 24px; }
-    .toast { bottom: 80px; left: 12px; right: 12px; width: auto; }
-    .shared-banner-wrap { padding: 14px 16px; }
-  }
-</style>
-</head>
-<body>
 
-<nav class="topnav">
-  <div class="logo" id="logo-btn" onclick="showPage('search')">
-    <svg width="30" height="30" viewBox="0 0 32 32" fill="none">
-      <path d="M5 27 L11 17 L16 22 L21 13 L27 27" stroke="#4ade80" stroke-width="1.1" fill="none" stroke-linejoin="round" opacity="0.2"/>
-      <path d="M2 27 L10 14 L16 20 L22 10 L30 27 Z" fill="#4ade80" opacity="0.1"/>
-      <path d="M2 27 L10 14 L16 20 L22 10 L30 27" stroke="#4ade80" stroke-width="1.4" fill="none" stroke-linejoin="round" opacity="0.5"/>
-      <path class="logo-track" d="M0.3 25.95 L9.77 12.01 L15.76 18.01 L22 10" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-      <circle class="logo-summit" cx="22" cy="10" r="2.8" fill="#4ade80"/>
-    </svg>
-    <div class="logo-wordmark">
-      <span class="logo-top">backcountry</span>
-      <span class="logo-bottom">finder</span>
-    </div>
-  </div>
-  <div class="topnav-links">
-    <button class="nav-link active" id="nav-search" onclick="showPage('search')">search</button>
-    <button class="nav-link" id="nav-saved" onclick="showPage('saved')">my list</button>
-    <button class="nav-link" id="nav-providers" onclick="showPage('providers')">providers</button>
-    <button class="nav-link" id="nav-about" onclick="showPage('about')">about</button>
-  </div>
-</nav>
+def resolve_activity(title, description, mappings, provider=""):
+    """
+    Resolve activity using mappings table first, then Claude, then keyword detection.
+    Returns (activity, is_new, should_add_mapping)
+    """
+    text = (title + " " + description).lower()
+    for pattern, activity in mappings:
+        if pattern.lower() in text:
+            return activity, False, False
+    if ANTHROPIC_API_KEY:
+        known = get_known_activities(mappings) if mappings else []
+        result = claude_classify_activity(title, description, provider, known)
+        if result.get("activity"):
+            activity = result["activity"]
+            is_new = result.get("is_new", False)
+            label = result.get("label", activity.replace("_", " ").title())
+            log.info(f"Claude classified '{title}' as '{activity}' (new={is_new}): {result.get('reasoning','')}")
+            sb_insert("activity_labels", {"activity": activity, "label": label})
+            return activity, is_new, True
+    return detect_activity(title, description), False, False
 
-<div id="shared-banner" style="display:none;">
-  <div class="shared-banner-wrap">
-    <div class="shared-banner-text">
-      <h3 id="shared-banner-title">Experiences saved to your list</h3>
-      <p id="shared-banner-sub">Someone shared these with you — view them in your saved tab.</p>
-    </div>
-    <div class="shared-banner-actions">
-      <button class="shared-save-btn" onclick="saveSharedCourses()">view saved →</button>
-      <button class="shared-dismiss" onclick="dismissSharedBanner()">dismiss</button>
-    </div>
-  </div>
-</div>
 
-<!-- SEARCH PAGE -->
-<div class="page active" id="page-search">
-  <div class="hero">
-    <div class="hero-inner">
-    <div class="hero-tagline">
-      Find your <span class="word-slot" id="slot1" style="min-width:100px;"><div class="word-inner" id="track1"><span class="word-item">course</span><span class="word-item">line</span><span class="word-item">summit</span><span class="word-item">trip</span><span class="word-item">route</span><span class="word-item">powder</span><span class="word-item">hut</span><span class="word-item">guide</span><span class="word-item">drift</span><span class="word-item">run</span><span class="word-item">cast</span><span class="word-item">secret</span><span class="word-item">stash</span><span class="word-item">beta</span><span class="word-item">zone</span><span class="word-item">course</span></div></span><br>
-      Find your <span class="word-slot" id="slot2" style="min-width:140px;"><div class="word-inner" id="track2"><span class="word-item">adventure</span><span class="word-item">peak</span><span class="word-item">people</span><span class="word-item">escape</span><span class="word-item">wild</span><span class="word-item">silence</span><span class="word-item">horizon</span><span class="word-item">freedom</span><span class="word-item">solitude</span><span class="word-item">calling</span><span class="word-item">tracks</span><span class="word-item">flow</span><span class="word-item">crew</span><span class="word-item">way out</span><span class="word-item">next chapter</span><span class="word-item">adventure</span></div></span>
-    </div>
-    <div class="hero-sub">Without the 20 open tabs.</div>
-    <div class="search-bar">
-      <div class="search-field" style="flex:2;">
-        <label>I want to</label>
-        <select id="search-activity">
-          <option value="">Everything backcountry</option>
-        </select>
+
+def build_badge(activity: str, duration_days) -> str:
+    """Build a clean badge string from canonical activity and duration."""
+    label = ACTIVITY_LABELS.get(activity, activity.title())
+    if duration_days:
+        days = int(duration_days)
+        return f"{label} · {days} day{'s' if days > 1 else ''}"
+    return label
+
+
+def normalise_location(raw, mappings):
+    """
+    Normalise a raw location string to canonical value.
+    Returns (canonical, is_new, should_add_mapping)
+    """
+    if not raw:
+        return None, False, False
+    key = raw.lower().strip()
+    if key in mappings:
+        return mappings[key], False, False
+    for known_raw, canonical in mappings.items():
+        if known_raw in key or key in known_raw:
+            return canonical, False, False
+    if ANTHROPIC_API_KEY:
+        known = get_known_locations(mappings)
+        result = claude_classify_location(raw, known)
+        if result.get("location_canonical"):
+            canonical = result["location_canonical"]
+            is_new = result.get("is_new", False)
+            log.info(f"Claude normalised '{raw}' to '{canonical}' (new={is_new})")
+            return canonical, is_new, True
+    return None, False, False
+
+
+# ── ACTIVITY DETECTION ──
+
+def detect_activity(title: str, description: str = "") -> str:
+    text = (title + " " + description).lower()
+    for activity, keywords in ACTIVITY_KEYWORDS.items():
+        if any(kw in text for kw in keywords):
+            return activity
+    return "guided"  # default
+
+
+def get_activity(course_id: str, detected: str, existing_overrides: dict) -> tuple:
+    """Return (activity_raw, activity_override, activity) respecting any manual override."""
+    override = existing_overrides.get(course_id)
+    activity = override if override else detected
+    return detected, override, activity
+
+
+# ── AVAILABILITY ──
+
+def spots_to_avail(spots: Optional[int]) -> str:
+    if spots is None:
+        return "open"
+    if spots == 0:
+        return "sold"
+    if spots <= 4:
+        return "low"
+    return "open"
+
+
+# ── DATE HELPERS ──
+
+def parse_date_sort(date_str: str) -> Optional[str]:
+    """Try to extract a YYYY-MM-DD date from various string formats."""
+    if not date_str:
+        return None
+    # Already ISO
+    if re.match(r"\d{4}-\d{2}-\d{2}", date_str):
+        return date_str[:10]
+    # Try common patterns
+    months = {
+        "jan": "01", "feb": "02", "mar": "03", "apr": "04",
+        "may": "05", "jun": "06", "jul": "07", "aug": "08",
+        "sep": "09", "oct": "10", "nov": "11", "dec": "12"
+    }
+    # "Apr 19, 2026" or "Apr 19–20, 2026"
+    m = re.search(r"(\w+)\s+(\d+).*?(\d{4})", date_str, re.IGNORECASE)
+    if m:
+        month_str = m.group(1).lower()[:3]
+        day = m.group(2).zfill(2)
+        year = m.group(3)
+        if month_str in months:
+            return f"{year}-{months[month_str]}-{day}"
+    return None
+
+
+def is_future(date_sort: Optional[str]) -> bool:
+    if not date_sort:
+        return True  # keep if we can't parse
+    try:
+        return datetime.strptime(date_sort, "%Y-%m-%d").date() >= date.today()
+    except ValueError:
+        return True
+
+
+def stable_id(provider_id: str, activity: str, date_sort: Optional[str], title: str) -> str:
+    if date_sort:
+        return f"{provider_id}-{activity}-{date_sort}"
+    # Fallback: hash of title
+    h = hashlib.md5(title.encode()).hexdigest()[:8]
+    return f"{provider_id}-{activity}-{h}"
+
+
+# ── REZDY SCRAPER ──
+
+def scrape_rezdy(provider: dict) -> list:
+    """Scrape a Rezdy storefront using confirmed HTML structure."""
+    log.info(f"Scraping {provider['name']} — {provider['storefront']}")
+
+    # If provider has specific catalogs, scrape each one
+    catalogs = provider.get("catalogs", [])
+    if catalogs:
+        all_courses = []
+        seen_titles = set()
+        for catalog in catalogs:
+            url = f"{provider['storefront']}/{catalog}"
+            log.info(f"Scraping catalog: {url}")
+            courses = scrape_rezdy_page(provider, url)
+            for c in courses:
+                if c["title"] not in seen_titles:
+                    seen_titles.add(c["title"])
+                    all_courses.append(c)
+            time.sleep(1)
+        log.info(f"Total unique courses from {provider['name']}: {len(all_courses)}")
+        return all_courses
+
+    # Otherwise scrape root storefront
+    return scrape_rezdy_page(provider, provider["storefront"])
+
+
+def scrape_rezdy_page(provider: dict, url: str) -> list:
+    """Scrape a single Rezdy page and return courses."""
+    courses = []
+
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=20)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        items = soup.select("div.products-list-item")
+        if not items:
+            log.warning(f"No products-list-item found at {url}")
+            return []
+
+        log.info(f"Found {len(items)} items at {url}")
+
+        for item in items:
+            try:
+                # Title — h2 > a.rezdy-modal
+                title_el = item.select_one("h2 a")
+                title = title_el.get_text(strip=True) if title_el else None
+                if not title:
+                    continue
+
+                # Booking URL — relative href on the title link
+                booking_url = None
+                if title_el:
+                    href = title_el.get("href", "")
+                    if href.startswith("http"):
+                        booking_url = f"{href}{'&' if '?' in href else '?'}{provider['utm']}"
+                    elif href.startswith("/"):
+                        booking_url = f"{provider['storefront']}{href}?{provider['utm']}"
+                    else:
+                        booking_url = f"{provider['storefront']}/{href}?{provider['utm']}"
+
+                # Price — span.price data-original-amount="CA$1,980.00"
+                price = None
+                price_el = item.select_one("span.price")
+                if price_el:
+                    raw = price_el.get("data-original-amount", "") or price_el.get_text(strip=True)
+                    price_match = re.search(r"[\d,]+\.?\d*", raw.replace(",", ""))
+                    if price_match:
+                        try:
+                            price = int(float(price_match.group().replace(",", "")))
+                        except ValueError:
+                            pass
+
+                # Duration — li text after "Duration:"
+                duration_days = None
+                for li in item.select("ul.unstyled li"):
+                    text = li.get_text(strip=True)
+                    if "duration" in text.lower():
+                        dur_match = re.search(r"(\d+(?:\.\d+)?)\s*day", text, re.I)
+                        if dur_match:
+                            duration_days = float(dur_match.group(1))
+                        break
+                # Also try extracting from title
+                if not duration_days:
+                    dur_match = re.search(r"(\d+(?:\.\d+)?)\s*day", title, re.I)
+                    if dur_match:
+                        duration_days = float(dur_match.group(1))
+
+                # Image — div.products-list-image img src
+                image_url = None
+                img_el = item.select_one("div.products-list-image img")
+                if img_el:
+                    image_url = img_el.get("src") or img_el.get("data-src")
+                    if image_url and image_url.startswith("//"):
+                        image_url = "https:" + image_url
+
+                # Description — p tag in overview
+                desc_text = ""
+                desc_el = item.select_one("div.products-list-item-overview p")
+                if desc_el:
+                    desc_text = desc_el.get_text(strip=True)
+
+                # Location — extract from title or description
+                location_raw = None
+                loc_match = re.search(
+                    r"(Whistler|Squamish|Seymour|Garibaldi|Pemberton|Tantalus|Vancouver|North Shore|Golden|Revelstoke|Banff|Canmore)",
+                    title + " " + desc_text, re.I
+                )
+                if loc_match:
+                    location_raw = loc_match.group(0).title()
+
+                # Activity detection
+                activity = detect_activity(title, desc_text)
+
+                # Badge
+                dur_str = f" · {int(duration_days)} day{'s' if duration_days > 1 else ''}" if duration_days else ""
+                badge = f"{activity.title()}{dur_str}"
+
+                courses.append({
+                    "title":         title,
+                    "provider_id":   provider["id"],
+                    "badge":         badge,
+                    "activity":      activity,
+                    "activity_raw":  activity,
+                    "location_raw":  location_raw,
+                    "date_display":  None,   # fetched from course page in future
+                    "date_sort":     None,
+                    "duration_days": duration_days,
+                    "price":         price,
+                    "spots_remaining": None,
+                    "avail":         "open",
+                    "image_url":     image_url,
+                    "booking_url":   booking_url,
+                    "scraped_at":    datetime.utcnow().isoformat(),
+                })
+
+            except Exception as e:
+                log.warning(f"Error parsing item from {provider['name']}: {e}")
+                continue
+
+    except Exception as e:
+        log.error(f"Failed to scrape {url}: {e}")
+
+    log.info(f"Scraped {len(courses)} courses from {provider['name']}")
+    return courses
+
+
+def scrape_cwms_course_page(course_url):
+    """
+    Visit a CWMS course page and extract individual date sessions.
+    Parses quantity labels: "Course Name Month Day-Day Year quantity"
+    Returns list of dicts: {date_display, date_sort, spots_remaining, avail, product_id}
+    """
+    sessions = []
+    try:
+        clean_url = course_url.split("?")[0]
+        r = requests.get(clean_url, headers=HEADERS, timeout=20)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        # Strategy 1: find all quantity labels — most reliable
+        # Label text: "Complete Mountaineering June 1-7 2026 quantity"
+        labels = soup.find_all("label", class_="screen-reader-text")
+        date_pattern = re.compile(
+            r"(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+([\d]+(?:-[\d]+)?)\s+(20\d{2})",
+            re.I
+        )
+
+        for label in labels:
+            label_text = label.get_text(strip=True)
+            m = date_pattern.search(label_text)
+            if not m:
+                continue
+
+            month = m.group(1)
+            days  = m.group(2)
+            year  = m.group(3)
+            date_display = f"{month} {days}, {year}"
+
+            # Parse date_sort using first day
+            first_day = days.split("-")[0]
+            date_sort = None
+            try:
+                from datetime import datetime as dt
+                for fmt in ["%B %d %Y", "%b %d %Y"]:
+                    try:
+                        date_sort = dt.strptime(f"{month} {first_day} {year}", fmt).strftime("%Y-%m-%d")
+                        break
+                    except ValueError:
+                        continue
+            except Exception:
+                pass
+
+            # Find parent block for stock + product ID
+            parent = label.find_parent("div", class_=lambda c: c and "iconic-woo-bundled-product" in c)
+            spots = None
+            avail = "open"
+            product_id = None
+
+            if parent:
+                stock_el = parent.find("p", class_="stock")
+                if stock_el:
+                    stock_text = stock_el.get_text(strip=True).lower()
+                    if "out of stock" in stock_text:
+                        avail = "sold"
+                        spots = 0
+                    else:
+                        sm = re.search(r"(\d+)", stock_text)
+                        if sm:
+                            spots = int(sm.group(1))
+                            "critical" if spots <= 2 else "low" if spots <= 4 else "open"
+
+                btn = parent.find("button", class_="single_add_to_cart_button")
+                if btn:
+                    product_id = btn.get("value")
+
+            # Skip past dates
+            if date_sort and date_sort < datetime.utcnow().strftime("%Y-%m-%d"):
+                continue
+
+            sessions.append({
+                "date_display": date_display,
+                "date_sort":    date_sort,
+                "spots_remaining": spots,
+                "avail":        avail,
+                "product_id":   product_id,
+            })
+
+        if sessions:
+            log.info(f"Found {len(sessions)} date sessions at {clean_url}")
+
+    except Exception as e:
+        log.warning(f"Could not scrape CWMS course page {course_url}: {e}")
+
+    return sessions
+
+
+def scrape_rezdy_api(provider: dict) -> list:
+    """Fallback: try Rezdy's JSON endpoint."""
+    log.info(f"Trying Rezdy API for {provider['name']}")
+    courses = []
+    try:
+        api_url = f"{provider['storefront']}/products"
+        r = requests.get(api_url, headers={**HEADERS, "Accept": "application/json"}, timeout=20)
+        if r.ok and "application/json" in r.headers.get("Content-Type", ""):
+            data = r.json()
+            products = data if isinstance(data, list) else data.get("products", [])
+            for p in products:
+                title = p.get("name") or p.get("title")
+                if not title:
+                    continue
+                price = p.get("advertisedPrice") or p.get("price")
+                if price:
+                    price = int(float(price))
+                image_url = None
+                images = p.get("images", [])
+                if images:
+                    image_url = images[0].get("thumbnailUrl") or images[0].get("itemUrl")
+                activity = detect_activity(title, p.get("shortDescription", ""))
+                courses.append({
+                    "title":        title,
+                    "provider_id":  provider["id"],
+                    "badge":        activity.title(),
+                    "activity":     activity,
+                    "location_raw": p.get("locationAddress"),
+                    "date_display": None,
+                    "date_sort":    None,
+                    "duration_days": None,
+                    "price":        price,
+                    "spots_remaining": None,
+                    "avail":        "open",
+                    "image_url":    image_url,
+                    "booking_url":  f"{provider['storefront']}/{p.get('productCode', '')}?{provider['utm']}",
+                    "scraped_at":   datetime.utcnow().isoformat(),
+                })
+    except Exception as e:
+        log.error(f"Rezdy API fallback failed for {provider['name']}: {e}")
+    return courses
+
+
+# -- CANADA WEST (WOOCOMMERCE) SCRAPER --
+
+CWMS_ACTIVITY_MAP = {
+    "hiking":           "hiking",
+    "skiing":           "skiing",
+    "mountaineering":   "mountaineering",
+    "avalanche-safety": "skiing",
+    "backcountry":      "skiing",
+    "squamish-rock":    "climbing",
+    "rock":             "climbing",
+    "first-aid":        "guided",
+    "alpine":           "mountaineering",
+}
+
+
+def scrape_cwms(provider):
+    """Scrape Canada West Mountain School WooCommerce listing page."""
+    log.info(f"Scraping {provider['name']} -- {provider['listing_url']}")
+    courses = []
+    try:
+        r = requests.get(provider["listing_url"], headers=HEADERS, timeout=20)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, "html.parser")
+        items = soup.select("div.mix")
+        if not items:
+            log.warning(f"No div.mix found for {provider['name']}")
+            return []
+        log.info(f"Found {len(items)} items for {provider['name']}")
+        for item in items:
+            try:
+                style = item.get("style", "")
+                if "display: none" in style or "display:none" in style:
+                    continue
+                title_el = item.select_one("h3.product-archive-heading")
+                title = title_el.get_text(strip=True) if title_el else None
+                if not title:
+                    continue
+                link_el = item.select_one("a[href]")
+                booking_url = None
+                if link_el:
+                    href = link_el.get("href", "")
+                    if href.startswith("http"):
+                        booking_url = f"{href}{'&' if '?' in href else '?'}{provider['utm']}"
+                    else:
+                        booking_url = f"{provider['base_url']}{href}?{provider['utm']}"
+                price = None
+                price_el = item.select_one("div.product-price")
+                if price_el:
+                    price_text = price_el.get_text(strip=True)
+                    m = re.search(r"[\d,]+", price_text.replace(",", ""))
+                    if m:
+                        try:
+                            price = int(float(m.group().replace(",", "")))
+                        except ValueError:
+                            pass
+                image_url = None
+                img_el = item.select_one("div.product-image-wrap img")
+                if img_el:
+                    image_url = img_el.get("src") or img_el.get("data-src")
+                desc_text = ""
+                desc_el = item.select_one("div.product-short-descr")
+                if desc_el:
+                    desc_text = desc_el.get_text(strip=True)
+                classes = item.get("class", [])
+                activity = "guided"
+                for cls in classes:
+                    if cls in CWMS_ACTIVITY_MAP:
+                        activity = CWMS_ACTIVITY_MAP[cls]
+                        break
+                location_raw = None
+                loc_m = re.search(r"(Whistler|Squamish|Seymour|Garibaldi|Pemberton|Tantalus|Vancouver|North Shore|Golden|Revelstoke|Manning|Chilcotin|Spearhead|Brandywine|Joffre)", title + " " + desc_text, re.I)
+                if loc_m:
+                    location_raw = loc_m.group(0).title()
+                duration_days = None
+                dur_m = re.search(r"(\d+)[\s-]*day", title + " " + desc_text, re.I)
+                if dur_m:
+                    duration_days = float(dur_m.group(1))
+                courses.append({
+                    "title":         title,
+                    "provider_id":   provider["id"],
+                    "badge":         activity.title(),
+                    "activity":      activity,
+                    "activity_raw":  activity,
+                    "location_raw":  location_raw,
+                    "date_display":  None,
+                    "date_sort":     None,
+                    "duration_days": duration_days,
+                    "price":         price,
+                    "spots_remaining": None,
+                    "avail":         "open",
+                    "image_url":     image_url,
+                    "booking_url":   booking_url,
+                    "scraped_at":    datetime.utcnow().isoformat(),
+                })
+            except Exception as e:
+                log.warning(f"Error parsing CWMS item: {e}")
+                continue
+    except Exception as e:
+        log.error(f"Failed to scrape {provider['name']}: {e}")
+    log.info(f"Scraped {len(courses)} courses from {provider['name']}")
+    return courses
+
+
+def scrape_cwms_course_page(course_url):
+    """
+    Visit a CWMS course page and extract individual date sessions.
+    Parses quantity labels: "Course Name Month Day-Day Year quantity"
+    Returns list of dicts: {date_display, date_sort, spots_remaining, avail, product_id}
+    """
+    sessions = []
+    try:
+        clean_url = course_url.split("?")[0]
+        r = requests.get(clean_url, headers=HEADERS, timeout=20)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        # Strategy 1: find all quantity labels — most reliable
+        # Label text: "Complete Mountaineering June 1-7 2026 quantity"
+        labels = soup.find_all("label", class_="screen-reader-text")
+        date_pattern = re.compile(
+            r"(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+([\d]+(?:-[\d]+)?)\s+(20\d{2})",
+            re.I
+        )
+
+        for label in labels:
+            label_text = label.get_text(strip=True)
+            m = date_pattern.search(label_text)
+            if not m:
+                continue
+
+            month = m.group(1)
+            days  = m.group(2)
+            year  = m.group(3)
+            date_display = f"{month} {days}, {year}"
+
+            # Parse date_sort using first day
+            first_day = days.split("-")[0]
+            date_sort = None
+            try:
+                from datetime import datetime as dt
+                for fmt in ["%B %d %Y", "%b %d %Y"]:
+                    try:
+                        date_sort = dt.strptime(f"{month} {first_day} {year}", fmt).strftime("%Y-%m-%d")
+                        break
+                    except ValueError:
+                        continue
+            except Exception:
+                pass
+
+            # Find parent block for stock + product ID
+            parent = label.find_parent("div", class_=lambda c: c and "iconic-woo-bundled-product" in c)
+            spots = None
+            avail = "open"
+            product_id = None
+
+            if parent:
+                stock_el = parent.find("p", class_="stock")
+                if stock_el:
+                    stock_text = stock_el.get_text(strip=True).lower()
+                    if "out of stock" in stock_text:
+                        avail = "sold"
+                        spots = 0
+                    else:
+                        sm = re.search(r"(\d+)", stock_text)
+                        if sm:
+                            spots = int(sm.group(1))
+                            "critical" if spots <= 2 else "low" if spots <= 4 else "open"
+
+                btn = parent.find("button", class_="single_add_to_cart_button")
+                if btn:
+                    product_id = btn.get("value")
+
+            # Skip past dates
+            if date_sort and date_sort < datetime.utcnow().strftime("%Y-%m-%d"):
+                continue
+
+            sessions.append({
+                "date_display": date_display,
+                "date_sort":    date_sort,
+                "spots_remaining": spots,
+                "avail":        avail,
+                "product_id":   product_id,
+            })
+
+        if sessions:
+            log.info(f"Found {len(sessions)} date sessions at {clean_url}")
+
+    except Exception as e:
+        log.warning(f"Could not scrape CWMS course page {course_url}: {e}")
+
+    return sessions
+
+
+# ── COURSE PAGE CHECK ──
+
+NO_AVAILABILITY_SIGNALS = [
+    "no availability",
+    "please try again later",
+    "no sessions available",
+    "not available",
+    "sold out",
+    "no upcoming",
+]
+
+STATIC_DATE_PATTERNS = [
+    # Full date: month name + day + year e.g. "Apr 19, 2026" or "April 19 2026"
+    r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?[,\s]+20\d{2}",
+    # ISO date e.g. "2026-04-19"
+    r"20\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])",
+    # Numeric date e.g. "19/04/2026"
+    r"\d{1,2}/\d{1,2}/20\d{2}",
+]
+
+def check_course_page(booking_url: str) -> dict:
+    """
+    Visit a course page and determine:
+    - is it available?
+    - are there static dates we can scrape?
+    - is it a custom date picker?
+    Returns dict: {available, custom_dates, dates}
+    """
+    result = {"available": True, "custom_dates": False, "dates": []}
+
+    try:
+        # Strip UTM params for clean page fetch
+        clean_url = booking_url.split("?")[0]
+        r = requests.get(clean_url, headers=HEADERS, timeout=20)
+        r.raise_for_status()
+        text = r.text.lower()
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        # Check for no availability signals
+        for signal in NO_AVAILABILITY_SIGNALS:
+            if signal in text:
+                log.info(f"No availability found at {clean_url}")
+                result["available"] = False
+                return result
+
+        # Try to find static dates in HTML
+        page_text = soup.get_text()
+        found_dates = []
+        for pattern in STATIC_DATE_PATTERNS:
+            matches = re.findall(pattern, page_text)
+            found_dates.extend(matches)
+
+        if found_dates:
+            log.info(f"Found {len(found_dates)} static dates at {clean_url}")
+            result["dates"] = list(set(found_dates))
+        else:
+            # No static dates — assume JS calendar / custom date picker
+            log.info(f"No static dates found at {clean_url} — marking as custom dates")
+            result["custom_dates"] = True
+
+    except Exception as e:
+        log.warning(f"Could not check course page {booking_url}: {e}")
+        # If we can't check, assume available to avoid hiding valid courses
+        result["available"] = True
+        result["custom_dates"] = True
+
+    return result
+
+
+# ── SEND EMAIL ──
+
+def send_email(to: str, subject: str, html: str) -> None:
+    r = requests.post(
+        "https://api.resend.com/emails",
+        headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
+        json={"from": f"BackcountryFinder Scraper <{FROM_EMAIL}>", "to": [to], "subject": subject, "html": html}
+    )
+    if not r.ok:
+        log.error(f"Email send failed: {r.status_code} {r.text}")
+    else:
+        log.info(f"Email sent to {to}")
+
+
+def send_flag_email(flags: list) -> None:
+    if not flags:
+        return
+    rows = "".join(
+        f"<tr><td style='padding:6px 12px;border-bottom:1px solid #f0f0f0;'>{f['location_raw']}</td>"
+        f"<td style='padding:6px 12px;border-bottom:1px solid #f0f0f0;'>{f['provider_id']}</td>"
+        f"<td style='padding:6px 12px;border-bottom:1px solid #f0f0f0;font-size:12px;color:#888;'>{f['course_title']}</td></tr>"
+        for f in flags
+    )
+    html = f"""
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+      <div style="background:#1a2e1a;padding:20px 28px;border-radius:10px 10px 0 0;">
+        <p style="margin:0;font-size:18px;color:#fff;font-family:Georgia,serif;">
+          backcountry<span style="color:#4ade80;font-style:italic;">finder</span>
+        </p>
       </div>
-      <div class="search-field" style="flex:1.5;">
-        <label>Where</label>
-        <select id="search-location">
-          <option value="">Anywhere</option>
-          <option>Whistler / Blackcomb</option>
-          <option>Squamish</option>
-          <option>North Shore / Seymour</option>
-          <option>Pemberton / Duffey</option>
-          <option>Garibaldi Park</option>
-          <option>Tantalus Range</option>
-        </select>
-      </div>
-      <div class="search-field" style="flex:1;">
-        <label>From when</label>
-        <input type="date" id="search-date" onchange="this.classList.toggle('has-value', !!this.value)">
-      </div>
-      <button class="search-go" onclick="runSearch()">Search →</button>
-    </div>
-    </div>
-  </div>
-  <div class="main">
-    <div class="filter-row">
-      <div class="sort-bar">
-        <span class="sort-label">sort by</span>
-        <button class="sort-btn active" onclick="sortBy(this,'date')">date</button>
-        <button class="sort-btn" onclick="sortBy(this,'price')">price</button>
-        <button class="sort-btn" onclick="sortBy(this,'availability')">availability</button>
-      </div>
-    </div>
-    <div style="margin-bottom:16px;"><span class="results-count" id="results-count">12 results</span></div>
-    <div class="card-grid" id="card-grid"></div>
-    <div class="load-more-wrap" id="load-more-wrap" style="display:none;">
-      <button class="load-more-btn" onclick="loadMore()">show more</button>
-    </div>
-
-    <!-- LOADING OVERLAY -->
-    <div class="loading-overlay" id="loading-overlay" style="display:none;">
-      <svg width="64" height="64" viewBox="0 0 32 32" fill="none">
-        <path d="M5 27 L11 17 L16 22 L21 13 L27 27" stroke="#4ade80" stroke-width="1.1" fill="none" stroke-linejoin="round" opacity="0.2"/>
-        <path d="M2 27 L10 14 L16 20 L22 10 L30 27 Z" fill="#4ade80" opacity="0.1"/>
-        <path d="M2 27 L10 14 L16 20 L22 10 L30 27" stroke="#4ade80" stroke-width="1.4" fill="none" stroke-linejoin="round" opacity="0.5"/>
-        <path class="loader-track" d="M0.3 25.95 L9.77 12.01 L15.76 18.01 L22 10" stroke="#1a2e1a" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-        <circle class="loader-dot" cx="22" cy="10" r="2.8" fill="#4ade80"/>
-      </svg>
-      <div class="loading-overlay-text">Just a moment — checking what's open out there.</div>
-    </div>
-  </div>
-</div>
-
-<!-- SAVED PAGE -->
-<div class="page" id="page-saved">
-  <div class="main">
-    <div class="page-header">
-      <h2>my list</h2>
-      <p>Your saved experiences, stored in your browser.</p>
-    </div>
-    <div id="saved-toolbar-wrap" style="display:none;">
-      <div class="saved-toolbar">
-        <span class="saved-toolbar-count" id="saved-toolbar-count">0 saved</span>
-        <div class="saved-toolbar-actions">
-          <button class="toolbar-btn" onclick="openEmailListModal()">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 7 10 7 10-7"/></svg>
-            email my list
-          </button>
-          <div class="share-popover-wrap">
-            <button class="toolbar-btn toolbar-btn-primary" onclick="toggleSavedShare(event)">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13"/></svg>
-              share list
-            </button>
-            <div class="share-popover" id="saved-share-popover"></div>
-          </div>
+      <div style="background:#fff;padding:24px 28px;border-radius:0 0 10px 10px;border:1px solid #e8e8e8;border-top:none;">
+        <p style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:#4ade80;background:#1a2e1a;display:inline-block;padding:3px 10px;border-radius:20px;margin-bottom:14px;">location mapping needed</p>
+        <h2 style="font-size:18px;font-weight:700;color:#1a1a1a;margin:0 0 10px;letter-spacing:-0.3px;">
+          {len(flags)} unmatched location{' string' if len(flags)==1 else ' strings'} found
+        </h2>
+        <p style="font-size:13px;color:#555;margin:0 0 20px;line-height:1.6;">
+          The scraper found location strings it couldn't normalise. Add them to the 
+          <code style="background:#f5f5f5;padding:2px 6px;border-radius:4px;">location_mappings</code> 
+          table in Supabase to fix search filtering. Courses are still visible using the raw string.
+        </p>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead>
+            <tr style="background:#f8f8f8;">
+              <th style="padding:8px 12px;text-align:left;font-weight:700;color:#333;">Raw string</th>
+              <th style="padding:8px 12px;text-align:left;font-weight:700;color:#333;">Provider</th>
+              <th style="padding:8px 12px;text-align:left;font-weight:700;color:#333;">Course</th>
+            </tr>
+          </thead>
+          <tbody>{rows}</tbody>
+        </table>
+        <div style="margin-top:20px;padding-top:16px;border-top:1px solid #f0f0f0;">
+          <p style="font-size:12px;color:#888;margin:0;">
+            Fix: INSERT INTO location_mappings (location_raw, location_canonical) VALUES ('raw string', 'Canonical Name');
+          </p>
         </div>
       </div>
-    </div>
-    <div id="saved-empty" class="empty-state">
-      <div class="empty-icon">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="20" rx="6" ry="2.5" stroke="#ccc" stroke-width="1.5" fill="none"/><ellipse cx="12" cy="14.5" rx="4.5" ry="2" stroke="#ccc" stroke-width="1.5" fill="none"/><ellipse cx="12" cy="9.5" rx="3" ry="1.8" stroke="#ccc" stroke-width="1.5" fill="none"/></svg>
+    </div>"""
+    send_email(NOTIFY_EMAIL, f"Location mapping needed — {len(flags)} unmatched string{'s' if len(flags)>1 else ''}", html)
+
+
+def send_scrape_summary(total: int, providers: list, flags_count: int) -> None:
+    html = f"""
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+      <div style="background:#1a2e1a;padding:20px 28px;border-radius:10px 10px 0 0;">
+        <p style="margin:0;font-size:18px;color:#fff;font-family:Georgia,serif;">
+          backcountry<span style="color:#4ade80;font-style:italic;">finder</span>
+        </p>
       </div>
-      <h3>your list is empty</h3>
-      <p>Click "my list" on any experience to save it for later.</p>
-    </div>
-    <div class="card-grid" id="saved-cards" style="display:none;"></div>
-  </div>
-</div>
-
-<!-- PROVIDERS PAGE -->
-<div class="page" id="page-providers">
-  <div class="main">
-    <div class="providers-hero">
-      <div>
-        <h2>for providers</h2>
-        <p>Get your experiences in front of people who are actively looking. No commission, no fees — we drive traffic directly to your booking page.</p>
+      <div style="background:#fff;padding:24px 28px;border-radius:0 0 10px 10px;border:1px solid #e8e8e8;border-top:none;">
+        <p style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:#4ade80;background:#1a2e1a;display:inline-block;padding:3px 10px;border-radius:20px;margin-bottom:14px;">scraper run complete</p>
+        <h2 style="font-size:18px;font-weight:700;color:#1a1a1a;margin:0 0 16px;letter-spacing:-0.3px;">
+          {total} courses updated
+        </h2>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px;">
+          <thead><tr style="background:#f8f8f8;">
+            <th style="padding:8px 12px;text-align:left;font-weight:700;">Provider</th>
+            <th style="padding:8px 12px;text-align:right;font-weight:700;">Courses</th>
+            <th style="padding:8px 12px;text-align:right;font-weight:700;">Status</th>
+          </tr></thead>
+          <tbody>{"".join(f"<tr><td style='padding:6px 12px;border-bottom:1px solid #f0f0f0;'>{p['name']}</td><td style='padding:6px 12px;border-bottom:1px solid #f0f0f0;text-align:right;'>{p['count']}</td><td style='padding:6px 12px;border-bottom:1px solid #f0f0f0;text-align:right;color:{'#2d6a11' if p['ok'] else '#a32d2d'};font-weight:600;'>{'✓ ok' if p['ok'] else '✗ failed'}</td></tr>" for p in providers)}</tbody>
+        </table>
+        {'<p style="font-size:13px;color:#854f0b;background:#faeeda;padding:10px 14px;border-radius:6px;">⚠ ' + str(flags_count) + ' unmatched location string' + ('s' if flags_count>1 else '') + ' — check your other email for details.</p>' if flags_count else '<p style="font-size:13px;color:#2d6a11;background:#eaf3de;padding:10px 14px;border-radius:6px;">✓ All locations normalised cleanly.</p>'}
+        <p style="font-size:11px;color:#aaa;margin-top:16px;">Run at {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}</p>
       </div>
-      <div class="providers-hero-btns">
-        <button class="provider-cta-btn primary" onclick="openProviderModal('listed')">get listed — it's free</button>
-        <button class="provider-cta-btn secondary" onclick="openProviderModal('suggest')">suggest a provider</button>
-      </div>
-    </div>
-    <div class="provider-cards" id="provider-cards">
-      <div class="skel-card" style="height:120px;"><div class="skel" style="height:100%;border-radius:12px;"></div></div>
-      <div class="skel-card" style="height:120px;"><div class="skel" style="height:100%;border-radius:12px;"></div></div>
-    </div>
-  </div>
-</div>
-
-<!-- ABOUT PAGE -->
-<div class="page" id="page-about">
-  <div class="main">
-    <div class="about-wrap">
-      <div class="page-header"><h2>about</h2></div>
-      <p>BackcountryFinder exists because finding backcountry experiences is unnecessarily hard. You know what you want to do — ski a line, learn to climb, chase a river, spend a night in an alpine hut. But finding who runs it, when it's on, and whether there are spots left takes twenty open browser tabs and half an afternoon.</p>
-      <p>This is the fix. Every guided backcountry experience — courses, heli trips, cat skiing, fly fishing, hunting, huts, tours — in one place. Search, compare, save, and book directly with the provider. No middleman, no markup, no BS.</p>
-      <h3>how it works</h3>
-      <p>Providers list their experiences for free. We pull availability every few hours and surface it here. When you find something you like, you book directly with the provider — we just get you there faster.</p>
-      <h3>the builder</h3>
-      <p>Built by a firefighter and wannabe mountain person who got tired of the tab problem. If you have experiences to list, providers to suggest, or feedback — the door is open.</p>
-      <div class="contact-block"><p>Questions or want to get listed? <a href="mailto:luke@backcountryfinder.com">luke@backcountryfinder.com</a></p></div>
-    </div>
-  </div>
-</div>
-
-<!-- MOBILE NAV -->
-<nav class="mobile-nav">
-  <div class="mobile-nav-inner">
-    <button class="mnav-item active" id="mnav-search" onclick="showPage('search')">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-linecap="round">
-        <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/>
-        <polygon points="12,5 14,11 12,13 10,11" fill="currentColor" stroke="none"/>
-        <polygon points="12,19 10,13 12,11 14,13" fill="currentColor" stroke="none" opacity="0.35"/>
-        <circle cx="12" cy="12" r="1.2" fill="currentColor"/>
-      </svg>
-      <div class="mnav-dot"></div>
-      <span class="mnav-label">search</span>
-    </button>
-    <button class="mnav-item" id="mnav-saved" onclick="showPage('saved')">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" id="mnav-cairn-svg">
-        <ellipse cx="12" cy="20" rx="6" ry="2.5" stroke="currentColor" stroke-width="1.5" fill="none"/>
-        <ellipse cx="12" cy="14.5" rx="4.5" ry="2" stroke="currentColor" stroke-width="1.5" fill="none"/>
-        <ellipse cx="12" cy="9.5" rx="3" ry="1.8" stroke="currentColor" stroke-width="1.5" fill="none"/>
-      </svg>
-      <div class="mnav-dot"></div>
-      <span class="mnav-label">my list</span>
-    </button>
-    <button class="mnav-item" id="mnav-providers" onclick="showPage('providers')">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-        <line x1="12" y1="3" x2="12" y2="21"/>
-        <path d="M12 7 L19 7 L21 9.5 L19 12 L12 12 Z"/>
-        <path d="M12 13 L5 13 L3 15.5 L5 18 L12 18 Z"/>
-      </svg>
-      <div class="mnav-dot"></div>
-      <span class="mnav-label">providers</span>
-    </button>
-    <button class="mnav-item" id="mnav-about" onclick="showPage('about')">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
-        <line x1="7" y1="21" x2="12" y2="16" stroke="currentColor" stroke-width="1.8"/>
-        <line x1="17" y1="21" x2="12" y2="16" stroke="currentColor" stroke-width="1.8"/>
-        <line x1="6" y1="21" x2="18" y2="21" stroke="currentColor" stroke-width="2"/>
-        <path d="M12 15.5 C10.5 15.5 9 14 9 12 C9 10 10.5 9.5 10.5 9.5 C10.5 9.5 10.5 11 11.5 11 C11.5 11 11 9 12 7.5 C12 7.5 13 9.5 12.5 10.5 C12.5 10.5 14 9.5 13.5 8 C13.5 8 15.5 10.5 14.5 13 C14.5 13 13.5 15.5 12 15.5 Z" stroke="currentColor" stroke-width="1.3" fill="none"/>
-      </svg>
-      <div class="mnav-dot"></div>
-      <span class="mnav-label">about</span>
-    </button>
-  </div>
-</nav>
-
-<!-- EMAIL MODAL -->
-<div class="email-list-modal-overlay" id="email-list-modal" onclick="closeEmailListModal(event)">
-  <div class="email-list-modal elm-modal">
-    <button class="elm-close" onclick="closeEmailListModal()">×</button>
-    <div id="elm-form-content">
-      <div class="elm-tag">email my list</div>
-      <h3>Send your saved list to your inbox</h3>
-      <p>We'll email you a neat summary with Book Now links — plus a shareable link to send to a friend.</p>
-      <div class="elm-courses-preview" id="elm-courses-preview"></div>
-      <input class="elm-input" type="email" id="elm-email" placeholder="your@email.com">
-      <label class="elm-optin"><input type="checkbox" id="elm-optin" checked><span>Keep me updated when new experiences are added — no spam, unsubscribe anytime.</span></label>
-      <button class="elm-submit" onclick="submitEmailList()">send me my list</button>
-    </div>
-    <div class="elm-success" id="elm-success">
-      <div class="tick">✓</div><h4>Check your inbox!</h4>
-      <p>Your saved list is on its way. Check spam if it doesn't arrive within a minute.</p>
-    </div>
-  </div>
-</div>
-
-<!-- PROVIDER MODAL -->
-<div class="provider-modal-overlay" id="provider-modal" onclick="closeProviderModal(event)">
-  <div class="provider-modal">
-    <button class="pmodal-close" onclick="closeProviderModal()">×</button>
-    <div class="pmodal-tabs">
-      <button class="pmodal-tab active" id="tab-suggest" onclick="switchProviderTab('suggest')">suggest a provider</button>
-      <button class="pmodal-tab" id="tab-listed" onclick="switchProviderTab('listed')">get listed</button>
-    </div>
-    <div class="pmodal-body">
-      <div class="pmodal-form active" id="form-suggest">
-        <div id="suggest-form-content">
-          <div class="pmodal-tag">suggest a provider</div>
-          <h3>Know a great provider we're missing?</h3>
-          <p>Tell us about them and we'll reach out to get them listed.</p>
-          <div class="pmodal-field"><label>provider name *</label><input type="text" id="suggest-school" placeholder="e.g. Whistler Alpine Guides"></div>
-          <div class="pmodal-field"><label>their website</label><input type="url" id="suggest-website" placeholder="https://..."></div>
-          <div class="pmodal-field"><label>who we should talk to</label><input type="text" id="suggest-contact-at-provider" placeholder="e.g. Sarah Jones (guide coordinator)"></div>
-          <div class="pmodal-field"><label>your name *</label><input type="text" id="suggest-submitter-name" placeholder="Your full name"></div>
-          <div class="pmodal-field"><label>your email *</label><input type="email" id="suggest-email" placeholder="your@email.com"></div>
-          <div class="pmodal-field"><label>anything else?</label><textarea id="suggest-notes" placeholder="e.g. they run great heli trips out of Revelstoke..."></textarea></div>
-          <button class="pmodal-submit" onclick="submitSuggest()">suggest this provider</button>
-        </div>
-        <div class="pmodal-success" id="suggest-success"><div class="tick">✓</div><h4>Thanks for the tip!</h4><p>We'll reach out to them and get them added.</p></div>
-      </div>
-      <div class="pmodal-form" id="form-listed">
-        <div id="listed-form-content">
-          <div class="pmodal-tag">get listed</div>
-          <h3>List your experiences for free</h3>
-          <p>No commission, no fees, ever. We'll be in touch within 48 hours.</p>
-          <div class="pmodal-field"><label>provider name *</label><input type="text" id="listed-school" placeholder="e.g. Whistler Alpine Guides"></div>
-          <div class="pmodal-field"><label>your website *</label><input type="url" id="listed-website" placeholder="https://..."></div>
-          <div class="pmodal-field"><label>your name *</label><input type="text" id="listed-name" placeholder="First and last name"></div>
-          <div class="pmodal-field"><label>your email *</label><input type="email" id="listed-email" placeholder="you@yourprovider.com"></div>
-          <div class="pmodal-field"><label>anything you'd like us to know?</label><textarea id="listed-notes" placeholder="e.g. we run heli and cat skiing out of Golden..."></textarea></div>
-          <button class="pmodal-submit" onclick="submitGetListed()">get listed on backcountryfinder</button>
-        </div>
-        <div class="pmodal-success" id="listed-success"><div class="tick">✓</div><h4>We'll be in touch!</h4><p>Expect an email from luke@backcountryfinder.com within 48 hours.</p></div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- NOTIFY MODAL -->
-<div class="modal-overlay" id="notify-modal" onclick="closeModal(event)">
-  <div class="modal">
-    <button class="modal-close" onclick="closeNotifyModal()">×</button>
-    <div id="modal-form-content">
-      <div class="modal-tag">notify me</div>
-      <h3>We'll let you know when a spot opens</h3>
-      <p>Drop your email and we'll ping you the moment availability changes.</p>
-      <div class="modal-course" id="modal-course-title"></div>
-      <input class="modal-input" type="email" id="modal-email" placeholder="your@email.com">
-      <button class="modal-submit" onclick="submitNotify()">notify me when a spot opens</button>
-    </div>
-    <div class="modal-success" id="modal-success"><div class="tick">✓</div><h4>You're on the list</h4><p>We'll email you as soon as a spot opens.</p></div>
-  </div>
-</div>
-
-<div class="toast" id="book-toast"></div>
-<div class="micro-toast" id="micro-toast">
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="20" rx="6" ry="2.5" fill="rgba(255,255,255,0.6)"/><ellipse cx="12" cy="14.5" rx="4.5" ry="2" fill="rgba(255,255,255,0.8)"/><ellipse cx="12" cy="9.5" rx="3" ry="1.8" fill="#4ade80"/></svg>
-  saved to your list
-</div>
-
-<script>
-const ADS_ENABLED = false;
-
-// Activity labels loaded dynamically from Supabase
-let ACTIVITY_LABELS = {};
-
-async function loadActivityLabels() {
-  try {
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/activity_labels?select=activity,label`,
-      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
-    );
-    const rows = await res.json();
-    rows.forEach(r => { ACTIVITY_LABELS[r.activity] = r.label; });
-  } catch(e) { console.warn('Could not load activity labels:', e); }
-}
-const SUPABASE_EDGE_URL = 'https://owzrztaguehebkatnatc.supabase.co/functions/v1/send-saved-list';
-const NOTIFY_URL = 'https://owzrztaguehebkatnatc.supabase.co/functions/v1/notify-submission';
-const SUPABASE_URL = 'https://owzrztaguehebkatnatc.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_lqIyTGAgCn09Yfh1eacSPg_tcs9SJcB';
-
-const IMG = {
-  skiing:        "https://images.unsplash.com/photo-1673994841979-a8d3983d4a51?w=800&q=80&fit=crop",
-  climbing:      "https://images.unsplash.com/photo-1698352607376-fb224335f560?w=800&q=80&fit=crop",
-  mountaineering:"https://plus.unsplash.com/premium_photo-1694475628847-78f7060d4132?w=800&q=80&fit=crop",
-  biking:        "https://images.unsplash.com/photo-1603614068906-c1ea9b6819ab?w=800&q=80&fit=crop",
-  hiking:        "https://images.unsplash.com/photo-1607895521752-bb2ddf4ef6e3?w=800&q=80&fit=crop",
-  fishing:       "https://images.unsplash.com/photo-1541512416146-3cf58d6b27cc?w=800&q=80&fit=crop",
-};
-
-// ── DATA STATE ──
-let currentSort = 'date';
-let currentPage = 0;
-let totalCount = 0;
-let isLoading = false;
-let currentFilters = { activity: '', location: '', date: '' };
-const PAGE_SIZE = 12;
-const CACHE_KEY = 'bcf_cache';
-const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
-
-// ── SAVED / CAIRN ──
-function getSaved(){try{return JSON.parse(localStorage.getItem('bcf_saved')||'[]');}catch(e){return[];}}
-function setSaved(arr){try{localStorage.setItem('bcf_saved',JSON.stringify(arr));}catch(e){}}
-function isSaved(id){return getSaved().includes(id);}
-function toggleSave(id){
-  const wasUnsaved = !isSaved(id);
-  let s=getSaved();s=s.includes(id)?s.filter(x=>x!==id):[...s,id];setSaved(s);
-  renderSaved();
-  // Re-render the specific card to update its state
-  const btn = document.querySelector(`[onclick="toggleSave('${id}')"]`);
-  if (btn) {
-    const card = btn.closest('.course-card');
-    if (card) {
-      const course = currentCourses.find(c => c.id === id);
-      if (course) card.outerHTML = buildCard(course);
-    }
-  }
-  if(wasUnsaved){
-    showMicroToast();
-    requestAnimationFrame(()=>{
-      const newBtn=document.querySelector(`[onclick="toggleSave('${id}')"]`);
-      if(newBtn){
-        newBtn.classList.remove('remove-ready');
-        newBtn.addEventListener('mouseleave',function onLeave(){
-          newBtn.classList.add('remove-ready');
-          newBtn.removeEventListener('mouseleave',onLeave);
-        },{once:true});
-      }
-    });
-  }
-}
-
-// ── CACHE ──
-let currentCourses = [];
-
-function getCached() {
-  try {
-    const raw = localStorage.getItem(CACHE_KEY);
-    if (!raw) return null;
-    const { data, ts, filters, sort } = JSON.parse(raw);
-    if (Date.now() - ts > CACHE_TTL) return null;
-    if (JSON.stringify(filters) !== JSON.stringify(currentFilters)) return null;
-    if (sort !== currentSort) return null;
-    return data;
-  } catch(e) { return null; }
-}
-
-function setCache(data) {
-  try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify({
-      data, ts: Date.now(),
-      filters: currentFilters,
-      sort: currentSort
-    }));
-  } catch(e) {}
-}
-
-// ── SUPABASE QUERY ──
-async function fetchCourses(page = 0, append = false) {
-  if (isLoading) return;
-  isLoading = true;
-
-  const cached = page === 0 ? getCached() : null;
-  if (cached) {
-    currentCourses = cached;
-    renderCards(cached, false);
-    isLoading = false;
-    // Refresh in background
-    fetchFromSupabase(page, append, true);
-    return;
-  }
-
-  // Only show skeleton on first page load, not on show more
-  if (!append) showSkeleton();
-  await fetchFromSupabase(page, append, false);
-}
-
-async function fetchFromSupabase(page = 0, append = false, background = false) {
-  try {
-    const from = page * PAGE_SIZE;
-    const to = from + PAGE_SIZE - 1;
-    const today = new Date().toISOString().split('T')[0];
-
-    // Build filters array for clean Supabase query
-    const filters = ['active=eq.true'];
-
-    if (currentFilters.activity) filters.push(`activity_canonical=eq.${encodeURIComponent(currentFilters.activity)}`);
-
-    if (currentFilters.location) {
-      const loc = encodeURIComponent(currentFilters.location);
-      filters.push(`or=(location_canonical.eq.${loc},location_raw.eq.${loc})`);
-    }
-
-    if (currentFilters.date) {
-      filters.push(`or=(date_sort.gte.${currentFilters.date},custom_dates.eq.true)`);
-    }
-
-    // Sort
-    let order = 'order=date_sort.asc.nullslast';
-    if (currentSort === 'price')        order = 'order=price.asc';
-    if (currentSort === 'availability') order = 'order=avail.asc';
-
-    const queryString = filters.join('&');
-    let url = `${SUPABASE_URL}/rest/v1/courses?select=*,providers(name,rating,review_count)&${queryString}&${order}&limit=${PAGE_SIZE}&offset=${from}`;
-
-    const res = await fetch(url, {
-      headers: {
-        'apikey': SUPABASE_KEY,
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
-        'Prefer': 'count=exact',
-      }
-    });
-
-    if (!res.ok) throw new Error(`Supabase error: ${res.status}`);
-
-    const contentRange = res.headers.get('content-range');
-    if (contentRange) {
-      const match = contentRange.match(/\/(\d+)$/);
-      if (match) totalCount = parseInt(match[1]);
-    }
-
-    const courses = await res.json();
-
-    if (append) {
-      currentCourses = [...currentCourses, ...courses];
-    } else {
-      currentCourses = courses;
-      if (!background) setCache(courses);
-    }
-
-    renderCards(courses, append);
-    await loadLocationsDropdown();
-
-  } catch(err) {
-    console.error('Fetch error:', err);
-    if (!background) showError();
-  } finally {
-    isLoading = false;
-    if (!append) hideSkeleton();
-  }
-}
-
-// ── SKELETON / LOADING ──
-function showSkeleton() {
-  const grid = document.getElementById('card-grid');
-  const overlay = document.getElementById('loading-overlay');
-  grid.innerHTML = Array(6).fill(0).map(() => `
-    <div class="skel-card">
-      <div class="skel skel-img"></div>
-      <div class="skel-body">
-        <div class="skel skel-title" style="width:85%;"></div>
-        <div class="skel skel-meta" style="width:65%;"></div>
-        <div class="skel skel-meta" style="width:45%;"></div>
-      </div>
-      <div class="skel-footer">
-        <div><div class="skel skel-price"></div><div class="skel skel-avail"></div></div>
-        <div class="skel skel-btn"></div>
-      </div>
-    </div>`).join('');
-  if (overlay) overlay.style.display = 'flex';
-}
-
-function hideSkeleton() {
-  const overlay = document.getElementById('loading-overlay');
-  if (overlay) {
-    overlay.style.opacity = '0';
-    overlay.style.transition = 'opacity 0.3s ease';
-    setTimeout(() => { overlay.style.display = 'none'; overlay.style.opacity = '1'; }, 300);
-  }
-}
-
-function showError() {
-  const grid = document.getElementById('card-grid');
-  grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="empty-icon">⚠</div><h3>couldn't load experiences</h3><p>Check your connection and try again.</p></div>`;
-  hideSkeleton();
-}
-
-// ── ACTIVITY DROPDOWN ──
-async function loadActivitiesDropdown() {
-  try {
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/courses?select=activity_canonical&active=eq.true`,
-      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
-    );
-    const rows = await res.json();
-    const activities = new Set();
-    rows.forEach(r => { if (r.activity_canonical) activities.add(r.activity_canonical); });
-    const select = document.getElementById('search-activity');
-    const currentVal = select.value;
-    select.innerHTML = '<option value="">Everything backcountry</option>' +
-      [...activities].sort().map(a => `<option value="${a}">${ACTIVITY_LABELS[a] || a}</option>`).join('');
-    if (currentVal) select.value = currentVal;
-  } catch(e) { /* keep default option */ }
-}
-
-// ── LOCATION DROPDOWN ──
-async function loadLocationsDropdown() {
-  try {
-    // Fetch all distinct canonical + raw locations from active courses
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/courses?select=location_canonical,location_raw&active=eq.true`,
-      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
-    );
-    const rows = await res.json();
-    const locations = new Set();
-    rows.forEach(r => {
-      if (r.location_canonical) locations.add(r.location_canonical);
-      else if (r.location_raw) locations.add(r.location_raw);
-    });
-    const select = document.getElementById('search-location');
-    const currentVal = select.value;
-    select.innerHTML = '<option value="">Anywhere</option>' +
-      [...locations].sort().map(l => `<option value="${l}">${l}</option>`).join('');
-    if (currentVal) select.value = currentVal;
-  } catch(e) { /* keep static options */ }
-}
-
-function buildCard(c){
-  const saved = isSaved(c.id);
-  const availLabel = c.avail==='open' ? 'Open'
-    : c.avail==='critical' ? `${c.spots_remaining ?? '1-2'} spots left`
-    : c.avail==='low'      ? `${c.spots_remaining ?? '3-4'} spots left`
-    : 'Sold out';
-  const provider = c.providers || {};
-  const providerName = provider.name || c.provider_id || '';
-  const rating = provider.rating ? `★ ${provider.rating}` : '';
-  const location = c.location_canonical || c.location_raw || '';
-  const activity = c.activity_canonical || c.activity_raw || c.activity || 'guided';
-  const badge = c.badge_canonical || c.badge || ACTIVITY_LABELS[activity] || activity.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-  const imgUrl = c.image_url || IMG[activity] || IMG.hiking;
-  const bookingUrl = c.booking_url || '#';
-  const safeTitle = (c.title||'').replace(/'/g,"\'");
-  return `<div class="course-card">
-    <div class="card-img">
-      <img src="${imgUrl}" alt="${c.title}" loading="lazy" onerror="this.src='${IMG[c.activity]||IMG.hiking}'">
-      <div class="card-overlay">
-        <div class="card-badge">${badge}</div>
-        <div class="card-provider-tag">${providerName}</div>
-      </div>
-    </div>
-    <div class="card-body">
-      <div class="card-title">${c.title}</div>
-      <div class="card-meta">
-        ${c.custom_dates
-          ? `<span style="color:var(--green-dark);font-weight:600;">Flexible dates</span>`
-          : c.date_display
-            ? `<span>${c.date_display}</span>`
-            : ''
-        }
-        ${location?`<span class="sep">·</span><span>${location}</span>`:''}
-        ${rating?`<span class="sep">·</span><span>${rating}</span>`:''}
-      </div>
-    </div>
-    <div class="card-footer">
-      <div class="price-block">
-        <div class="card-price">$${c.price||'—'} <sub>CAD</sub></div>
-        <div class="avail ${c.avail}">${availLabel}</div>
-      </div>
-      <div class="card-actions">
-        <button class="save-btn ${saved?'saved remove-ready':''}" onclick="toggleSave('${c.id}')">
-          ${saved
-            ? `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="20" rx="6" ry="2.5" fill="#1a2e1a"/><ellipse cx="12" cy="14.5" rx="4.5" ry="2" fill="#1a2e1a"/><ellipse cx="12" cy="9.5" rx="3" ry="1.8" fill="#4ade80"/></svg>`
-            : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="20" rx="6" ry="2.5" stroke="currentColor" stroke-width="1.5" fill="none"/><ellipse cx="12" cy="14.5" rx="4.5" ry="2" stroke="currentColor" stroke-width="1.5" fill="none"/><ellipse cx="12" cy="9.5" rx="3" ry="1.8" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>`
-          }
-          <span class="save-label">my list</span>
-        </button>
-        ${c.avail==='sold'
-          ?`<a class="book-btn" href="${bookingUrl}" target="_blank" rel="noopener" onclick="openNotifyModal('${safeTitle}');return false;">Notify me</a>`
-          :`<a class="book-btn" href="${bookingUrl}" target="_blank" rel="noopener" onclick="setTimeout(showToast,800)">Book Now <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-left:2px;"><path d="M7 17L17 7"/><path d="M7 7h10v10"/></svg></a>`
-        }
-      </div>
-    </div>
-  </div>`;
-}
-
-function renderCards(courses, append=false){
-  const grid=document.getElementById('card-grid');
-  const wrap=document.getElementById('load-more-wrap');
-  const count=document.getElementById('results-count');
-  if(!grid)return;
-  if(!courses||courses.length===0){
-    if(!append){
-      grid.innerHTML=`<div class="empty-state" style="grid-column:1/-1;"><div class="empty-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="20" rx="6" ry="2.5" stroke="#ccc" stroke-width="1.5" fill="none"/><ellipse cx="12" cy="14.5" rx="4.5" ry="2" stroke="#ccc" stroke-width="1.5" fill="none"/><ellipse cx="12" cy="9.5" rx="3" ry="1.8" stroke="#ccc" stroke-width="1.5" fill="none"/></svg></div><h3>no experiences found</h3><p>Try adjusting your filters.</p></div>`;
-      if(count)count.textContent='0 results';
-    }
-    if(wrap)wrap.style.display='none';
-    return;
-  }
-  const cards=courses.map(c=>buildCard(c)).join('');
-  if(append){grid.innerHTML+=cards;}else{grid.innerHTML=cards;}
-  const showing=grid.querySelectorAll('.course-card').length;
-  if(count)count.textContent=`${totalCount||showing} results`;
-  if(wrap)wrap.style.display=showing<totalCount?'block':'none';
-  addRemoveReadyListeners();
-}
-
-
-async function renderSaved(){
-  const saved=getSaved();
-  const empty=document.getElementById('saved-empty');
-  const cards=document.getElementById('saved-cards');
-  const toolbar=document.getElementById('saved-toolbar-wrap');
-  const count=document.getElementById('saved-toolbar-count');
-  if(saved.length===0){empty.style.display='flex';cards.style.display='none';if(toolbar)toolbar.style.display='none';return;}
-  empty.style.display='none';cards.style.display='grid';
-  if(toolbar)toolbar.style.display='block';
-  if(count)count.textContent=`${saved.length} saved`;
-  try {
-    const ids=saved.map(id=>`id.eq.${id}`).join(',');
-    const res=await fetch(
-      `${SUPABASE_URL}/rest/v1/courses?select=*,providers(name,rating,review_count)&or=(${ids})`,
-      {headers:{'apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`}}
-    );
-    const savedCourses=await res.json();
-    cards.innerHTML=savedCourses.map(c=>buildCard(c)).join('');
-    addRemoveReadyListeners();
-  } catch(e) {
-    cards.innerHTML='<p style="padding:20px;color:var(--text-tertiary);font-size:13px;">Could not load saved courses.</p>';
-  }
-}
-
-function loadMore(){
-  currentPage++;
-  fetchCourses(currentPage, true);
-}
-function sortBy(el,val){
-  document.querySelectorAll('.sort-btn').forEach(b=>b.classList.remove('active'));
-  el.classList.add('active');
-  currentSort=val;
-  currentPage=0;
-  fetchCourses(0, false);
-}
-function runSearch(){
-  currentFilters.activity = document.getElementById('search-activity').value;
-  currentFilters.location = document.getElementById('search-location').value;
-  currentFilters.date = document.getElementById('search-date').value;
-  currentPage=0;
-  fetchCourses(0, false);
-}
-
-function showPage(name){
-  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('.nav-link').forEach(n=>n.classList.remove('active'));
-  document.querySelectorAll('.mnav-item').forEach(n=>n.classList.remove('active'));
-  document.getElementById('page-'+name).classList.add('active');
-  const nl=document.getElementById('nav-'+name);
-  const ml=document.getElementById('mnav-'+name);
-  if(nl)nl.classList.add('active');
-  if(ml)ml.classList.add('active');
-  if(name==='saved')renderSaved();
-  if(name==='providers')loadProviders();
-  window.scrollTo(0,0);
-}
-
-// LOGO HOVER
-const logoBtn=document.getElementById('logo-btn');
-logoBtn.addEventListener('mouseenter',()=>{logoBtn.classList.remove('replaying');void logoBtn.offsetWidth;logoBtn.classList.add('replaying');});
-logoBtn.addEventListener('mouseleave',()=>{setTimeout(()=>logoBtn.classList.remove('replaying'),2500);});
-
-// TAGLINE ANIMATION
-let idx1=0,idx2=0;
-const track1=document.getElementById('track1');
-const track2=document.getElementById('track2');
-const words1=['course','line','summit','trip','route','powder','hut','guide','drift','run','cast','secret','stash','beta','zone'];
-const words2=['adventure','peak','people','escape','wild','silence','horizon','freedom','solitude','calling','tracks','flow','crew','way out','next chapter'];
-
-setInterval(()=>{
-  idx1=(idx1+1)%words1.length;
-  if(idx1>=words1.length-1){setTimeout(()=>{track1.style.transition='none';track1.style.transform='translateY(0)';idx1=0;setTimeout(()=>{track1.style.transition='transform 0.55s cubic-bezier(0.4,0,0.2,1)';},50);},600);}
-  else{track1.style.transform=`translateY(-${idx1*1.25}em)`;}
-},2800);
-
-setInterval(()=>{
-  idx2=(idx2+1)%words2.length;
-  if(idx2>=words2.length-1){setTimeout(()=>{track2.style.transition='none';track2.style.transform='translateY(0)';idx2=0;setTimeout(()=>{track2.style.transition='transform 0.55s cubic-bezier(0.4,0,0.2,1)';},50);},600);}
-  else{track2.style.transform=`translateY(-${idx2*1.25}em)`;}
-},3700);
-
-// SHARED COURSES
-function getSharedIds(){const p=new URLSearchParams(window.location.search);const s=p.get('shared');return s?s.split(',').map(Number).filter(Boolean):[];}
-function initSharedCourses(){
-  const ids=getSharedIds();if(ids.length===0)return;
-  const courses=currentCourses.filter(c=>ids.includes(c.id));if(courses.length===0)return;
-  let saved=getSaved();ids.forEach(id=>{if(!saved.includes(id))saved.push(id);});setSaved(saved);
-  const banner=document.getElementById('shared-banner');
-  const title=document.getElementById('shared-banner-title');
-  const sub=document.getElementById('shared-banner-sub');
-  if(banner&&title&&sub){title.textContent=`${courses.length} experience${courses.length!==1?'s':''} saved to your list`;sub.textContent='Someone shared these with you — view them in your saved tab.';banner.style.display='block';}
-  if(window.history&&window.history.replaceState)window.history.replaceState({},'',window.location.pathname);
-}
-function saveSharedCourses(){dismissSharedBanner();renderSaved();showPage('saved');}
-function dismissSharedBanner(){const b=document.getElementById('shared-banner');if(b)b.style.display='none';}
-
-// SHARE
-function buildSharePopoverHTML(courseId,isMultiple){
-  const ids=isMultiple?getSaved().join(','):String(courseId);
-  const shareUrl=`https://backcountryfinder.com/?shared=${ids}`;
-  const courses=isMultiple?currentCourses.filter(c=>getSaved().includes(c.id)):currentCourses.filter(c=>c.id===courseId);
-  const waMsg=encodeURIComponent(`These courses and dates work for me, take a look — ${shareUrl}`);
-  const smsMsg=encodeURIComponent(`These courses and dates work for me, take a look — ${shareUrl}`);
-  const canNative=typeof navigator.share==='function';
-  const safeTitle=(isMultiple?'Backcountry experiences':(courses[0]?.title||'')).replace(/"/g,'&quot;');
-  return`<div class="share-popover-title">${isMultiple?'share this list':'share this experience'}</div>
-    <div class="share-popover-btns">
-      <a class="sp-btn sp-btn-wa" href="https://wa.me/?text=${waMsg}" target="_blank" rel="noopener"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.136.564 4.14 1.548 5.871L0 24l6.335-1.521A11.934 11.934 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.818 9.818 0 01-5.006-1.369l-.36-.214-3.732.895.944-3.617-.235-.374A9.818 9.818 0 012.182 12C2.182 6.57 6.57 2.182 12 2.182S21.818 6.57 21.818 12 17.43 21.818 12 21.818z"/></svg>WhatsApp</a>
-      <a class="sp-btn sp-btn-im" href="sms:&body=${smsMsg}"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 4.925 0 11c0 3.39 1.643 6.425 4.219 8.399L3 24l4.797-2.561A13.03 13.03 0 0012 22c6.627 0 12-4.925 12-11S18.627 0 12 0z"/></svg>iMessage</a>
-      ${canNative?`<button class="sp-btn sp-btn-native" data-native-share="${shareUrl}" data-native-title="${safeTitle}">share via...</button>`:''}
-      <button class="sp-btn sp-btn-copy" data-copy-url="${shareUrl}">copy link</button>
-    </div>
-    <div class="sp-url">${shareUrl}</div>`;}
-
-function positionPopover(popover,btn){
-  const rect=btn.getBoundingClientRect();
-  const popW=Math.min(230,window.innerWidth-32);
-  popover.style.width=popW+'px';
-  let left=rect.right-popW;
-  if(left<8)left=8;
-  if(left+popW>window.innerWidth-8)left=window.innerWidth-popW-8;
-  popover.style.left=left+'px';popover.style.right='auto';
-  const spaceBelow=window.innerHeight-rect.bottom;
-  if(spaceBelow>=220){popover.style.top=(rect.bottom+6)+'px';popover.style.bottom='auto';}
-  else{popover.style.bottom=(window.innerHeight-rect.top+6)+'px';popover.style.top='auto';}
-}
-
-function toggleSavedShare(e){
-  e.stopPropagation();e.preventDefault();
-  const popover=document.getElementById('saved-share-popover');
-  const wasOpen=popover?.classList.contains('active');
-  closeAllPopovers();
-  if(!wasOpen&&popover){popover.innerHTML=buildSharePopoverHTML(null,true);positionPopover(popover,e.currentTarget);popover.classList.add('active');}
-}
-
-function closeAllPopovers(){document.querySelectorAll('.share-popover').forEach(p=>p.classList.remove('active'));}
-
-document.addEventListener('click',function(e){
-  const copyBtn=e.target.closest('[data-copy-url]');
-  if(copyBtn){e.stopPropagation();copyShareLink(copyBtn.getAttribute('data-copy-url'),copyBtn);return;}
-  const nativeBtn=e.target.closest('[data-native-share]');
-  if(nativeBtn){e.stopPropagation();nativeShare(nativeBtn.getAttribute('data-native-share'),nativeBtn.getAttribute('data-native-title'));return;}
-  if(!e.target.closest('.share-popover'))closeAllPopovers();
-});
-
-async function copyShareLink(url,btn){try{await navigator.clipboard.writeText(url);const orig=btn.textContent;btn.textContent='copied!';setTimeout(()=>{btn.textContent=orig;},2000);}catch(e){prompt('Copy this link:',url);}}
-async function nativeShare(url,title){try{await navigator.share({title:title||'BackcountryFinder',url});}catch(e){}}
-
-// EMAIL MY LIST
-function openEmailListModal(){
-  const saved=getSaved();const courses=currentCourses.filter(c=>saved.includes(c.id));if(courses.length===0)return;
-  document.getElementById('elm-courses-preview').innerHTML=courses.map(c=>`<div class="elm-course-line">${c.activity==='skiing'?'⛷':c.activity==='climbing'?'🧗':c.activity==='fishing'?'🎣':c.activity==='biking'?'🚵':'🏔'} ${c.title.split('—')[0].trim()} · ${c.date.split(',')[0]} · $${c.price}</div>`).join('');
-  document.getElementById('elm-email').value='';
-  document.getElementById('elm-form-content').style.display='block';
-  document.getElementById('elm-success').style.display='none';
-  document.getElementById('email-list-modal').classList.add('active');
-}
-function closeEmailListModal(e){if(!e||e.target===document.getElementById('email-list-modal'))document.getElementById('email-list-modal').classList.remove('active');}
-async function submitEmailList(){
-  const email=document.getElementById('elm-email').value.trim();
-  const optIn=document.getElementById('elm-optin').checked;
-  if(!email||!email.includes('@')){document.getElementById('elm-email').style.borderColor='#e24b4a';document.getElementById('elm-email').focus();return;}
-  document.getElementById('elm-email').style.borderColor='';
-  const btn=document.querySelector('.elm-submit');btn.textContent='sending...';btn.disabled=true;
-  const saved=getSaved();const courses=currentCourses.filter(c=>saved.includes(c.id));
-  try{await fetch(SUPABASE_EDGE_URL,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_KEY}`,'apikey':SUPABASE_KEY},body:JSON.stringify({email,courses,optIn})});}catch(e){}
-  document.getElementById('elm-form-content').style.display='none';
-  document.getElementById('elm-success').style.display='block';
-  setTimeout(closeEmailListModal,3500);
-}
-
-async function saveEmail(email,courseTitle,signupType){
-  if(!email||!email.includes('@'))return false;
-  try{const res=await fetch(`${SUPABASE_URL}/rest/v1/email_signups`,{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`,'Prefer':'return=minimal'},body:JSON.stringify({email,course_title:courseTitle||null,signup_type:signupType})});return res.ok;}catch(e){return false;}
-}
-
-// PROVIDER MODAL
-function openProviderModal(tab){
-  switchProviderTab(tab||'suggest');
-  ['suggest-form-content','listed-form-content'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='block';});
-  ['suggest-success','listed-success'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
-  ['suggest-school','suggest-website','suggest-contact-at-provider','suggest-submitter-name','suggest-email','suggest-notes','listed-school','listed-website','listed-name','listed-email','listed-notes'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
-  document.getElementById('provider-modal').classList.add('active');
-}
-function closeProviderModal(e){if(!e||e.target===document.getElementById('provider-modal'))document.getElementById('provider-modal').classList.remove('active');}
-function switchProviderTab(tab){document.querySelectorAll('.pmodal-tab').forEach(t=>t.classList.remove('active'));document.querySelectorAll('.pmodal-form').forEach(f=>f.classList.remove('active'));document.getElementById('tab-'+tab).classList.add('active');document.getElementById('form-'+tab).classList.add('active');}
-async function submitSuggest(){
-  const school=document.getElementById('suggest-school').value.trim();
-  const submitterName=document.getElementById('suggest-submitter-name').value.trim();
-  const email=document.getElementById('suggest-email').value.trim();
-  if(!school){document.getElementById('suggest-school').focus();return;}
-  if(!submitterName){document.getElementById('suggest-submitter-name').focus();return;}
-  if(!email||!email.includes('@')){document.getElementById('suggest-email').focus();return;}
-  const data={
-    type:'suggest',
-    submission_type:'suggest',
-    school_name:school,
-    website:document.getElementById('suggest-website').value.trim()||null,
-    contact_at_provider:document.getElementById('suggest-contact-at-provider').value.trim()||null,
-    submitter_name:submitterName,
-    contact_email:email,
-    notes:document.getElementById('suggest-notes').value.trim()||null
-  };
-  await Promise.all([
-    fetch(`${SUPABASE_URL}/rest/v1/provider_submissions`,{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`,'Prefer':'return=minimal'},body:JSON.stringify({submission_type:'suggest',school_name:school,website:data.website,contact_email:email,notes:data.notes})}),
-    fetch(NOTIFY_URL,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_KEY}`,'apikey':SUPABASE_KEY},body:JSON.stringify(data)})
-  ]);
-  document.getElementById('suggest-form-content').style.display='none';document.getElementById('suggest-success').style.display='block';setTimeout(closeProviderModal,3000);
-}
-async function submitGetListed(){
-  const school=document.getElementById('listed-school').value.trim();
-  const email=document.getElementById('listed-email').value.trim();
-  const name=document.getElementById('listed-name').value.trim();
-  if(!school){document.getElementById('listed-school').focus();return;}
-  if(!email||!email.includes('@')){document.getElementById('listed-email').focus();return;}
-  const data={
-    type:'get_listed',
-    submission_type:'get_listed',
-    school_name:school,
-    website:document.getElementById('listed-website').value.trim()||null,
-    contact_name:name||null,
-    contact_email:email,
-    notes:document.getElementById('listed-notes').value.trim()||null
-  };
-  await Promise.all([
-    fetch(`${SUPABASE_URL}/rest/v1/provider_submissions`,{method:'POST',headers:{'Content-Type':'application/json','apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`,'Prefer':'return=minimal'},body:JSON.stringify({submission_type:'get_listed',school_name:school,website:data.website,contact_name:name||null,contact_email:email,notes:data.notes})}),
-    fetch(NOTIFY_URL,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${SUPABASE_KEY}`,'apikey':SUPABASE_KEY},body:JSON.stringify(data)})
-  ]);
-  document.getElementById('listed-form-content').style.display='none';document.getElementById('listed-success').style.display='block';setTimeout(closeProviderModal,3500);
-}
-
-// NOTIFY
-let currentNotifyCourse='';
-function openNotifyModal(courseTitle){currentNotifyCourse=courseTitle;document.getElementById('modal-course-title').textContent=courseTitle;document.getElementById('modal-email').value='';document.getElementById('modal-form-content').style.display='block';document.getElementById('modal-success').style.display='none';document.getElementById('notify-modal').classList.add('active');}
-function closeNotifyModal(){document.getElementById('notify-modal').classList.remove('active');}
-function closeModal(e){if(e.target===document.getElementById('notify-modal'))closeNotifyModal();}
-async function submitNotify(){const email=document.getElementById('modal-email').value.trim();if(!email||!email.includes('@')){document.getElementById('modal-email').style.borderColor='#e24b4a';return;}document.getElementById('modal-email').style.borderColor='';await saveEmail(email,currentNotifyCourse,'notify_me');document.getElementById('modal-form-content').style.display='none';document.getElementById('modal-success').style.display='block';setTimeout(closeNotifyModal,2800);}
-
-// TOAST
-let toastTimer=null;
-function showToast(){clearTimeout(toastTimer);const toast=document.getElementById('book-toast');toast.innerHTML=`<div class="toast-top"><div><div class="toast-title">Heading to book?</div><div class="toast-sub">Get new experience alerts — no spam.</div></div><button class="toast-close" onclick="closeToast()">×</button></div><div class="toast-row"><input class="toast-input" type="email" id="toast-email" placeholder="your@email.com"><button class="toast-btn" onclick="submitToast()">yes please</button></div><button class="toast-dismiss" onclick="closeToast()">no thanks</button>`;toast.classList.add('active');toastTimer=setTimeout(closeToast,12000);}
-function closeToast(){document.getElementById('book-toast').classList.remove('active');clearTimeout(toastTimer);}
-async function submitToast(){const emailEl=document.getElementById('toast-email');if(!emailEl)return;const email=emailEl.value.trim();if(!email||!email.includes('@')){emailEl.style.borderColor='#e24b4a';emailEl.focus();return;}emailEl.style.borderColor='';await saveEmail(email,null,'book_now_toast');document.getElementById('book-toast').innerHTML=`<div style="text-align:center;padding:4px 0;"><div style="font-size:24px;margin-bottom:6px;">✓</div><div style="font-size:13px;font-weight:700;">You're on the list</div><div style="font-size:12px;color:var(--text-tertiary);margin-top:4px;font-weight:500;">We'll send you new experience alerts.</div></div>`;setTimeout(closeToast,2500);}
-
-// ── INIT ──
-loadActivityLabels().then(() => {
-  fetchCourses(0, false);
-  loadActivitiesDropdown();
-  loadLocationsDropdown();
-});
-initSharedCourses();
-
-// ── PROVIDERS PAGE ──
-async function loadProviders() {
-  const grid = document.getElementById('provider-cards');
-  if (!grid) return;
-
-  try {
-    // Fetch active providers
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/providers?select=id,name,website,location,rating,review_count,google_place_id&active=eq.true&order=name.asc`,
-      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
-    );
-    const providers = await res.json();
-
-    if (!providers.length) {
-      grid.innerHTML = '<p style="color:var(--text-tertiary);font-size:13px;">No providers listed yet.</p>';
-      return;
-    }
-
-    // Fetch distinct activities per provider from courses table
-    const coursesRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/courses?select=provider_id,activity_canonical`,
-      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
-    );
-    const courses = await coursesRes.json();
-
-    // Build activity map: { provider_id: Set of activities }
-    const activityMap = {};
-    courses.forEach(c => {
-      if (!activityMap[c.provider_id]) activityMap[c.provider_id] = new Set();
-      if (c.activity_canonical) activityMap[c.provider_id].add(c.activity_canonical);
-    });
-
-    grid.innerHTML = providers.map(p => {
-      const activities = [...(activityMap[p.id] || [])];
-      const tags = activities
-        .map(a => `<span class="provider-tag">${ACTIVITY_LABELS[a] || a}</span>`)
-        .join('');
-      const reviewsUrl = p.google_place_id
-        ? `https://search.google.com/local/reviews?placeid=${p.google_place_id}`
-        : null;
-      const rating = p.rating
-        ? reviewsUrl
-          ? `<a href="${reviewsUrl}" target="_blank" rel="noopener" class="provider-card-rating" style="display:block;text-decoration:none;margin-bottom:6px;">★ ${p.rating}${p.review_count ? ` · ${p.review_count}+ reviews` : ''}</a>`
-          : `<div class="provider-card-rating">★ ${p.rating}${p.review_count ? ` · ${p.review_count}+ reviews` : ''}</div>`
-        : '';
-      const website = p.website
-        ? `<a href="${p.website}" target="_blank" rel="noopener" class="provider-card-link">visit website ↗</a>`
-        : '';
-      return `
-        <div class="provider-card">
-          <div class="provider-card-name">${p.name}</div>
-          <div class="provider-card-loc">${p.location || ''}</div>
-          ${rating}
-          ${website}
-          ${tags ? `<div class="provider-card-tags">${tags}</div>` : ''}
-        </div>`;
-    }).join('');
-
-  } catch(e) {
-    console.error('Failed to load providers:', e);
-    grid.innerHTML = '<p style="color:var(--text-tertiary);font-size:13px;">Could not load providers.</p>';
-  }
-}
-
-// REMOVE-READY: saved buttons get remove-ready class after first mouse-leave
-function addRemoveReadyListeners() {
-  document.querySelectorAll('.save-btn.saved').forEach(btn => {
-    if (!btn.dataset.removeListening) {
-      btn.dataset.removeListening = '1';
-      btn.classList.add('remove-ready');
-    }
-  });
-}
-
-// MICRO TOAST
-let microToastTimer = null;
-function showMicroToast() {
-  const toast = document.getElementById('micro-toast');
-  if (!toast) return;
-  clearTimeout(microToastTimer);
-  toast.classList.add('show');
-  microToastTimer = setTimeout(() => toast.classList.remove('show'), 3000);
-}
-</script>
-</body>
-</html>
+    </div>"""
+    send_email(NOTIFY_EMAIL, f"Scraper run — {total} courses updated", html)
+
+
+# ── MAIN ──
+
+
+
+# -- CLAUDE CLASSIFICATION --
+
+def claude_classify(prompt: str) -> dict:
+    """Call Claude API and return parsed JSON response."""
+    if not ANTHROPIC_API_KEY:
+        return {}
+    try:
+        r = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": CLAUDE_MODEL,
+                "max_tokens": 256,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            timeout=20
+        )
+        text = r.json()["content"][0]["text"].strip()
+        # Strip markdown fences if present
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        return json.loads(text.strip())
+    except Exception as e:
+        log.warning(f"Claude API call failed: {e}")
+        return {}
+
+
+def claude_classify_activity(title: str, description: str, provider: str, known_activities: list) -> dict:
+    """Ask Claude to classify the activity type for a course."""
+    activities_list = ", ".join(known_activities) if known_activities else "skiing, climbing, mountaineering, hiking, biking, fishing, heli, cat, guided"
+    prompt = f"""You are classifying backcountry outdoor experiences for a booking aggregator.
+
+Known activity types: {activities_list}
+
+Course title: "{title}"
+Description: "{description}"
+Provider: "{provider}"
+
+Classify this course. If it matches a known activity type, use that exact value.
+If it is genuinely a new type not in the list, suggest a short lowercase slug (e.g. "via_ferrata", "ice_climbing").
+
+Also provide a short human-readable display label (e.g. "Via Ferrata", "Ice Climbing").
+
+Respond with JSON only, no other text:
+{{"activity": "the_canonical_value", "label": "Human Readable Label", "is_new": false, "confidence": "high", "reasoning": "one line explanation"}}"""
+
+    return claude_classify(prompt)
+
+
+def claude_classify_location(location_raw: str, known_locations: list) -> dict:
+    """Ask Claude to normalise a raw location string to a canonical value."""
+    locations_list = ", ".join(known_locations) if known_locations else "Whistler / Blackcomb, Squamish, North Shore / Seymour, Pemberton / Duffey, Garibaldi Park, Tantalus Range"
+    prompt = f"""You are normalising location strings for a backcountry booking aggregator in British Columbia, Canada.
+
+Known canonical locations: {locations_list}
+
+Raw location string: "{location_raw}"
+
+If this matches one of the known canonical locations, return that exact canonical value.
+If it is a genuinely new location not in the list, suggest a clean canonical name.
+
+Respond with JSON only, no other text:
+{{"location_canonical": "the_canonical_value", "is_new": false, "confidence": "high", "reasoning": "one line explanation"}}"""
+
+    return claude_classify(prompt)
+
+
+def get_known_activities(activity_maps: list) -> list:
+    """Extract unique activity values from the mappings list."""
+    return list(set(activity for _, activity in activity_maps))
+
+
+def get_known_locations(location_maps: dict) -> list:
+    """Extract unique canonical location values from the mappings dict."""
+    return list(set(location_maps.values()))
+
+
+# -- GOOGLE PLACES --
+
+def find_place_id(provider_name, location):
+    if not GOOGLE_PLACES_API_KEY:
+        return None
+    try:
+        r = requests.get(
+            f"{PLACES_API_URL}/findplacefromtext/json",
+            params={"input": f"{provider_name} {location} BC Canada", "inputtype": "textquery", "fields": "place_id,name", "key": GOOGLE_PLACES_API_KEY},
+            timeout=10
+        )
+        candidates = r.json().get("candidates", [])
+        if candidates:
+            pid = candidates[0]["place_id"]
+            log.info(f"Found Place ID for {provider_name}: {pid}")
+            return pid
+    except Exception as e:
+        log.warning(f"Place ID lookup failed for {provider_name}: {e}")
+    return None
+
+
+def get_place_details(place_id):
+    if not GOOGLE_PLACES_API_KEY or not place_id:
+        return {}
+    try:
+        r = requests.get(
+            f"{PLACES_API_URL}/details/json",
+            params={"place_id": place_id, "fields": "rating,user_ratings_total", "key": GOOGLE_PLACES_API_KEY},
+            timeout=10
+        )
+        result = r.json().get("result", {})
+        return {"rating": result.get("rating"), "review_count": result.get("user_ratings_total")}
+    except Exception as e:
+        log.warning(f"Place details fetch failed for {place_id}: {e}")
+    return {}
+
+
+def update_provider_ratings(provider_filter='all'):
+    if not GOOGLE_PLACES_API_KEY:
+        log.info("No Google Places API key -- skipping ratings update")
+        return
+    log.info("Updating provider ratings from Google Places...")
+    places_params = {"select": "id,name,location,google_place_id", "active": "eq.true"}
+    if provider_filter != "all":
+        places_params["id"] = f"eq.{provider_filter}"
+    providers = sb_get("providers", places_params)
+    for p in providers:
+        pid = p.get("google_place_id")
+        if not pid:
+            pid = find_place_id(p["name"], p.get("location", ""))
+            if pid:
+                sb_upsert("providers", [{"id": p["id"], "name": p["name"], "google_place_id": pid}])
+            time.sleep(0.5)
+        if not pid:
+            log.warning(f"No Place ID found for {p['name']} -- skipping")
+            continue
+        details = get_place_details(pid)
+        if details.get("rating"):
+            sb_upsert("providers", [{"id": p["id"], "name": p["name"], "google_place_id": pid, "rating": details["rating"], "review_count": details.get("review_count")}])
+            log.info(f"{p['name']}: star {details['rating']} ({details.get('review_count', 0)} reviews)")
+        time.sleep(0.5)
+    log.info("Provider ratings update complete")
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--provider", default="all", help="Provider to scrape: altus, msaa, cwms, or all")
+    args = parser.parse_args()
+    provider_filter = args.provider.lower()
+
+    log.info(f"=== BackcountryFinder scraper starting (provider={provider_filter}) ===")
+
+    # Update provider ratings from Google Places
+    update_provider_ratings(provider_filter)
+
+    # Load location mappings
+    mappings = load_location_mappings()
+    log.info(f"Loaded {len(mappings)} location mappings")
+
+    # Load activity mappings and labels from Supabase
+    activity_maps = load_activity_mappings_table()
+    log.info(f"Loaded {len(activity_maps)} activity mappings")
+    global ACTIVITY_LABELS
+    ACTIVITY_LABELS = load_activity_labels()
+    log.info(f"Loaded {len(ACTIVITY_LABELS)} activity labels")
+
+    all_courses = []
+    location_flags = []
+    provider_summary = []
+
+    # Scrape Canada West (WooCommerce)
+    for provider in (CWMS_PROVIDERS if provider_filter in ("all", "cwms") else []):
+        raw_courses = scrape_cwms(provider)
+        processed = []
+        for c in raw_courses:
+            if not is_future(c.get("date_sort")):
+                continue
+            loc_raw = c.get("location_raw") or ""
+            if loc_raw:
+                loc_canonical, loc_is_new, loc_add_mapping = normalise_location(loc_raw, mappings)
+                if loc_add_mapping:
+                    sb_insert("location_mappings", {"location_raw": loc_raw, "location_canonical": loc_canonical})
+                    mappings[loc_raw.lower().strip()] = loc_canonical
+                if not loc_canonical:
+                    location_flags.append({"location_raw": loc_raw, "provider_id": provider["id"], "course_title": c["title"]})
+            else:
+                loc_canonical = None
+            course_id = stable_id(provider["id"], c["activity"], c.get("date_sort"), c["title"])
+            activity_raw = c.get("activity_raw") or "guided"
+            activity_canonical, act_is_new, act_add_mapping = resolve_activity(c["title"], c.get("location_raw") or "", activity_maps, provider["name"])
+            if act_add_mapping:
+                sb_insert("activity_mappings", {"title_contains": c["title"].lower()[:100], "activity": activity_canonical})
+                activity_maps.append((c["title"].lower()[:100], activity_canonical))
+            badge_canonical = build_badge(activity_canonical, c.get("duration_days"))
+            booking_url = c.get("booking_url")
+            active = True
+            custom_dates = True  # CWMS uses WooCommerce date picker
+            date_display = "Flexible dates"
+            date_sort = None
+            processed.append({
+                "id": course_id, "title": c["title"], "provider_id": provider["id"],
+                "badge": badge_canonical, "activity": activity_canonical,
+                "activity_raw": activity_raw, "activity_canonical": activity_canonical,
+                "badge_canonical": badge_canonical, "location_raw": loc_raw or None,
+                "location_canonical": loc_canonical, "date_display": date_display,
+                "date_sort": date_sort, "duration_days": c.get("duration_days"),
+                "price": c.get("price"), "spots_remaining": None, "avail": "open",
+                "image_url": c.get("image_url"), "booking_url": booking_url,
+                "active": active, "custom_dates": custom_dates,
+                "scraped_at": c["scraped_at"],
+            })
+        # For each CWMS course, visit the page and create one row per date
+        dated_processed = []
+        for course in processed:
+            booking_url = course.get("booking_url")
+            if not booking_url:
+                dated_processed.append(course)
+                continue
+
+            sessions = scrape_cwms_course_page(booking_url)
+            time.sleep(0.5)
+
+            if not sessions:
+                # No dates found — keep as flexible dates
+                dated_processed.append(course)
+                continue
+
+            # Create one row per date session
+            for session in sessions:
+                product_id = session.get("product_id")
+                # Deep-link to specific date if we have a product ID
+                if product_id:
+                    base_url = booking_url.split("?")[0]
+                    session_url = f"{base_url}?add-to-cart={product_id}&{provider['utm']}"
+                else:
+                    session_url = booking_url
+
+                # Build stable ID using date_sort
+                date_sort = session.get("date_sort")
+                # Include product_id as tiebreaker to avoid duplicate stable IDs
+                id_key = f"{course['title']} {session.get('product_id', '')}"
+                session_id = stable_id(provider["id"], course["activity"], date_sort, id_key)
+
+                session_course = dict(course)
+                session_course.update({
+                    "id":            session_id,
+                    "date_display":  session.get("date_display"),
+                    "date_sort":     date_sort,
+                    "spots_remaining": session.get("spots_remaining"),
+                    "avail":         session.get("avail", "open"),
+                    "booking_url":   session_url,
+                    "custom_dates":  False,
+                    "active":        session.get("avail") != "sold",
+                })
+                dated_processed.append(session_course)
+
+        provider_summary.append({"name": provider["name"], "count": len(dated_processed), "ok": len(dated_processed) > 0})
+        all_courses.extend(dated_processed)
+        time.sleep(2)
+
+    # Scrape Rezdy providers
+    active_rezdy = [p for p in REZDY_PROVIDERS if provider_filter == "all" or p["id"] == provider_filter]
+    for provider in active_rezdy:
+        raw_courses = scrape_rezdy(provider)
+        processed = []
+
+        for c in raw_courses:
+            # Skip past courses
+            if not is_future(c.get("date_sort")):
+                log.info(f"Skipping past course: {c['title']}")
+                continue
+
+            # Normalise location
+            loc_raw = c.get("location_raw") or ""
+            if loc_raw:
+                loc_canonical, loc_is_new, loc_add_mapping = normalise_location(loc_raw, mappings)
+                if loc_add_mapping:
+                    # Write new mapping to Supabase immediately
+                    sb_insert("location_mappings", {"location_raw": loc_raw, "location_canonical": loc_canonical})
+                    mappings[loc_raw.lower().strip()] = loc_canonical
+                    if loc_is_new:
+                        log.info(f"New canonical location added: '{loc_raw}' -> '{loc_canonical}'")
+                if not loc_canonical:
+                    log.warning(f"Unmatched location: '{loc_raw}' for '{c['title']}'")
+                    location_flags.append({"location_raw": loc_raw, "provider_id": provider["id"], "course_title": c["title"]})
+            else:
+                loc_canonical = None
+
+            # Build stable ID
+            course_id = stable_id(provider["id"], c["activity"], c.get("date_sort"), c["title"])
+
+            # Resolve canonical activity
+            activity_raw = c.get("activity_raw") or c.get("activity") or "guided"
+            desc = ""
+            activity_canonical, act_is_new, act_add_mapping = resolve_activity(c["title"], desc, activity_maps, provider["name"])
+            if act_add_mapping:
+                # Write new mapping to Supabase immediately
+                sb_insert("activity_mappings", {"title_contains": c["title"].lower()[:100], "activity": activity_canonical})
+                activity_maps.append((c["title"].lower()[:100], activity_canonical))
+                if act_is_new:
+                    log.info(f"New canonical activity added: '{activity_canonical}' for '{c['title']}'")
+            badge_canonical = build_badge(activity_canonical, c.get("duration_days"))
+
+
+            # Check individual course page for availability and dates
+            booking_url = c.get("booking_url")
+            active = True
+            custom_dates = False
+            date_display = c.get("date_display")
+            date_sort = c.get("date_sort")
+
+            if booking_url:
+                page_check = check_course_page(booking_url)
+                if not page_check["available"]:
+                    log.info(f"Hiding unavailable course: {c['title']}")
+                    active = False
+                else:
+                    custom_dates = page_check["custom_dates"]
+                    if custom_dates:
+                        date_display = "Flexible dates"
+                        date_sort = None
+                    elif page_check["dates"] and not date_display:
+                        # Use first static date found
+                        date_display = page_check["dates"][0]
+                        date_sort = parse_date_sort(date_display)
+                time.sleep(0.5)  # be polite between course page requests
+
+            processed.append({
+                "id":                 course_id,
+                "title":              c["title"],
+                "provider_id":        provider["id"],
+                "badge":              badge_canonical,
+                "activity":           activity_canonical,
+                "activity_raw":       activity_raw,
+                "activity_canonical": activity_canonical,
+                "badge_canonical":    badge_canonical,
+                "location_raw":       loc_raw or None,
+                "location_canonical": loc_canonical,
+                "date_display":       date_display,
+                "date_sort":          date_sort,
+                "duration_days":      c.get("duration_days"),
+                "price":              c.get("price"),
+                "spots_remaining":    c.get("spots_remaining"),
+                "avail":              c.get("avail", "open"),
+                "image_url":          c.get("image_url"),
+                "booking_url":        booking_url,
+                "active":             active,
+                "custom_dates":       custom_dates,
+                "scraped_at":         c["scraped_at"],
+            })
+
+        provider_summary.append({
+            "name":  provider["name"],
+            "count": len(processed),
+            "ok":    len(processed) > 0,
+        })
+
+        all_courses.extend(processed)
+        time.sleep(2)  # be polite between providers
+
+    # Upsert to Supabase (only if we got data — fallback protection)
+    if all_courses:
+        # Deduplicate by ID — last one wins if duplicates exist
+        seen = {}
+        for c in all_courses:
+            seen[c["id"]] = c
+        deduped = list(seen.values())
+        if len(deduped) < len(all_courses):
+            log.warning(f"Deduplicated {len(all_courses) - len(deduped)} duplicate course IDs before upsert")
+        sb_upsert("courses", deduped)
+        log.info(f"Total courses upserted: {len(deduped)}")
+    else:
+        log.warning("No courses scraped — keeping existing Supabase data")
+
+    # Flag unmatched locations
+    if location_flags:
+        for flag in location_flags:
+            sb_insert("location_flags", flag)
+        send_flag_email(location_flags)
+
+    # Send summary email
+    send_scrape_summary(len(all_courses), provider_summary, len(location_flags))
+
+    log.info("=== Scraper complete ===")
+
+
+if __name__ == "__main__":
+    main()
