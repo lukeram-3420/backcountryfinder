@@ -1199,25 +1199,61 @@ def scrape_summit(provider):
                 if not title or len(title) < 3:
                     continue
 
-                # Date
+                # Date — extract from occurrence param + date range text from listing
                 date_display = None
                 date_sort = None
-                date_el = None
+                duration_days = None
+                occ_match = re.search(r"occurrence=(\d{4}-\d{2}-\d{2})", href)
+                if occ_match:
+                    date_sort = occ_match.group(1)
+
+                # Try to find date range text near the event
                 if parent:
-                    date_el = (parent.find("abbr", class_=lambda c: c and "tribe" in (c or "")) or
-                               parent.find("time") or
-                               parent.find(class_=lambda c: c and "date" in (c or "").lower()))
-                if date_el:
-                    date_text = date_el.get("title") or date_el.get_text(strip=True)
-                    # Parse dates like "May 16, 2026" or "2026-05-16"
-                    for fmt in ["%B %d, %Y", "%Y-%m-%d", "%b %d, %Y"]:
+                    page_text = parent.get_text(separator=" ", strip=True)
+                    # Match "May 16 to June 5, 2026"
+                    range_match = re.search(
+                        r"(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{1,2})\s+to\s+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{1,2}),?\s+(20\d{2})",
+                        page_text, re.I
+                    )
+                    # Match "June 11-14, 2026" (same month range)
+                    same_month_match = re.search(
+                        r"(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{1,2})-(\d{1,2}),?\s+(20\d{2})",
+                        page_text, re.I
+                    )
+
+                    if range_match:
+                        m1, d1, m2, d2, yr = range_match.groups()
                         try:
-                            dt = datetime.strptime(date_text[:20].strip(), fmt)
-                            date_sort = dt.strftime("%Y-%m-%d")
-                            date_display = dt.strftime("%B %-d, %Y")
-                            break
+                            start = datetime.strptime(f"{m1} {d1} {yr}", "%B %d %Y")
+                            end   = datetime.strptime(f"{m2} {d2} {yr}", "%B %d %Y")
+                            duration_days = (end - start).days + 1
+                            if start.month == end.month:
+                                date_display = f"{start.strftime('%b')} {d1}–{d2}, {yr}"
+                            else:
+                                date_display = f"{start.strftime('%b')} {d1} – {end.strftime('%b')} {d2}, {yr}"
+                            if not date_sort:
+                                date_sort = start.strftime("%Y-%m-%d")
                         except ValueError:
-                            continue
+                            pass
+                    elif same_month_match:
+                        month, d1, d2, yr = same_month_match.groups()
+                        try:
+                            start = datetime.strptime(f"{month} {d1} {yr}", "%B %d %Y")
+                            end   = datetime.strptime(f"{month} {d2} {yr}", "%B %d %Y")
+                            duration_days = (end - start).days + 1
+                            date_display = f"{start.strftime('%b')} {d1}–{d2}, {yr}"
+                            if not date_sort:
+                                date_sort = start.strftime("%Y-%m-%d")
+                        except ValueError:
+                            pass
+
+                # Fallback display if no range found
+                if not date_display and date_sort:
+                    try:
+                        dt = datetime.strptime(date_sort, "%Y-%m-%d")
+                        date_display = dt.strftime("%B %-d, %Y")
+                    except ValueError:
+                        pass
 
                 # Skip past events
                 if date_sort and date_sort < now.strftime("%Y-%m-%d"):
@@ -1267,7 +1303,7 @@ def scrape_summit(provider):
                     "location_raw":  location_raw,
                     "date_display":  date_display,
                     "date_sort":     date_sort,
-                    "duration_days": None,
+                    "duration_days": duration_days,
                     "price":         price,
                     "spots_remaining": None,
                     "avail":         "open",
