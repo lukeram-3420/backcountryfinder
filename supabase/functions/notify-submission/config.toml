@@ -1,0 +1,2 @@
+[functions.notify-submission]
+verify_jwt = false
