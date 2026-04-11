@@ -926,7 +926,7 @@ function buildCard(c){
   const rating = provider.rating ? `★ ${provider.rating}` : '';
   const location = c.location_canonical || c.location_raw || '';
   const activity = c.activity_canonical || c.activity_raw || c.activity || 'guided';
-  const badge = c.badge_canonical || c.badge || activity;
+  const badge = c.badge_canonical || c.badge || ACTIVITY_LABELS[activity] || activity.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
   const imgUrl = c.image_url || IMG[activity] || IMG.hiking;
   const bookingUrl = c.booking_url || '#';
   const safeTitle = (c.title||'').replace(/'/g,"\'");
