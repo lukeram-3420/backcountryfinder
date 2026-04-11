@@ -1022,6 +1022,14 @@ async function renderSaved(){
       {headers:{'apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`}}
     );
     const savedCourses=await res.json();
+    // Clean up stale IDs — remove any saved IDs that no longer exist in Supabase
+    const validIds = savedCourses.map(c=>c.id);
+    const cleanedSaved = saved.filter(id=>validIds.includes(id));
+    if(cleanedSaved.length !== saved.length) {
+      setSaved(cleanedSaved);
+      if(count) count.textContent=`${cleanedSaved.length} saved`;
+      if(cleanedSaved.length===0){empty.style.display='flex';cards.style.display='none';if(toolbar)toolbar.style.display='none';return;}
+    }
     cards.innerHTML=savedCourses.map(c=>buildCard(c)).join('');
     addRemoveReadyListeners();
   } catch(e) {
