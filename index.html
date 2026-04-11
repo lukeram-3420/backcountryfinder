@@ -839,7 +839,7 @@ async function fetchFromSupabase(page = 0, append = false, background = false) {
     }
 
     renderCards(courses, append);
-    await loadLocationsDropdown();
+    // Dropdowns loaded once on init — no need to reload on every fetch
 
   } catch(err) {
     console.error('Fetch error:', err);
