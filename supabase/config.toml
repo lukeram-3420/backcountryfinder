@@ -1,0 +1,7 @@
+project_id = "owzrztaguehebkatnatc"
+
+[functions.send-saved-list]
+verify_jwt = false
+
+[functions.notify-submission]
+verify_jwt = false
