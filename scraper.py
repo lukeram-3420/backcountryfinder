@@ -1423,6 +1423,9 @@ def main():
         deduped = list(seen.values())
         if len(deduped) < len(all_courses):
             log.warning(f"Deduplicated {len(all_courses) - len(deduped)} duplicate course IDs before upsert")
+        # Strip description — it's a scrape-time field, not stored in Supabase
+        for c in deduped:
+            c.pop("description", None)
         sb_upsert("courses", deduped)
         log.info(f"Total courses upserted: {len(deduped)}")
     else:
