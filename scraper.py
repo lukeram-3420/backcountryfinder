@@ -720,7 +720,7 @@ def find_place_id(provider_name, location):
     try:
         r = requests.get(
             f"{PLACES_API_URL}/findplacefromtext/json",
-            params={"input": f"{provider_name} {location}", "inputtype": "textquery", "fields": "place_id,name", "key": GOOGLE_PLACES_API_KEY},
+            params={"input": f"{provider_name} {location} BC Canada", "inputtype": "textquery", "fields": "place_id,name", "key": GOOGLE_PLACES_API_KEY},
             timeout=10
         )
         candidates = r.json().get("candidates", [])
@@ -760,14 +760,14 @@ def update_provider_ratings():
         if not pid:
             pid = find_place_id(p["name"], p.get("location", ""))
             if pid:
-                sb_upsert("providers", [{"id": p["id"], "google_place_id": pid}])
+                sb_upsert("providers", [{"id": p["id"], "name": p["name"], "google_place_id": pid}])
             time.sleep(0.5)
         if not pid:
             log.warning(f"No Place ID found for {p['name']} -- skipping")
             continue
         details = get_place_details(pid)
         if details.get("rating"):
-            sb_upsert("providers", [{"id": p["id"], "google_place_id": pid, "rating": details["rating"], "review_count": details.get("review_count")}])
+            sb_upsert("providers", [{"id": p["id"], "name": p["name"], "google_place_id": pid, "rating": details["rating"], "review_count": details.get("review_count")}])
             log.info(f"{p['name']}: star {details['rating']} ({details.get('review_count', 0)} reviews)")
         time.sleep(0.5)
     log.info("Provider ratings update complete")
