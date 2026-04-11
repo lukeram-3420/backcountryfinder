@@ -1933,34 +1933,7 @@ def send_course_notifications(provider_id, course_title, new_courses):
         log.warning(f"Notification check failed for {course_title}: {e}")
 
 
-def check_and_notify(provider_id, processed_courses):
-    """
-    After upserting courses, check if any were previously custom_dates=True
-    and now have real dates — fire notifications for those.
-    """
-    try:
-        # Get all current custom_dates courses for this provider from Supabase
-        existing = sb_get("courses", {
-            "select": "title,custom_dates",
-            "provider_id": f"eq.{provider_id}",
-            "custom_dates": "eq.true",
-        })
-        existing_flexible = {r["title"] for r in existing}
 
-        # Find courses that now have real dates
-        newly_dated = {}
-        for c in processed_courses:
-            if not c.get("custom_dates") and c["title"] in existing_flexible:
-                if c["title"] not in newly_dated:
-                    newly_dated[c["title"]] = []
-                newly_dated[c["title"]].append(c)
-
-        for title, courses in newly_dated.items():
-            log.info(f"Course newly dated: {title} — checking notifications")
-            send_course_notifications(provider_id, title, courses)
-
-    except Exception as e:
-        log.warning(f"check_and_notify failed for {provider_id}: {e}")
 
 
 # -- NOTIFY ME: Check and send notifications when courses get dates --
@@ -2676,12 +2649,6 @@ def main():
         deduped = list(seen.values())
         if len(deduped) < len(all_courses):
             log.warning(f"Deduplicated {len(all_courses) - len(deduped)} duplicate course IDs before upsert")
-
-        # Check for courses that flipped from flexible → dated — fire notifications
-        providers_scraped = set(c["provider_id"] for c in deduped)
-        for pid in providers_scraped:
-            provider_courses = [c for c in deduped if c["provider_id"] == pid]
-            check_and_notify(pid, provider_courses)
 
         # Strip description — it's a scrape-time field, not stored in Supabase
         for c in deduped:
