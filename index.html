@@ -1284,12 +1284,12 @@ async function loadProviders() {
       const tags = activities
         .map(a => `<span class="provider-tag">${ACTIVITY_LABELS[a] || a}</span>`)
         .join('');
-      const mapsUrl = p.google_place_id
-        ? `https://www.google.com/maps/place/?q=place_id:${p.google_place_id}`
+      const reviewsUrl = p.google_place_id
+        ? `https://search.google.com/local/reviews?placeid=${p.google_place_id}`
         : null;
       const rating = p.rating
-        ? mapsUrl
-          ? `<a href="${mapsUrl}" target="_blank" rel="noopener" class="provider-card-rating" style="text-decoration:none;">★ ${p.rating}${p.review_count ? ` · ${p.review_count}+ reviews` : ''}</a>`
+        ? reviewsUrl
+          ? `<a href="${reviewsUrl}" target="_blank" rel="noopener" class="provider-card-rating" style="text-decoration:none;">★ ${p.rating}${p.review_count ? ` · ${p.review_count}+ reviews` : ''}</a>`
           : `<div class="provider-card-rating">★ ${p.rating}${p.review_count ? ` · ${p.review_count}+ reviews` : ''}</div>`
         : '';
       const website = p.website
@@ -1299,8 +1299,8 @@ async function loadProviders() {
         <div class="provider-card">
           <div class="provider-card-name">${p.name}</div>
           <div class="provider-card-loc">${p.location || ''}</div>
-          ${website}
           ${rating}
+          ${website}
           ${tags ? `<div class="provider-card-tags">${tags}</div>` : ''}
         </div>`;
     }).join('');
