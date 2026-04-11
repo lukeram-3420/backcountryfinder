@@ -210,7 +210,7 @@
   .provider-card-rating { font-size: 12px; font-weight: 600; color: var(--green-dark); margin-bottom: 12px; }
   .provider-card-tags { display: flex; gap: 6px; flex-wrap: wrap; }
   .provider-tag { font-size: 10px; font-weight: 600; padding: 3px 10px; border-radius: var(--radius-pill); background: var(--green-light); color: var(--green-dark); }
-  .provider-card-link { display: inline-block; margin-top: 12px; font-size: 12px; font-weight: 600; color: var(--green-dark); text-decoration: none; }
+  .provider-card-link { display: inline-block; margin-bottom: 8px; font-size: 12px; font-weight: 600; color: var(--green-dark); text-decoration: none; }
   .provider-card-link:hover { text-decoration: underline; }
 
   /* ABOUT */
@@ -1255,7 +1255,7 @@ async function loadProviders() {
   try {
     // Fetch active providers
     const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/providers?select=*&active=eq.true&order=name.asc`,
+      `${SUPABASE_URL}/rest/v1/providers?select=id,name,website,location,rating,review_count,google_place_id&active=eq.true&order=name.asc`,
       { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
     );
     const providers = await res.json();
@@ -1267,7 +1267,7 @@ async function loadProviders() {
 
     // Fetch distinct activities per provider from courses table
     const coursesRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/courses?select=provider_id,activity&active=eq.true`,
+      `${SUPABASE_URL}/rest/v1/courses?select=provider_id,activity_canonical`,
       { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
     );
     const courses = await coursesRes.json();
@@ -1276,7 +1276,7 @@ async function loadProviders() {
     const activityMap = {};
     courses.forEach(c => {
       if (!activityMap[c.provider_id]) activityMap[c.provider_id] = new Set();
-      if (c.activity) activityMap[c.provider_id].add(c.activity);
+      if (c.activity_canonical) activityMap[c.provider_id].add(c.activity_canonical);
     });
 
     grid.innerHTML = providers.map(p => {
@@ -1284,8 +1284,13 @@ async function loadProviders() {
       const tags = activities
         .map(a => `<span class="provider-tag">${ACTIVITY_LABELS[a] || a}</span>`)
         .join('');
+      const mapsUrl = p.google_place_id
+        ? `https://www.google.com/maps/place/?q=place_id:${p.google_place_id}`
+        : null;
       const rating = p.rating
-        ? `<div class="provider-card-rating">★ ${p.rating}${p.review_count ? ` · ${p.review_count}+ reviews` : ''}</div>`
+        ? mapsUrl
+          ? `<a href="${mapsUrl}" target="_blank" rel="noopener" class="provider-card-rating" style="text-decoration:none;">★ ${p.rating}${p.review_count ? ` · ${p.review_count}+ reviews` : ''}</a>`
+          : `<div class="provider-card-rating">★ ${p.rating}${p.review_count ? ` · ${p.review_count}+ reviews` : ''}</div>`
         : '';
       const website = p.website
         ? `<a href="${p.website}" target="_blank" rel="noopener" class="provider-card-link">visit website ↗</a>`
@@ -1294,9 +1299,9 @@ async function loadProviders() {
         <div class="provider-card">
           <div class="provider-card-name">${p.name}</div>
           <div class="provider-card-loc">${p.location || ''}</div>
+          ${website}
           ${rating}
           ${tags ? `<div class="provider-card-tags">${tags}</div>` : ''}
-          ${website}
         </div>`;
     }).join('');
 
