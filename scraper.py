@@ -1483,27 +1483,37 @@ def scrape_srg(provider):
                 # Booking URL
                 booking_url = f"{provider['booking_base']}?prg={prog_name}&progID={prog_id}&{provider['utm']}"
 
-                # Dates are on the program page itself — look for date buttons/spans
-                # Structure: <div class="date-wrap"><span class="day">19</span><span class="month">Apr</span>
-                # Or plain text dates like "2026-04-19"
+                # Dates are on the program page
+                # The page renders dates as "Apr 19  May 17  May 31..." in a date section
+                # Find the "2026 Dates" section and parse month+day pairs
                 date_strs = []
+                page_text = soup2.get_text(separator=" ")
 
-                # Try ISO dates in text nodes first
-                iso_dates = re.findall(r"(20\d{2}-\d{2}-\d{2})", soup2.get_text())
-                if iso_dates:
-                    date_strs = iso_dates
-                else:
-                    # Try date buttons: day + month displayed as "19 Apr"
-                    date_items = soup2.select(".ec-date, .date-item, [class*='date']")
-                    for item in date_items:
-                        text = item.get_text(strip=True)
-                        for fmt in ["%d %b %Y", "%b %d %Y", "%B %d %Y"]:
-                            try:
-                                dt = datetime.strptime(text, fmt)
-                                date_strs.append(dt.strftime("%Y-%m-%d"))
+                # Match patterns like "Apr 19" "May 17" "Jun 14" near a year
+                # First find the year context
+                year_match = re.search(r"(20\d{2})\s+Dates", page_text)
+                year = year_match.group(1) if year_match else str(now.year)
+
+                # Find all month+day pairs in the page
+                month_day_pattern = re.compile(
+                    r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2})",
+                    re.I
+                )
+                for m in month_day_pattern.finditer(page_text):
+                    month = m.group(1)
+                    day = m.group(2).zfill(2)
+                    for yr in [year, str(now.year), str(now.year + 1)]:
+                        try:
+                            dt = datetime.strptime(f"{month} {day} {yr}", "%b %d %Y")
+                            date_str = dt.strftime("%Y-%m-%d")
+                            if date_str >= now.strftime("%Y-%m-%d"):
+                                date_strs.append(date_str)
                                 break
-                            except ValueError:
-                                pass
+                        except ValueError:
+                            continue
+
+                # Deduplicate and sort
+                date_strs = sorted(set(date_strs))
 
                 if not date_strs:
                     log.warning(f"No dates found for {title} — adding as flexible")
