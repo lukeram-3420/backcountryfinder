@@ -518,7 +518,7 @@ def scrape_cwms_course_page(course_url):
                         sm = re.search(r"(\d+)", stock_text)
                         if sm:
                             spots = int(sm.group(1))
-                            "critical" if spots <= 2 else "low" if spots <= 4 else "open"
+                            avail = "critical" if spots <= 2 else "low" if spots <= 4 else "open"
 
                 btn = parent.find("button", class_="single_add_to_cart_button")
                 if btn:
@@ -539,10 +539,29 @@ def scrape_cwms_course_page(course_url):
         if sessions:
             log.info(f"Found {len(sessions)} date sessions at {clean_url}")
 
+        # Also extract description from the course page
+        description = ""
+        desc_el = (
+            soup.find("div", class_="woocommerce-product-details__short-description") or
+            soup.find("div", class_="product-short-description") or
+            soup.find("div", {"itemprop": "description"}) or
+            soup.find("div", class_="entry-content")
+        )
+        if not desc_el:
+            # Fallback: find first substantial paragraph after the product title
+            for p in soup.find_all("p"):
+                text = p.get_text(strip=True)
+                if len(text) > 80 and "skip" not in text.lower():
+                    description = text[:800]
+                    break
+        else:
+            description = desc_el.get_text(separator=" ", strip=True)[:800]
+
     except Exception as e:
         log.warning(f"Could not scrape CWMS course page {course_url}: {e}")
+        description = ""
 
-    return sessions
+    return sessions, description
 
 
 def scrape_rezdy_api(provider: dict) -> list:
@@ -756,7 +775,7 @@ def scrape_cwms_course_page(course_url):
                         sm = re.search(r"(\d+)", stock_text)
                         if sm:
                             spots = int(sm.group(1))
-                            "critical" if spots <= 2 else "low" if spots <= 4 else "open"
+                            avail = "critical" if spots <= 2 else "low" if spots <= 4 else "open"
 
                 btn = parent.find("button", class_="single_add_to_cart_button")
                 if btn:
@@ -777,10 +796,29 @@ def scrape_cwms_course_page(course_url):
         if sessions:
             log.info(f"Found {len(sessions)} date sessions at {clean_url}")
 
+        # Also extract description from the course page
+        description = ""
+        desc_el = (
+            soup.find("div", class_="woocommerce-product-details__short-description") or
+            soup.find("div", class_="product-short-description") or
+            soup.find("div", {"itemprop": "description"}) or
+            soup.find("div", class_="entry-content")
+        )
+        if not desc_el:
+            # Fallback: find first substantial paragraph after the product title
+            for p in soup.find_all("p"):
+                text = p.get_text(strip=True)
+                if len(text) > 80 and "skip" not in text.lower():
+                    description = text[:800]
+                    break
+        else:
+            description = desc_el.get_text(separator=" ", strip=True)[:800]
+
     except Exception as e:
         log.warning(f"Could not scrape CWMS course page {course_url}: {e}")
+        description = ""
 
-    return sessions
+    return sessions, description
 
 
 # ── COURSE PAGE CHECK ──
@@ -1230,14 +1268,17 @@ def main():
                 dated_processed.append(course)
                 continue
 
-            sessions = scrape_cwms_course_page(booking_url)
+            sessions, page_description = scrape_cwms_course_page(booking_url)
+            if page_description:
+                course["description"] = page_description
             time.sleep(0.5)
 
             if not sessions:
-                # No dates found — keep as flexible dates
+                # No dates found — keep as flexible dates card
                 dated_processed.append(course)
                 continue
 
+            # Sessions found — create one card per date, discard flexible dates card
             # Create one row per date session
             for session in sessions:
                 product_id = session.get("product_id")
