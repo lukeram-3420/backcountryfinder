@@ -1285,7 +1285,7 @@ async function loadProviders() {
         .map(a => `<span class="provider-tag">${ACTIVITY_LABELS[a] || a}</span>`)
         .join('');
       const reviewsUrl = p.google_place_id
-        ? `https://www.google.com/maps/search/?api=1&query=place_id:${p.google_place_id}&query_place_id=${p.google_place_id}`
+        ? `https://search.google.com/local/reviews?placeid=${p.google_place_id}`
         : null;
       const rating = p.rating
         ? reviewsUrl
