@@ -122,7 +122,7 @@
   .avail.sold { background: #fcebeb; color: #a32d2d; }
   .card-actions { display: flex; gap: 8px; align-items: center; }
   /* CAIRN SAVE BUTTON */
-  .save-btn { display: flex; align-items: center; gap: 6px; padding: 7px 13px; border-radius: var(--radius-pill); border: 1.5px solid var(--border-mid); background: var(--bg-card); cursor: pointer; font-family: var(--font); font-size: 12px; font-weight: 700; color: var(--text-tertiary); transition: all 0.2s; flex-shrink: 0; white-space: nowrap; }
+  .save-btn { display: flex; align-items: center; gap: 6px; padding: 7px 13px; border-radius: var(--radius-sm); border: 1.5px solid var(--border-mid); background: var(--bg-card); cursor: pointer; font-family: var(--font); font-size: 12px; font-weight: 700; color: var(--text-tertiary); transition: all 0.2s; flex-shrink: 0; white-space: nowrap; }
   .save-btn:hover { border-color: var(--green-dark); color: var(--green-dark); }
   .save-btn.saved { border-color: var(--green-dark); background: var(--green-light); color: var(--green-dark); }
   .save-btn.remove-ready:hover { border-color: #c0392b; background: #fdf0f0; color: #c0392b; }
@@ -159,7 +159,7 @@
     .save-btn { min-width: 90px; }
   }
   @media (max-width: 768px) {
-    .save-btn { width: 40px; height: 40px; padding: 0; border-radius: 50%; justify-content: center; min-width: unset; }
+    .save-btn { width: 38px; height: 38px; padding: 0; border-radius: var(--radius-sm); justify-content: center; min-width: unset; }
     .save-btn .save-label { display: none; }
     .save-btn svg { width: 20px; height: 20px; }
   }
