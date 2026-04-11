@@ -664,24 +664,19 @@
 <script>
 const ADS_ENABLED = false;
 
-const ACTIVITY_LABELS = {
-  skiing:         'Backcountry Skiing',
-  climbing:       'Rock Climbing',
-  mountaineering: 'Mountaineering',
-  hiking:         'Hiking',
-  biking:         'Mountain Biking',
-  fishing:        'Fly Fishing',
-  hunting:        'Hunting',
-  heli:           'Heli Skiing',
-  cat:            'Cat Skiing',
-  huts:           'Alpine Huts',
-  guided:         'Guided Tours',
-  glissading:     'Glissading',
-  rappelling:     'Rappelling',
-  snowshoeing:    'Snowshoeing',
-  snowshoe:       'Snowshoeing',
-  via_ferrata:    'Via Ferrata',
-};
+// Activity labels loaded dynamically from Supabase
+let ACTIVITY_LABELS = {};
+
+async function loadActivityLabels() {
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/activity_labels?select=activity,label`,
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+    );
+    const rows = await res.json();
+    rows.forEach(r => { ACTIVITY_LABELS[r.activity] = r.label; });
+  } catch(e) { console.warn('Could not load activity labels:', e); }
+}
 const SUPABASE_EDGE_URL = 'https://owzrztaguehebkatnatc.supabase.co/functions/v1/send-saved-list';
 const NOTIFY_URL = 'https://owzrztaguehebkatnatc.supabase.co/functions/v1/notify-submission';
 const SUPABASE_URL = 'https://owzrztaguehebkatnatc.supabase.co';
@@ -837,7 +832,7 @@ async function fetchFromSupabase(page = 0, append = false, background = false) {
     }
 
     renderCards(courses, append);
-    await Promise.all([loadActivitiesDropdown(), loadLocationsDropdown()]);
+    await loadLocationsDropdown();
 
   } catch(err) {
     console.error('Fetch error:', err);
@@ -1245,7 +1240,11 @@ function closeToast(){document.getElementById('book-toast').classList.remove('ac
 async function submitToast(){const emailEl=document.getElementById('toast-email');if(!emailEl)return;const email=emailEl.value.trim();if(!email||!email.includes('@')){emailEl.style.borderColor='#e24b4a';emailEl.focus();return;}emailEl.style.borderColor='';await saveEmail(email,null,'book_now_toast');document.getElementById('book-toast').innerHTML=`<div style="text-align:center;padding:4px 0;"><div style="font-size:24px;margin-bottom:6px;">✓</div><div style="font-size:13px;font-weight:700;">You're on the list</div><div style="font-size:12px;color:var(--text-tertiary);margin-top:4px;font-weight:500;">We'll send you new experience alerts.</div></div>`;setTimeout(closeToast,2500);}
 
 // ── INIT ──
-fetchCourses(0, false);
+loadActivityLabels().then(() => {
+  fetchCourses(0, false);
+  loadActivitiesDropdown();
+  loadLocationsDropdown();
+});
 initSharedCourses();
 
 // ── PROVIDERS PAGE ──
