@@ -1306,8 +1306,15 @@ def main():
 
     # Upsert to Supabase (only if we got data — fallback protection)
     if all_courses:
-        sb_upsert("courses", all_courses)
-        log.info(f"Total courses upserted: {len(all_courses)}")
+        # Deduplicate by ID — last one wins if duplicates exist
+        seen = {}
+        for c in all_courses:
+            seen[c["id"]] = c
+        deduped = list(seen.values())
+        if len(deduped) < len(all_courses):
+            log.warning(f"Deduplicated {len(all_courses) - len(deduped)} duplicate course IDs before upsert")
+        sb_upsert("courses", deduped)
+        log.info(f"Total courses upserted: {len(deduped)}")
     else:
         log.warning("No courses scraped — keeping existing Supabase data")
 
