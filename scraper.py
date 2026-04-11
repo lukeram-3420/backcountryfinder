@@ -81,6 +81,17 @@ REZDY_PROVIDERS = [
     },
 ]
 
+# Canada West uses WooCommerce — separate scraper
+CWMS_PROVIDERS = [
+    {
+        "id":       "cwms",
+        "name":     "Canada West Mountain School",
+        "listing_url": "https://themountainschool.com/programs-and-courses/",
+        "base_url": "https://themountainschool.com",
+        "utm":      "utm_source=backcountryfinder&utm_medium=referral",
+    },
+]
+
 # Activity keyword mapping
 ACTIVITY_KEYWORDS = {
     # Order matters — checked top to bottom, first match wins
@@ -475,6 +486,109 @@ def scrape_rezdy_api(provider: dict) -> list:
     return courses
 
 
+# -- CANADA WEST (WOOCOMMERCE) SCRAPER --
+
+CWMS_ACTIVITY_MAP = {
+    "hiking":           "hiking",
+    "skiing":           "skiing",
+    "mountaineering":   "mountaineering",
+    "avalanche-safety": "skiing",
+    "backcountry":      "skiing",
+    "squamish-rock":    "climbing",
+    "rock":             "climbing",
+    "first-aid":        "guided",
+    "alpine":           "mountaineering",
+}
+
+
+def scrape_cwms(provider):
+    """Scrape Canada West Mountain School WooCommerce listing page."""
+    log.info(f"Scraping {provider['name']} -- {provider['listing_url']}")
+    courses = []
+    try:
+        r = requests.get(provider["listing_url"], headers=HEADERS, timeout=20)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, "html.parser")
+        items = soup.select("div.mix")
+        if not items:
+            log.warning(f"No div.mix found for {provider['name']}")
+            return []
+        log.info(f"Found {len(items)} items for {provider['name']}")
+        for item in items:
+            try:
+                style = item.get("style", "")
+                if "display: none" in style or "display:none" in style:
+                    continue
+                title_el = item.select_one("h3.product-archive-heading")
+                title = title_el.get_text(strip=True) if title_el else None
+                if not title:
+                    continue
+                link_el = item.select_one("a[href]")
+                booking_url = None
+                if link_el:
+                    href = link_el.get("href", "")
+                    if href.startswith("http"):
+                        booking_url = f"{href}{'&' if '?' in href else '?'}{provider['utm']}"
+                    else:
+                        booking_url = f"{provider['base_url']}{href}?{provider['utm']}"
+                price = None
+                price_el = item.select_one("div.product-price")
+                if price_el:
+                    price_text = price_el.get_text(strip=True)
+                    m = re.search(r"[\d,]+", price_text.replace(",", ""))
+                    if m:
+                        try:
+                            price = int(float(m.group().replace(",", "")))
+                        except ValueError:
+                            pass
+                image_url = None
+                img_el = item.select_one("div.product-image-wrap img")
+                if img_el:
+                    image_url = img_el.get("src") or img_el.get("data-src")
+                desc_text = ""
+                desc_el = item.select_one("div.product-short-descr")
+                if desc_el:
+                    desc_text = desc_el.get_text(strip=True)
+                classes = item.get("class", [])
+                activity = "guided"
+                for cls in classes:
+                    if cls in CWMS_ACTIVITY_MAP:
+                        activity = CWMS_ACTIVITY_MAP[cls]
+                        break
+                location_raw = None
+                loc_m = re.search(r"(Whistler|Squamish|Seymour|Garibaldi|Pemberton|Tantalus|Vancouver|North Shore|Golden|Revelstoke|Manning|Chilcotin|Spearhead|Brandywine|Joffre)", title + " " + desc_text, re.I)
+                if loc_m:
+                    location_raw = loc_m.group(0).title()
+                duration_days = None
+                dur_m = re.search(r"(\d+)[\s-]*day", title + " " + desc_text, re.I)
+                if dur_m:
+                    duration_days = float(dur_m.group(1))
+                courses.append({
+                    "title":         title,
+                    "provider_id":   provider["id"],
+                    "badge":         activity.title(),
+                    "activity":      activity,
+                    "activity_raw":  activity,
+                    "location_raw":  location_raw,
+                    "date_display":  None,
+                    "date_sort":     None,
+                    "duration_days": duration_days,
+                    "price":         price,
+                    "spots_remaining": None,
+                    "avail":         "open",
+                    "image_url":     image_url,
+                    "booking_url":   booking_url,
+                    "scraped_at":    datetime.utcnow().isoformat(),
+                })
+            except Exception as e:
+                log.warning(f"Error parsing CWMS item: {e}")
+                continue
+    except Exception as e:
+        log.error(f"Failed to scrape {provider['name']}: {e}")
+    log.info(f"Scraped {len(courses)} courses from {provider['name']}")
+    return courses
+
+
 # ── COURSE PAGE CHECK ──
 
 NO_AVAILABILITY_SIGNALS = [
@@ -795,6 +909,52 @@ def main():
     location_flags = []
     provider_summary = []
 
+    # Scrape Canada West (WooCommerce)
+    for provider in CWMS_PROVIDERS:
+        raw_courses = scrape_cwms(provider)
+        processed = []
+        for c in raw_courses:
+            if not is_future(c.get("date_sort")):
+                continue
+            loc_raw = c.get("location_raw") or ""
+            if loc_raw:
+                loc_canonical, loc_is_new, loc_add_mapping = normalise_location(loc_raw, mappings)
+                if loc_add_mapping:
+                    sb_insert("location_mappings", {"location_raw": loc_raw, "location_canonical": loc_canonical})
+                    mappings[loc_raw.lower().strip()] = loc_canonical
+                if not loc_canonical:
+                    location_flags.append({"location_raw": loc_raw, "provider_id": provider["id"], "course_title": c["title"]})
+            else:
+                loc_canonical = None
+            course_id = stable_id(provider["id"], c["activity"], c.get("date_sort"), c["title"])
+            activity_raw = c.get("activity_raw") or "guided"
+            activity_canonical, act_is_new, act_add_mapping = resolve_activity(c["title"], c.get("location_raw") or "", activity_maps, provider["name"])
+            if act_add_mapping:
+                sb_insert("activity_mappings", {"title_contains": c["title"].lower()[:100], "activity": activity_canonical})
+                activity_maps.append((c["title"].lower()[:100], activity_canonical))
+            badge_canonical = build_badge(activity_canonical, c.get("duration_days"))
+            booking_url = c.get("booking_url")
+            active = True
+            custom_dates = True  # CWMS uses WooCommerce date picker
+            date_display = "Flexible dates"
+            date_sort = None
+            processed.append({
+                "id": course_id, "title": c["title"], "provider_id": provider["id"],
+                "badge": badge_canonical, "activity": activity_canonical,
+                "activity_raw": activity_raw, "activity_canonical": activity_canonical,
+                "badge_canonical": badge_canonical, "location_raw": loc_raw or None,
+                "location_canonical": loc_canonical, "date_display": date_display,
+                "date_sort": date_sort, "duration_days": c.get("duration_days"),
+                "price": c.get("price"), "spots_remaining": None, "avail": "open",
+                "image_url": c.get("image_url"), "booking_url": booking_url,
+                "active": active, "custom_dates": custom_dates,
+                "scraped_at": c["scraped_at"],
+            })
+        provider_summary.append({"name": provider["name"], "count": len(processed), "ok": len(processed) > 0})
+        all_courses.extend(processed)
+        time.sleep(2)
+
+    # Scrape Rezdy providers
     for provider in REZDY_PROVIDERS:
         raw_courses = scrape_rezdy(provider)
         processed = []
