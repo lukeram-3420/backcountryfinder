@@ -97,6 +97,9 @@
   .sort-btn:hover { border-color: var(--green-dark); color: var(--green-dark); }
   .sort-btn.active { background: var(--green-dark); color: var(--green-accent); border-color: var(--green-dark); }
   .results-count { font-size: 12px; color: var(--text-tertiary); font-weight: 500; }
+  .provider-filter-chip { display: inline-flex; align-items: center; gap: 6px; background: #1a2e1a; color: #4ade80; font-size: 11px; font-weight: 700; padding: 4px 10px 4px 12px; border-radius: 20px; margin-bottom: 10px; }
+  .provider-filter-chip button { background: none; border: none; color: #4ade80; cursor: pointer; font-size: 16px; line-height: 1; padding: 0; opacity: 0.7; }
+  .provider-filter-chip button:hover { opacity: 1; }
 
   /* CARDS */
   .card-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(300px,1fr)); gap: 20px; }
@@ -447,6 +450,10 @@
         <button class="sort-btn" onclick="sortBy(this,'availability')">availability</button>
       </div>
     </div>
+    <div id="provider-filter-chip" style="display:none;" class="provider-filter-chip">
+      <span id="provider-filter-label">Viewing: ...</span>
+      <button onclick="clearProviderFilter()" title="Show all">×</button>
+    </div>
     <div style="margin-bottom:16px;"><span class="results-count" id="results-count">12 results</span></div>
     <div class="card-grid" id="card-grid"></div>
     <div class="load-more-wrap" id="load-more-wrap" style="display:none;">
@@ -707,7 +714,7 @@ let currentSort = 'date';
 let currentPage = 0;
 let totalCount = 0;
 let isLoading = false;
-let currentFilters = { activity: '', location: '', date: '' };
+let currentFilters = { activity: '', location: '', date: '', provider: '' };
 const PAGE_SIZE = 12;
 const CACHE_KEY = 'bcf_cache';
 const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
@@ -799,6 +806,7 @@ async function fetchFromSupabase(page = 0, append = false, background = false) {
     const filters = ['active=eq.true'];
 
     if (currentFilters.activity) filters.push(`activity_canonical=eq.${encodeURIComponent(currentFilters.activity)}`);
+    if (currentFilters.provider) filters.push(`provider_id=eq.${encodeURIComponent(currentFilters.provider)}`);
 
     if (currentFilters.location) {
       const loc = encodeURIComponent(currentFilters.location);
@@ -1061,6 +1069,51 @@ function debouncedSearch() {
   _searchTimer = setTimeout(runSearch, 300);
 }
 
+function setProviderFilter(providerId, providerName) {
+  currentFilters.provider = providerId;
+  const chip = document.getElementById('provider-filter-chip');
+  const label = document.getElementById('provider-filter-label');
+  if (chip && label) {
+    label.textContent = `Viewing: ${providerName}`;
+    chip.style.display = 'inline-flex';
+  }
+  showPage('search');
+  currentPage = 0;
+  fetchCourses(0, false);
+}
+
+function clearProviderFilter() {
+  currentFilters.provider = '';
+  const chip = document.getElementById('provider-filter-chip');
+  if (chip) chip.style.display = 'none';
+  currentPage = 0;
+  fetchCourses(0, false);
+  // Clean up URL
+  if (window.history && window.history.replaceState)
+    window.history.replaceState({}, '', window.location.pathname);
+}
+
+function initProviderFilter() {
+  const params = new URLSearchParams(window.location.search);
+  const provider = params.get('provider');
+  if (!provider) return;
+  // Look up provider name from loaded providers
+  currentFilters.provider = provider;
+  const chip = document.getElementById('provider-filter-chip');
+  const label = document.getElementById('provider-filter-label');
+  if (chip && label) {
+    label.textContent = `Viewing: ${provider}`;
+    chip.style.display = 'inline-flex';
+  }
+  // Fetch provider name from Supabase to show proper name
+  fetch(`${SUPABASE_URL}/rest/v1/providers?select=name&id=eq.${provider}`,
+    {headers: {'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`}})
+    .then(r => r.json())
+    .then(rows => {
+      if (rows[0] && label) label.textContent = `Viewing: ${rows[0].name}`;
+    });
+}
+
 function runSearch(){
   currentFilters.activity = document.getElementById('search-activity').value;
   currentFilters.location = document.getElementById('search-location').value;
@@ -1315,6 +1368,7 @@ async function submitToast(){const emailEl=document.getElementById('toast-email'
 
 // ── INIT ──
 loadActivityLabels().then(() => {
+  initProviderFilter();
   fetchCourses(0, false);
   loadActivitiesDropdown();
   loadLocationsDropdown();
@@ -1373,7 +1427,7 @@ async function loadProviders() {
         ? `<div class="provider-card-logo"><img src="${p.logo_url}" alt="${p.name} logo" loading="lazy"></div>`
         : `<div class="provider-card-logo" style="background:#1a2e1a;"><span style="color:#4ade80;font-weight:800;font-size:16px;letter-spacing:-0.3px;">${p.name}</span></div>`;
       return `
-        <div class="provider-card">
+        <div class="provider-card" style="cursor:pointer;" onclick="setProviderFilter('${p.id}', '${p.name.replace(/'/g, "\\'")}')">
           ${logo}
           <div class="provider-card-body">
             <div class="provider-card-name">${p.name}</div>
