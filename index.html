@@ -596,6 +596,43 @@
 </nav>
 
 <!-- EMAIL MODAL -->
+<div class="email-list-modal-overlay" id="notify-modal" onclick="closeNotifyModal(event)">
+  <div class="email-list-modal elm-modal">
+    <button class="elm-close" onclick="closeNotifyModal()">×</button>
+    <div id="notify-form-content">
+      <div class="elm-tag">notify me</div>
+      <h2 class="elm-title">Get notified when dates drop</h2>
+      <p class="elm-sub" id="notify-course-name" style="color:#1a2e1a;font-weight:600;font-size:13px;margin-bottom:12px;"></p>
+      <p class="elm-sub">We'll email you the moment this course opens bookings — no spam, one email per course.</p>
+      <div class="pmodal-field"><label>your email *</label><input type="email" id="notify-email" placeholder="you@email.com"></div>
+      <button class="elm-submit" onclick="submitNotify()">notify me when it opens</button>
+    </div>
+    <div id="notify-success" style="display:none;text-align:center;padding:20px 0;">
+      <div style="font-size:32px;margin-bottom:12px;">🔔</div>
+      <h2 class="elm-title">You're on the list</h2>
+      <p class="elm-sub">We'll email you as soon as dates open up.</p>
+    </div>
+  </div>
+</div>
+
+<div class="email-list-modal-overlay" id="notify-modal" onclick="closeNotifyModal(event)">
+  <div class="email-list-modal elm-modal">
+    <button class="elm-close" onclick="closeNotifyModal()">×</button>
+    <div class="elm-tag">notify me</div>
+    <h3 class="elm-title">Get notified when dates drop</h3>
+    <p class="elm-subtitle" id="notify-course-name" style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;"></p>
+    <div id="notify-form-content">
+      <div class="pmodal-field"><label>your email *</label><input type="email" id="notify-email" placeholder="you@yourprovider.com"></div>
+      <button class="elm-submit" onclick="submitNotify()">notify me when dates open →</button>
+    </div>
+    <div id="notify-success" style="display:none;text-align:center;padding:20px 0;">
+      <div style="font-size:24px;margin-bottom:8px;">✓</div>
+      <div style="font-weight:700;color:#1a2e1a;margin-bottom:4px;">You're on the list</div>
+      <div style="font-size:13px;color:var(--text-secondary);">We'll email you as soon as dates are available.</div>
+    </div>
+  </div>
+</div>
+
 <div class="email-list-modal-overlay" id="email-list-modal" onclick="closeEmailListModal(event)">
   <div class="email-list-modal elm-modal">
     <button class="elm-close" onclick="closeEmailListModal()">×</button>
@@ -989,9 +1026,11 @@ function buildCard(c){
           }
           <span class="save-label">my list</span>
         </button>
-        ${c.avail==='sold'
-          ?`<a class="book-btn" href="${bookingUrl}" target="_blank" rel="noopener" onclick="openNotifyModal('${safeTitle}');return false;">Notify me</a>`
-          :`<a class="book-btn" href="${bookingUrl}" target="_blank" rel="noopener" onclick="setTimeout(showToast,800)">Book Now <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-left:2px;"><path d="M7 17L17 7"/><path d="M7 7h10v10"/></svg></a>`
+        ${c.custom_dates
+          ?`<button class="book-btn" style="background:#f5f4f0;color:#1a2e1a;border:1px solid #c8c7c2;" onclick="openNotifyModal('${c.id}','${safeTitle}','${c.provider_id}')">Notify me 🔔</button>`
+          :c.avail==='sold'
+            ?`<button class="book-btn" style="background:#f5f4f0;color:#888;border:1px solid #c8c7c2;cursor:default;">Sold out</button>`
+            :`<a class="book-btn" href="${bookingUrl}" target="_blank" rel="noopener" onclick="setTimeout(showToast,800)">Book Now <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-left:2px;"><path d="M7 17L17 7"/><path d="M7 7h10v10"/></svg></a>`
         }
       </div>
     </div>
@@ -1233,7 +1272,57 @@ async function copyShareLink(url,btn){try{await navigator.clipboard.writeText(ur
 async function nativeShare(url,title){try{await navigator.share({title:title||'BackcountryFinder',url});}catch(e){}}
 
 // EMAIL MY LIST
-async function clearMyList(){
+async // NOTIFY ME
+let _notifyCourseId = null;
+let _notifyProviderTitle = null;
+let _notifyProviderId = null;
+
+function openNotifyModal(courseId, title, providerId) {
+  _notifyCourseId = courseId;
+  _notifyProviderTitle = title;
+  _notifyProviderId = providerId;
+  document.getElementById('notify-email').value = '';
+  document.getElementById('notify-form-content').style.display = 'block';
+  document.getElementById('notify-success').style.display = 'none';
+  document.getElementById('notify-course-name').textContent = title;
+  document.getElementById('notify-modal').classList.add('active');
+}
+
+function closeNotifyModal(e) {
+  if (!e || e.target === document.getElementById('notify-modal'))
+    document.getElementById('notify-modal').classList.remove('active');
+}
+
+async function submitNotify() {
+  const email = document.getElementById('notify-email').value.trim();
+  if (!email || !email.includes('@')) {
+    document.getElementById('notify-email').style.borderColor = '#e24b4a';
+    document.getElementById('notify-email').focus();
+    return;
+  }
+  document.getElementById('notify-email').style.borderColor = '';
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/notifications`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Prefer': 'return=minimal'
+      },
+      body: JSON.stringify({
+        email,
+        provider_id: _notifyProviderId,
+        course_title: _notifyProviderTitle,
+      })
+    });
+  } catch(e) {}
+  document.getElementById('notify-form-content').style.display = 'none';
+  document.getElementById('notify-success').style.display = 'block';
+  setTimeout(closeNotifyModal, 3000);
+}
+
+function clearMyList(){
   if(!confirm('Clear your entire saved list?')) return;
   setSaved([]);
   renderSaved();
@@ -1259,6 +1348,51 @@ async function openEmailListModal(){
   document.getElementById('elm-success').style.display='none';
   document.getElementById('email-list-modal').classList.add('active');
 }
+let _notifyProvider = '';
+let _notifyCourse = '';
+
+function openNotifyModal(idOrProvider, courseTitle, providerId) {
+  _notifyProvider = providerId || idOrProvider;
+  _notifyCourse = courseTitle;
+  document.getElementById('notify-course-name').textContent = courseTitle;
+  document.getElementById('notify-email').value = '';
+  document.getElementById('notify-form-content').style.display = 'block';
+  document.getElementById('notify-success').style.display = 'none';
+  document.getElementById('notify-modal').classList.add('active');
+}
+function closeNotifyModal(e) {
+  if (!e || e.target === document.getElementById('notify-modal'))
+    document.getElementById('notify-modal').classList.remove('active');
+}
+async function submitNotify() {
+  const email = document.getElementById('notify-email').value.trim();
+  if (!email || !email.includes('@')) {
+    document.getElementById('notify-email').style.borderColor = '#e24b4a';
+    document.getElementById('notify-email').focus();
+    return;
+  }
+  document.getElementById('notify-email').style.borderColor = '';
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/notifications`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Prefer': 'return=minimal'
+      },
+      body: JSON.stringify({
+        email,
+        provider_id: _notifyProvider,
+        course_title: _notifyCourse,
+      })
+    });
+  } catch(e) {}
+  document.getElementById('notify-form-content').style.display = 'none';
+  document.getElementById('notify-success').style.display = 'block';
+  setTimeout(closeNotifyModal, 2500);
+}
+
 function closeEmailListModal(e){if(!e||e.target===document.getElementById('email-list-modal'))document.getElementById('email-list-modal').classList.remove('active');}
 async function submitEmailList(){
   const email=document.getElementById('elm-email').value.trim();
