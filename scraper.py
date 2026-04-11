@@ -5,6 +5,7 @@ Runs every 6 hours via GitHub Actions
 """
 
 import os
+import argparse
 import re
 import json
 import time
@@ -1066,7 +1067,10 @@ def update_provider_ratings():
         log.info("No Google Places API key -- skipping ratings update")
         return
     log.info("Updating provider ratings from Google Places...")
-    providers = sb_get("providers", {"select": "id,name,location,google_place_id", "active": "eq.true"})
+    places_params = {"select": "id,name,location,google_place_id", "active": "eq.true"}
+    if provider_filter != "all":
+        places_params["id"] = f"eq.{provider_filter}"
+    providers = sb_get("providers", places_params)
     for p in providers:
         pid = p.get("google_place_id")
         if not pid:
@@ -1085,7 +1089,12 @@ def update_provider_ratings():
     log.info("Provider ratings update complete")
 
 def main():
-    log.info("=== BackcountryFinder scraper starting ===")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--provider", default="all", help="Provider to scrape: altus, msaa, cwms, or all")
+    args = parser.parse_args()
+    provider_filter = args.provider.lower()
+
+    log.info(f"=== BackcountryFinder scraper starting (provider={provider_filter}) ===")
 
     # Update provider ratings from Google Places
     update_provider_ratings()
@@ -1106,7 +1115,7 @@ def main():
     provider_summary = []
 
     # Scrape Canada West (WooCommerce)
-    for provider in CWMS_PROVIDERS:
+    for provider in (CWMS_PROVIDERS if provider_filter in ("all", "cwms") else []):
         raw_courses = scrape_cwms(provider)
         processed = []
         for c in raw_courses:
@@ -1194,7 +1203,8 @@ def main():
         time.sleep(2)
 
     # Scrape Rezdy providers
-    for provider in REZDY_PROVIDERS:
+    active_rezdy = [p for p in REZDY_PROVIDERS if provider_filter == "all" or p["id"] == provider_filter]
+    for provider in active_rezdy:
         raw_courses = scrape_rezdy(provider)
         processed = []
 
