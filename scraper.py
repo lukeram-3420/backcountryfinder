@@ -680,6 +680,8 @@ def scrape_cwms(provider):
                     "avail":         "open",
                     "image_url":     image_url,
                     "booking_url":   booking_url,
+                    "summary":       "",
+                    "description":   desc_text,
                     "scraped_at":    datetime.utcnow().isoformat(),
                 })
             except Exception as e:
@@ -841,9 +843,15 @@ def check_course_page(booking_url: str) -> dict:
             log.info(f"No static dates found at {clean_url} — marking as custom dates")
             result["custom_dates"] = True
 
+        # Extract description text while we're on the page
+        desc_el = soup.find("div", class_=lambda c: c and any(x in c for x in ["product-description", "description", "course-description", "entry-content"]))
+        if not desc_el:
+            desc_el = soup.find("div", {"itemprop": "description"})
+        if desc_el:
+            result["description"] = desc_el.get_text(separator=" ", strip=True)[:800]
+
     except Exception as e:
         log.warning(f"Could not check course page {booking_url}: {e}")
-        # If we can't check, assume available to avoid hiding valid courses
         result["available"] = True
         result["custom_dates"] = True
 
@@ -944,10 +952,10 @@ def send_scrape_summary(total: int, providers: list, flags_count: int) -> None:
 
 # -- CLAUDE CLASSIFICATION --
 
-def claude_classify(prompt: str) -> dict:
-    """Call Claude API and return parsed JSON response."""
+def claude_classify(prompt: str, max_tokens: int = 256, return_text: bool = False):
+    """Call Claude API. Returns parsed JSON dict by default, or raw text if return_text=True."""
     if not ANTHROPIC_API_KEY:
-        return {}
+        return "" if return_text else {}
     try:
         r = requests.post(
             "https://api.anthropic.com/v1/messages",
@@ -958,12 +966,14 @@ def claude_classify(prompt: str) -> dict:
             },
             json={
                 "model": CLAUDE_MODEL,
-                "max_tokens": 256,
+                "max_tokens": max_tokens,
                 "messages": [{"role": "user", "content": prompt}],
             },
-            timeout=20
+            timeout=30
         )
         text = r.json()["content"][0]["text"].strip()
+        if return_text:
+            return text
         # Strip markdown fences if present
         if text.startswith("```"):
             text = text.split("```")[1]
@@ -972,7 +982,7 @@ def claude_classify(prompt: str) -> dict:
         return json.loads(text.strip())
     except Exception as e:
         log.warning(f"Claude API call failed: {e}")
-        return {}
+        return "" if return_text else {}
 
 
 def claude_classify_activity(title: str, description: str, provider: str, known_activities: list) -> dict:
@@ -1013,6 +1023,62 @@ Respond with JSON only, no other text:
 {{"location_canonical": "the_canonical_value", "is_new": false, "confidence": "high", "reasoning": "one line explanation"}}"""
 
     return claude_classify(prompt)
+
+
+def generate_summaries_batch(courses: list) -> dict:
+    """
+    Batch generate 2-sentence summaries for a list of courses.
+    courses: list of dicts with keys: id, title, description, provider, activity
+    Returns dict: {course_id: summary_text}
+    """
+    if not ANTHROPIC_API_KEY:
+        return {}
+
+    # Filter to courses that have descriptions
+    to_summarise = [c for c in courses if c.get("description", "").strip()]
+    if not to_summarise:
+        return {}
+
+    results = {}
+    BATCH_SIZE = 12
+
+    for i in range(0, len(to_summarise), BATCH_SIZE):
+        batch = to_summarise[i:i + BATCH_SIZE]
+        items = ""
+        for c in batch:
+            desc = c["description"][:600].strip()
+            items += f"""---
+ID: {c["id"]}
+Provider: {c["provider"]}
+Activity: {c["activity"]}
+Title: {c["title"]}
+Description: {desc}
+"""
+
+        prompt = f"""You are writing 2-sentence summaries for backcountry experience listings on a booking aggregator.
+
+For each course below, write exactly 2 sentences. Be specific and enticing. Use plain language, no marketing fluff. Do not start with the provider name or course title. Do not use the word "perfect". Write in third person.
+
+{items}
+
+Respond with JSON only — an array of objects with "id" and "summary" keys. Example:
+[{{"id": "cwms-hiking-abc123", "summary": "Two sentences here."}}]"""
+
+        try:
+            result = claude_classify(prompt, max_tokens=1500)
+            if isinstance(result, list):
+                for item in result:
+                    if item.get("id") and item.get("summary"):
+                        results[item["id"]] = item["summary"]
+                log.info(f"Batch summaries: generated {len(result)} summaries (batch {i//BATCH_SIZE + 1})")
+            else:
+                log.warning(f"Unexpected summary batch response format")
+        except Exception as e:
+            log.warning(f"Batch summary generation failed: {e}")
+
+        time.sleep(0.5)
+
+    return results
 
 
 def get_known_activities(activity_maps: list) -> list:
@@ -1200,6 +1266,25 @@ def main():
                 })
                 dated_processed.append(session_course)
 
+        # Batch generate summaries for all CWMS courses
+        if dated_processed:
+            log.info(f"Generating summaries for {len(dated_processed)} {provider['name']} courses...")
+            summary_inputs = [
+                {
+                    "id":          c["id"],
+                    "title":       c["title"],
+                    "description": c.get("description", ""),
+                    "provider":    provider["name"],
+                    "activity":    c.get("activity_canonical", c.get("activity", "")),
+                }
+                for c in dated_processed
+            ]
+            summaries = generate_summaries_batch(summary_inputs)
+            for c in dated_processed:
+                if c["id"] in summaries:
+                    c["summary"] = summaries[c["id"]]
+            log.info(f"Summaries generated: {len(summaries)}")
+
         provider_summary.append({"name": provider["name"], "count": len(dated_processed), "ok": len(dated_processed) > 0})
         all_courses.extend(dated_processed)
         time.sleep(2)
@@ -1255,8 +1340,10 @@ def main():
             date_display = c.get("date_display")
             date_sort = c.get("date_sort")
 
+            page_description = ""
             if booking_url:
                 page_check = check_course_page(booking_url)
+                page_description = page_check.get("description", "")
                 if not page_check["available"]:
                     log.info(f"Hiding unavailable course: {c['title']}")
                     active = False
@@ -1266,10 +1353,9 @@ def main():
                         date_display = "Flexible dates"
                         date_sort = None
                     elif page_check["dates"] and not date_display:
-                        # Use first static date found
                         date_display = page_check["dates"][0]
                         date_sort = parse_date_sort(date_display)
-                time.sleep(0.5)  # be polite between course page requests
+                time.sleep(0.5)
 
             processed.append({
                 "id":                 course_id,
@@ -1292,8 +1378,30 @@ def main():
                 "booking_url":        booking_url,
                 "active":             active,
                 "custom_dates":       custom_dates,
+                "summary":            c.get("summary", ""),
+                "description":        page_description or c.get("description", ""),
                 "scraped_at":         c["scraped_at"],
             })
+
+        # Batch generate summaries for Rezdy courses
+        if processed:
+            log.info(f"Generating summaries for {len(processed)} {provider['name']} courses...")
+            summary_inputs = [
+                {
+                    "id":          c["id"],
+                    "title":       c["title"],
+                    "description": c.get("description", ""),
+                    "provider":    provider["name"],
+                    "activity":    c.get("activity_canonical", c.get("activity", "")),
+                }
+                for c in processed if c.get("description")
+            ]
+            if summary_inputs:
+                summaries = generate_summaries_batch(summary_inputs)
+                for c in processed:
+                    if c["id"] in summaries:
+                        c["summary"] = summaries[c["id"]]
+                log.info(f"Summaries generated: {len(summaries)}")
 
         provider_summary.append({
             "name":  provider["name"],
@@ -1302,7 +1410,7 @@ def main():
         })
 
         all_courses.extend(processed)
-        time.sleep(2)  # be polite between providers
+        time.sleep(2)
 
     # Upsert to Supabase (only if we got data — fallback protection)
     if all_courses:
