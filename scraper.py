@@ -203,12 +203,14 @@ def resolve_activity(title, description, mappings, provider=""):
     if ANTHROPIC_API_KEY:
         known = get_known_activities(mappings) if mappings else []
         result = claude_classify_activity(title, description, provider, known)
-        if result.get("activity"):
+        if isinstance(result, list) and result:
+            result = result[0]
+        if isinstance(result, dict) and result.get("activity"):
             activity = result["activity"]
             is_new = result.get("is_new", False)
             label = result.get("label", activity.replace("_", " ").title())
             log.info(f"Claude classified '{title}' as '{activity}' (new={is_new}): {result.get('reasoning','')}")
-            sb_insert("activity_labels", {"activity": activity, "label": label})
+            sb_upsert("activity_labels", [{"activity": activity, "label": label}])
             return activity, is_new, True
     return detect_activity(title, description), False, False
 
