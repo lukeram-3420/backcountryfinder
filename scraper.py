@@ -2573,8 +2573,12 @@ def main():
                 page_check = check_course_page(booking_url)
                 page_description = page_check.get("description", "")
                 if not page_check["available"]:
-                    log.info(f"Hiding unavailable course: {c['title']}")
-                    active = False
+                    # Keep visible as flexible dates with Notify me button
+                    log.info(f"No availability — showing as flexible dates: {c['title']}")
+                    custom_dates = True
+                    date_display = "Flexible dates"
+                    date_sort = None
+                    active = True
                 else:
                     custom_dates = page_check["custom_dates"]
                     if custom_dates:
