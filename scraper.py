@@ -1294,6 +1294,10 @@ def scrape_summit(provider):
                 # Booking URL with occurrence parameter
                 booking_url = f"{href}{'&' if '?' in href else '?'}{provider['utm']}"
 
+                # Fetch description from event page
+                description = scrape_summit_event_page(href)
+                time.sleep(0.5)
+
                 courses.append({
                     "title":         title,
                     "provider_id":   provider["id"],
@@ -1310,7 +1314,7 @@ def scrape_summit(provider):
                     "image_url":     image_url,
                     "booking_url":   booking_url,
                     "summary":       "",
-                    "description":   "",
+                    "description":   description,
                     "custom_dates":  False,
                     "scraped_at":    datetime.utcnow().isoformat(),
                 })
@@ -1322,6 +1326,31 @@ def scrape_summit(provider):
 
     log.info(f"Scraped {len(courses)} courses from {provider['name']}")
     return courses
+
+def scrape_summit_event_page(event_url):
+    """Visit a Summit event page and extract description text."""
+    try:
+        clean_url = event_url.split("?")[0]
+        r = requests.get(clean_url, headers=HEADERS, timeout=20)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        # Try common event description selectors
+        desc_el = (
+            soup.find("div", class_=lambda c: c and "tribe-events-single-description" in (c or "")) or
+            soup.find("div", class_=lambda c: c and "tribe-events-content" in (c or "")) or
+            soup.find("div", class_="entry-content") or
+            soup.find("div", {"itemprop": "description"})
+        )
+        if desc_el:
+            # Remove any nested script/style tags
+            for tag in desc_el.find_all(["script", "style"]):
+                tag.decompose()
+            return desc_el.get_text(separator=" ", strip=True)[:800]
+    except Exception as e:
+        log.warning(f"Could not fetch Summit event page {event_url}: {e}")
+    return ""
+
 
 # -- GOOGLE PLACES --
 
