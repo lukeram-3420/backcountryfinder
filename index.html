@@ -1183,7 +1183,7 @@ async function clearMyList(){
   setSaved([]);
   renderSaved();
 }
-function openEmailListModal(){
+async function openEmailListModal(){
   const saved=getSaved();
   if(saved.length===0)return;
   // Load saved courses from Supabase directly
