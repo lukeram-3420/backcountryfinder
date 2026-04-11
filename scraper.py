@@ -1062,7 +1062,7 @@ def get_place_details(place_id):
     return {}
 
 
-def update_provider_ratings():
+def update_provider_ratings(provider_filter='all'):
     if not GOOGLE_PLACES_API_KEY:
         log.info("No Google Places API key -- skipping ratings update")
         return
@@ -1097,7 +1097,7 @@ def main():
     log.info(f"=== BackcountryFinder scraper starting (provider={provider_filter}) ===")
 
     # Update provider ratings from Google Places
-    update_provider_ratings()
+    update_provider_ratings(provider_filter)
 
     # Load location mappings
     mappings = load_location_mappings()
