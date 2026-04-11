@@ -518,7 +518,7 @@ def scrape_cwms_course_page(course_url):
                         sm = re.search(r"(\d+)", stock_text)
                         if sm:
                             spots = int(sm.group(1))
-                            avail = "low" if spots <= 4 else "open"
+                            "critical" if spots <= 2 else "low" if spots <= 4 else "open"
 
                 btn = parent.find("button", class_="single_add_to_cart_button")
                 if btn:
@@ -754,7 +754,7 @@ def scrape_cwms_course_page(course_url):
                         sm = re.search(r"(\d+)", stock_text)
                         if sm:
                             spots = int(sm.group(1))
-                            avail = "low" if spots <= 4 else "open"
+                            "critical" if spots <= 2 else "low" if spots <= 4 else "open"
 
                 btn = parent.find("button", class_="single_add_to_cart_button")
                 if btn:
