@@ -11,7 +11,7 @@ const corsHeaders = {
 };
 
 interface Course {
-  id: number;
+  id: string;
   title: string;
   provider: string;
   badge: string;
@@ -19,25 +19,29 @@ interface Course {
   location: string;
   price: number;
   avail: string;
-  rating: string;
+  spots: number | null;
+  rating: string | number;
   url: string;
 }
 
-function availLabel(avail: string): string {
+function availLabel(avail: string, spots: number | null): string {
   if (avail === "open") return "Open";
-  if (avail === "low") return "Few spots left";
+  if (avail === "critical") return spots ? `${spots} ${spots === 1 ? "spot" : "spots"} left` : "1–2 spots left";
+  if (avail === "low") return spots ? `${spots} spots left` : "3–4 spots left";
   return "Sold out";
 }
 
 function availColor(avail: string): string {
   if (avail === "open") return "#3b6d11";
   if (avail === "low") return "#854f0b";
+  if (avail === "critical") return "#a32d2d";
   return "#a32d2d";
 }
 
 function availBg(avail: string): string {
   if (avail === "open") return "#eaf3de";
   if (avail === "low") return "#faeeda";
+  if (avail === "critical") return "#fcebeb";
   return "#fcebeb";
 }
 
@@ -74,7 +78,7 @@ function buildCourseRow(course: Course): string {
                   <tr>
                     <td style="padding-top:4px;padding-bottom:10px;">
                       <p style="margin:0;font-size:12px;color:#777777;font-family:Arial,sans-serif;line-height:1.5;">
-                        ${course.date} &nbsp;·&nbsp; ${course.location} &nbsp;·&nbsp; ${course.provider} &nbsp;·&nbsp; ★ ${course.rating}
+                        ${[course.date, course.location, course.provider, course.rating ? `★ ${course.rating}` : ""].filter(Boolean).join(" · ")}
                       </p>
                     </td>
                   </tr>
@@ -84,7 +88,7 @@ function buildCourseRow(course: Course): string {
                         <tr>
                           <td>
                             <p style="margin:0;font-size:18px;font-weight:600;color:#1a1a1a;font-family:Arial,sans-serif;">\$${course.price} <span style="font-size:11px;color:#888;font-weight:400;">CAD</span></p>
-                            <span style="font-size:10px;font-weight:500;color:${availColor(course.avail)};background:${availBg(course.avail)};padding:2px 8px;border-radius:20px;font-family:Arial,sans-serif;">${availLabel(course.avail)}</span>
+                            <span style="font-size:10px;font-weight:500;color:${availColor(course.avail)};background:${availBg(course.avail)};padding:2px 8px;border-radius:20px;font-family:Arial,sans-serif;">${availLabel(course.avail, course.spots)}</span>
                           </td>
                           <td align="right">
                             <a href="${bookUrl}" style="background:#1a2e1a;color:#ffffff;font-size:12px;font-weight:500;padding:9px 18px;border-radius:6px;text-decoration:none;font-family:Arial,sans-serif;display:inline-block;">Book Now →</a>
