@@ -206,9 +206,12 @@
   .provider-cta-btn.secondary { background: rgba(255,255,255,0.1); color: #fff; border: 1.5px solid rgba(255,255,255,0.2); }
   .provider-cta-btn:hover { opacity: 0.85; }
   .provider-cards { display: grid; grid-template-columns: repeat(auto-fill,minmax(260px,1fr)); gap: 16px; }
-  .provider-card { background: var(--bg-card); border-radius: var(--radius); border: 1px solid var(--border); padding: 22px; transition: box-shadow 0.2s; }
+  .provider-card { background: var(--bg-card); border-radius: var(--radius); border: 1px solid var(--border); overflow: hidden; transition: box-shadow 0.2s; }
+  .provider-card-logo { background: #1a2e1a; padding: 16px 22px; display: flex; align-items: center; justify-content: center; min-height: 80px; }
+  .provider-card-logo img { max-height: 48px; max-width: 100%; object-fit: contain; }
+  .provider-card-body { padding: 16px 22px 20px; }
   .provider-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.08); }
-  .provider-card-name { font-size: 15px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px; }
+  .provider-card-name { font-size: 15px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px; margin-top: 0; }
   .provider-card-loc { font-size: 12px; color: var(--text-tertiary); font-weight: 500; margin-bottom: 10px; }
   .provider-card-rating { display: block; font-size: 12px; font-weight: 600; color: var(--green-dark); margin-bottom: 6px; text-decoration: none; }
   .provider-card-tags { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -1279,7 +1282,7 @@ async function loadProviders() {
   try {
     // Fetch active providers
     const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/providers?select=id,name,website,location,rating,review_count,google_place_id&active=eq.true&order=name.asc`,
+      `${SUPABASE_URL}/rest/v1/providers?select=id,name,website,location,rating,review_count,google_place_id,logo_url&active=eq.true&order=name.asc`,
       { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
     );
     const providers = await res.json();
@@ -1319,13 +1322,19 @@ async function loadProviders() {
       const website = p.website
         ? `<a href="${p.website}" target="_blank" rel="noopener" class="provider-card-link">visit website ↗</a>`
         : '';
+      const logo = p.logo_url
+        ? `<div class="provider-card-logo"><img src="${p.logo_url}" alt="${p.name} logo" loading="lazy"></div>`
+        : `<div class="provider-card-logo" style="background:#1a2e1a;"><span style="color:#4ade80;font-weight:800;font-size:16px;letter-spacing:-0.3px;">${p.name}</span></div>`;
       return `
         <div class="provider-card">
-          <div class="provider-card-name">${p.name}</div>
-          <div class="provider-card-loc">${p.location || ''}</div>
-          ${rating}
-          ${website}
-          ${tags ? `<div class="provider-card-tags">${tags}</div>` : ''}
+          ${logo}
+          <div class="provider-card-body">
+            <div class="provider-card-name">${p.name}</div>
+            <div class="provider-card-loc">${p.location || ''}</div>
+            ${rating}
+            ${website}
+            ${tags ? `<div class="provider-card-tags">${tags}</div>` : ''}
+          </div>
         </div>`;
     }).join('');
 
