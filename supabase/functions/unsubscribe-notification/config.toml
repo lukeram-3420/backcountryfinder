@@ -1,0 +1,2 @@
+[functions.unsubscribe-notification]
+verify_jwt = false
