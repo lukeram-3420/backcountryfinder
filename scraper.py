@@ -93,6 +93,18 @@ CWMS_PROVIDERS = [
     },
 ]
 
+# Summit Mountain Guides uses The Events Calendar WordPress plugin
+SUMMIT_PROVIDERS = [
+    {
+        "id":       "summit",
+        "name":     "Summit Mountain Guides",
+        "listing_url": "https://summitmountainguides.com/upcoming-trips-courses/",
+        "base_url": "https://summitmountainguides.com",
+        "utm":      "utm_source=backcountryfinder&utm_medium=referral",
+        "months_ahead": 6,  # scrape this many months ahead
+    },
+]
+
 # Activity keyword mapping
 ACTIVITY_KEYWORDS = {
     # Order matters — checked top to bottom, first match wins
@@ -1129,6 +1141,150 @@ def get_known_locations(location_maps: dict) -> list:
     return list(set(location_maps.values()))
 
 
+
+# -- SUMMIT MOUNTAIN GUIDES (THE EVENTS CALENDAR) SCRAPER --
+
+def scrape_summit(provider):
+    """Scrape Summit Mountain Guides using The Events Calendar WordPress plugin."""
+    log.info(f"Scraping {provider['name']} -- {provider['listing_url']}")
+    courses = []
+    seen_titles_dates = set()
+
+    months_ahead = provider.get("months_ahead", 6)
+    now = datetime.utcnow()
+
+    for month_offset in range(months_ahead):
+        target = datetime(now.year + (now.month + month_offset - 1) // 12,
+                         (now.month + month_offset - 1) % 12 + 1, 1)
+        url = f"{provider['listing_url']}?tribe-bar-date={target.strftime('%Y-%m-%d')}"
+        log.info(f"Scraping Summit month: {target.strftime('%B %Y')}")
+
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=20)
+            r.raise_for_status()
+            soup = BeautifulSoup(r.text, "html.parser")
+
+            # Find all event articles
+            events = soup.select("article.type-tribe_events, div.tribe-events-calendar-list__event")
+            if not events:
+                # Fallback: find event links in list view
+                events = soup.select("h3.tribe-events-list-event-title, h2.tribe-event-url")
+
+            # Use broader selector for list view
+            event_items = soup.select("div.tribe-event-schedule-details, h3.tribe-events-list-event-title")
+
+            # Try the monthly list structure
+            articles = soup.find_all("h3", class_=lambda c: c and "tribe" in (c or ""))
+            if not articles:
+                articles = soup.find_all("h3")
+
+            # Best approach: find all event links on the page
+            event_links = soup.select("a.tribe-event-url, h3 a[href*='/events/']")
+            if not event_links:
+                event_links = soup.select("a[href*='/events/']")
+
+            processed_links = set()
+            for link in event_links:
+                href = link.get("href", "")
+                if not href or href in processed_links or "/events/" not in href:
+                    continue
+                processed_links.add(href)
+
+                # Find the parent container
+                parent = link.find_parent("article") or link.find_parent("div", class_=lambda c: c and "tribe" in (c or "")) or link.find_parent("li")
+
+                title = link.get_text(strip=True)
+                if not title or len(title) < 3:
+                    continue
+
+                # Date
+                date_display = None
+                date_sort = None
+                date_el = None
+                if parent:
+                    date_el = (parent.find("abbr", class_=lambda c: c and "tribe" in (c or "")) or
+                               parent.find("time") or
+                               parent.find(class_=lambda c: c and "date" in (c or "").lower()))
+                if date_el:
+                    date_text = date_el.get("title") or date_el.get_text(strip=True)
+                    # Parse dates like "May 16, 2026" or "2026-05-16"
+                    for fmt in ["%B %d, %Y", "%Y-%m-%d", "%b %d, %Y"]:
+                        try:
+                            dt = datetime.strptime(date_text[:20].strip(), fmt)
+                            date_sort = dt.strftime("%Y-%m-%d")
+                            date_display = dt.strftime("%B %-d, %Y")
+                            break
+                        except ValueError:
+                            continue
+
+                # Skip past events
+                if date_sort and date_sort < now.strftime("%Y-%m-%d"):
+                    continue
+
+                # Dedup by title+date
+                key = f"{title}|{date_sort}"
+                if key in seen_titles_dates:
+                    continue
+                seen_titles_dates.add(key)
+
+                # Price
+                price = None
+                if parent:
+                    price_el = parent.find(string=re.compile(r"CAD\$[\d,]+|\$[\d,]+"))
+                    if price_el:
+                        m = re.search(r"[\d,]+", price_el.replace(",", ""))
+                        if m:
+                            try:
+                                price = int(float(m.group()))
+                            except ValueError:
+                                pass
+
+                # Image
+                image_url = None
+                if parent:
+                    img = parent.find("img")
+                    if img:
+                        image_url = img.get("src") or img.get("data-src")
+
+                # Location
+                location_raw = None
+                if parent:
+                    loc_el = parent.find(class_=lambda c: c and "location" in (c or "").lower())
+                    if loc_el:
+                        location_raw = loc_el.get_text(strip=True)[:100]
+
+                # Booking URL with occurrence parameter
+                booking_url = f"{href}{'&' if '?' in href else '?'}{provider['utm']}"
+
+                courses.append({
+                    "title":         title,
+                    "provider_id":   provider["id"],
+                    "badge":         "",
+                    "activity":      "guided",
+                    "activity_raw":  "guided",
+                    "location_raw":  location_raw,
+                    "date_display":  date_display,
+                    "date_sort":     date_sort,
+                    "duration_days": None,
+                    "price":         price,
+                    "spots_remaining": None,
+                    "avail":         "open",
+                    "image_url":     image_url,
+                    "booking_url":   booking_url,
+                    "summary":       "",
+                    "description":   "",
+                    "custom_dates":  False,
+                    "scraped_at":    datetime.utcnow().isoformat(),
+                })
+
+        except Exception as e:
+            log.error(f"Failed to scrape Summit month {target.strftime('%B %Y')}: {e}")
+
+        time.sleep(1)
+
+    log.info(f"Scraped {len(courses)} courses from {provider['name']}")
+    return courses
+
 # -- GOOGLE PLACES --
 
 def find_place_id(provider_name, location):
@@ -1330,6 +1486,69 @@ def main():
 
         provider_summary.append({"name": provider["name"], "count": len(dated_processed), "ok": len(dated_processed) > 0})
         all_courses.extend(dated_processed)
+        time.sleep(2)
+
+    # Scrape Summit Mountain Guides (Events Calendar)
+    for provider in (SUMMIT_PROVIDERS if provider_filter in ("all", "summit") else []):
+        raw_courses = scrape_summit(provider)
+        processed = []
+        for c in raw_courses:
+            loc_raw = c.get("location_raw") or ""
+            if loc_raw:
+                loc_canonical, loc_is_new, loc_add_mapping = normalise_location(loc_raw, mappings)
+                if loc_add_mapping:
+                    sb_insert("location_mappings", {"location_raw": loc_raw, "location_canonical": loc_canonical})
+                    mappings[loc_raw.lower().strip()] = loc_canonical
+                if not loc_canonical:
+                    location_flags.append({"location_raw": loc_raw, "provider_id": provider["id"], "course_title": c["title"]})
+            else:
+                loc_canonical = None
+            course_id = stable_id(provider["id"], c["activity"], c.get("date_sort"), c["title"])
+            activity_canonical, act_is_new, act_add_mapping = resolve_activity(c["title"], "", activity_maps, provider["name"])
+            if act_add_mapping:
+                sb_insert("activity_mappings", {"title_contains": c["title"].lower()[:100], "activity": activity_canonical})
+                activity_maps.append((c["title"].lower()[:100], activity_canonical))
+            badge_canonical = build_badge(activity_canonical, c.get("duration_days"))
+            processed.append({
+                "id":                 course_id,
+                "title":              c["title"],
+                "provider_id":        provider["id"],
+                "badge":              badge_canonical,
+                "activity":           activity_canonical,
+                "activity_raw":       c.get("activity_raw", "guided"),
+                "activity_canonical": activity_canonical,
+                "badge_canonical":    badge_canonical,
+                "location_raw":       loc_raw or None,
+                "location_canonical": loc_canonical,
+                "date_display":       c.get("date_display"),
+                "date_sort":          c.get("date_sort"),
+                "duration_days":      c.get("duration_days"),
+                "price":              c.get("price"),
+                "spots_remaining":    c.get("spots_remaining"),
+                "avail":              c.get("avail", "open"),
+                "image_url":          c.get("image_url"),
+                "booking_url":        c.get("booking_url"),
+                "active":             True,
+                "custom_dates":       False,
+                "summary":            "",
+                "description":        c.get("description", ""),
+                "scraped_at":         c["scraped_at"],
+            })
+
+        # Batch generate summaries
+        if processed:
+            summary_inputs = [{"id": c["id"], "title": c["title"], "description": c.get("description",""), "provider": provider["name"], "activity": c.get("activity_canonical","guided")} for c in processed if c.get("description")]
+            if summary_inputs:
+                summaries = generate_summaries_batch(summary_inputs)
+                for c in processed:
+                    if c["id"] in summaries:
+                        c["summary"] = summaries[c["id"]]
+
+        for c in processed:
+            c.pop("description", None)
+
+        provider_summary.append({"name": provider["name"], "count": len(processed), "ok": len(processed) > 0})
+        all_courses.extend(processed)
         time.sleep(2)
 
     # Scrape Rezdy providers
