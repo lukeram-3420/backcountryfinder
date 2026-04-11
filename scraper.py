@@ -1226,13 +1226,16 @@ def scrape_summit(provider):
                         try:
                             start = datetime.strptime(f"{m1} {d1} {yr}", "%B %d %Y")
                             end   = datetime.strptime(f"{m2} {d2} {yr}", "%B %d %Y")
-                            duration_days = (end - start).days + 1
-                            if start.month == end.month:
-                                date_display = f"{start.strftime('%b')} {d1}–{d2}, {yr}"
-                            else:
-                                date_display = f"{start.strftime('%b')} {d1} – {end.strftime('%b')} {d2}, {yr}"
-                            if not date_sort:
-                                date_sort = start.strftime("%Y-%m-%d")
+                            # Only use range if start date matches occurrence date
+                            start_str = start.strftime("%Y-%m-%d")
+                            if not date_sort or date_sort == start_str:
+                                duration_days = (end - start).days + 1
+                                if start.month == end.month:
+                                    date_display = f"{start.strftime('%b')} {d1}–{d2}, {yr}"
+                                else:
+                                    date_display = f"{start.strftime('%b')} {d1} – {end.strftime('%b')} {d2}, {yr}"
+                                if not date_sort:
+                                    date_sort = start_str
                         except ValueError:
                             pass
                     elif same_month_match:
@@ -1240,10 +1243,12 @@ def scrape_summit(provider):
                         try:
                             start = datetime.strptime(f"{month} {d1} {yr}", "%B %d %Y")
                             end   = datetime.strptime(f"{month} {d2} {yr}", "%B %d %Y")
-                            duration_days = (end - start).days + 1
-                            date_display = f"{start.strftime('%b')} {d1}–{d2}, {yr}"
-                            if not date_sort:
-                                date_sort = start.strftime("%Y-%m-%d")
+                            start_str = start.strftime("%Y-%m-%d")
+                            if not date_sort or date_sort == start_str:
+                                duration_days = (end - start).days + 1
+                                date_display = f"{start.strftime('%b')} {d1}–{d2}, {yr}"
+                                if not date_sort:
+                                    date_sort = start_str
                         except ValueError:
                             pass
 
