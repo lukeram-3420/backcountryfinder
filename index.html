@@ -1182,6 +1182,8 @@ async function clearMyList(){
   if(!confirm('Clear your entire saved list?')) return;
   setSaved([]);
   renderSaved();
+  // Re-render cards on search page to reset cairn button states
+  if(currentCourses.length>0) renderCards(currentCourses, false);
 }
 async function openEmailListModal(){
   const saved=getSaved();
