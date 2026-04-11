@@ -1483,37 +1483,22 @@ def scrape_srg(provider):
                 # Booking URL
                 booking_url = f"{provider['booking_base']}?prg={prog_name}&progID={prog_id}&{provider['utm']}"
 
-                # Dates are on the program page
-                # The page renders dates as "Apr 19  May 17  May 31..." in a date section
-                # Find the "2026 Dates" section and parse month+day pairs
+                # Scrape dates from booking page dropdown — clean YYYY-MM-DD option values
                 date_strs = []
-                page_text = soup2.get_text(separator=" ")
-
-                # Match patterns like "Apr 19" "May 17" "Jun 14" near a year
-                # First find the year context
-                year_match = re.search(r"(20\d{2})\s+Dates", page_text)
-                year = year_match.group(1) if year_match else str(now.year)
-
-                # Find all month+day pairs in the page
-                month_day_pattern = re.compile(
-                    r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2})",
-                    re.I
-                )
-                for m in month_day_pattern.finditer(page_text):
-                    month = m.group(1)
-                    day = m.group(2).zfill(2)
-                    for yr in [year, str(now.year), str(now.year + 1)]:
-                        try:
-                            dt = datetime.strptime(f"{month} {day} {yr}", "%b %d %Y")
-                            date_str = dt.strftime("%Y-%m-%d")
-                            if date_str >= now.strftime("%Y-%m-%d"):
-                                date_strs.append(date_str)
-                                break
-                        except ValueError:
-                            continue
-
-                # Deduplicate and sort
-                date_strs = sorted(set(date_strs))
+                booking_page_url = f"{provider['booking_base']}?prg={prog_name}&progID={prog_id}"
+                try:
+                    time.sleep(0.5)
+                    r3 = requests.get(booking_page_url, headers=HEADERS, timeout=20)
+                    r3.raise_for_status()
+                    soup3 = BeautifulSoup(r3.text, "html.parser")
+                    for sel in soup3.find_all("select"):
+                        opts = [o.get("value","").strip() for o in sel.find_all("option")]
+                        iso_opts = [o for o in opts if re.match(r"20\d{2}-\d{2}-\d{2}", o)]
+                        if iso_opts:
+                            date_strs = sorted(set(iso_opts))
+                            break
+                except Exception as e:
+                    log.warning(f"Could not fetch booking page for {title}: {e}")
 
                 if not date_strs:
                     log.warning(f"No dates found for {title} — adding as flexible")
