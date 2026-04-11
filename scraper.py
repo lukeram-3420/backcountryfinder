@@ -454,9 +454,10 @@ def scrape_rezdy_page(provider: dict, url: str) -> list:
     return courses
 
 
-def scrape_cwms_course_page(course_url: str) -> list:
+def scrape_cwms_course_page(course_url):
     """
     Visit a CWMS course page and extract individual date sessions.
+    Parses quantity labels: "Course Name Month Day-Day Year quantity"
     Returns list of dicts: {date_display, date_sort, spots_remaining, avail, product_id}
     """
     sessions = []
@@ -466,82 +467,76 @@ def scrape_cwms_course_page(course_url: str) -> list:
         r.raise_for_status()
         soup = BeautifulSoup(r.text, "html.parser")
 
-        # Find all date blocks
-        date_blocks = soup.select("div.iconic-woo-bundled-product")
-        if not date_blocks:
-            # Fallback: look for quantity labels which contain full dates
-            labels = soup.select("label.screen-reader-text")
-            if not labels:
-                return []
+        # Strategy 1: find all quantity labels — most reliable
+        # Label text: "Complete Mountaineering June 1-7 2026 quantity"
+        labels = soup.find_all("label", class_="screen-reader-text")
+        date_pattern = re.compile(
+            r"(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+([\d]+(?:-[\d]+)?)\s+(20\d{2})",
+            re.I
+        )
 
-        for block in date_blocks:
+        for label in labels:
+            label_text = label.get_text(strip=True)
+            m = date_pattern.search(label_text)
+            if not m:
+                continue
+
+            month = m.group(1)
+            days  = m.group(2)
+            year  = m.group(3)
+            date_display = f"{month} {days}, {year}"
+
+            # Parse date_sort using first day
+            first_day = days.split("-")[0]
+            date_sort = None
             try:
-                # Date display — short format e.g. "2-3 May"
-                date_short_el = block.select_one("div.custom-date-month")
-                date_short = date_short_el.get_text(strip=True) if date_short_el else None
+                from datetime import datetime as dt
+                for fmt in ["%B %d %Y", "%b %d %Y"]:
+                    try:
+                        date_sort = dt.strptime(f"{month} {first_day} {year}", fmt).strftime("%Y-%m-%d")
+                        break
+                    except ValueError:
+                        continue
+            except Exception:
+                pass
 
-                # Full date from quantity label e.g. "Crevasse Rescue May 2-3 2026"
-                label_el = block.select_one("label.screen-reader-text")
-                date_full = None
-                if label_el:
-                    label_text = label_el.get_text(strip=True)
-                    # Extract "Month Day-Day Year" pattern
-                    m = re.search(r"(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+[\d\-]+\s+20\d{2}", label_text, re.I)
-                    if m:
-                        date_full = m.group(0)
+            # Find parent block for stock + product ID
+            parent = label.find_parent("div", class_=lambda c: c and "iconic-woo-bundled-product" in c)
+            spots = None
+            avail = "open"
+            product_id = None
 
-                # Stock / availability
-                spots = None
-                avail = "open"
-                stock_el = block.select_one("p.stock")
+            if parent:
+                stock_el = parent.find("p", class_="stock")
                 if stock_el:
-                    stock_text = stock_el.get_text(strip=True)
-                    if "out of stock" in stock_text.lower():
+                    stock_text = stock_el.get_text(strip=True).lower()
+                    if "out of stock" in stock_text:
                         avail = "sold"
                         spots = 0
                     else:
                         sm = re.search(r"(\d+)", stock_text)
                         if sm:
                             spots = int(sm.group(1))
-                            if spots == 0:
-                                avail = "sold"
-                            elif spots <= 4:
-                                avail = "low"
+                            avail = "low" if spots <= 4 else "open"
 
-                # Product ID for deep-link booking
-                product_id = None
-                btn = block.select_one("button.single_add_to_cart_button")
+                btn = parent.find("button", class_="single_add_to_cart_button")
                 if btn:
                     product_id = btn.get("value")
 
-                # Parse date_sort
-                date_sort = None
-                if date_full:
-                    try:
-                        # Try "Month Day-Day Year" -> use first day
-                        ds = re.sub(r"(\d+)-\d+", r"", date_full)  # "May 2-3 2026" -> "May 2 2026"
-                        from datetime import datetime as dt
-                        for fmt in ["%B %d %Y", "%b %d %Y"]:
-                            try:
-                                date_sort = dt.strptime(ds.strip(), fmt).strftime("%Y-%m-%d")
-                                break
-                            except ValueError:
-                                continue
-                    except Exception:
-                        pass
-
-                if date_short or date_full:
-                    sessions.append({
-                        "date_display": date_full or date_short,
-                        "date_sort":    date_sort,
-                        "spots_remaining": spots,
-                        "avail":        avail,
-                        "product_id":   product_id,
-                    })
-
-            except Exception as e:
-                log.warning(f"Error parsing CWMS date block: {e}")
+            # Skip past dates
+            if date_sort and date_sort < datetime.utcnow().strftime("%Y-%m-%d"):
                 continue
+
+            sessions.append({
+                "date_display": date_display,
+                "date_sort":    date_sort,
+                "spots_remaining": spots,
+                "avail":        avail,
+                "product_id":   product_id,
+            })
+
+        if sessions:
+            log.info(f"Found {len(sessions)} date sessions at {clean_url}")
 
     except Exception as e:
         log.warning(f"Could not scrape CWMS course page {course_url}: {e}")
@@ -695,9 +690,10 @@ def scrape_cwms(provider):
     return courses
 
 
-def scrape_cwms_course_page(course_url: str) -> list:
+def scrape_cwms_course_page(course_url):
     """
     Visit a CWMS course page and extract individual date sessions.
+    Parses quantity labels: "Course Name Month Day-Day Year quantity"
     Returns list of dicts: {date_display, date_sort, spots_remaining, avail, product_id}
     """
     sessions = []
@@ -707,82 +703,76 @@ def scrape_cwms_course_page(course_url: str) -> list:
         r.raise_for_status()
         soup = BeautifulSoup(r.text, "html.parser")
 
-        # Find all date blocks
-        date_blocks = soup.select("div.iconic-woo-bundled-product")
-        if not date_blocks:
-            # Fallback: look for quantity labels which contain full dates
-            labels = soup.select("label.screen-reader-text")
-            if not labels:
-                return []
+        # Strategy 1: find all quantity labels — most reliable
+        # Label text: "Complete Mountaineering June 1-7 2026 quantity"
+        labels = soup.find_all("label", class_="screen-reader-text")
+        date_pattern = re.compile(
+            r"(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+([\d]+(?:-[\d]+)?)\s+(20\d{2})",
+            re.I
+        )
 
-        for block in date_blocks:
+        for label in labels:
+            label_text = label.get_text(strip=True)
+            m = date_pattern.search(label_text)
+            if not m:
+                continue
+
+            month = m.group(1)
+            days  = m.group(2)
+            year  = m.group(3)
+            date_display = f"{month} {days}, {year}"
+
+            # Parse date_sort using first day
+            first_day = days.split("-")[0]
+            date_sort = None
             try:
-                # Date display — short format e.g. "2-3 May"
-                date_short_el = block.select_one("div.custom-date-month")
-                date_short = date_short_el.get_text(strip=True) if date_short_el else None
+                from datetime import datetime as dt
+                for fmt in ["%B %d %Y", "%b %d %Y"]:
+                    try:
+                        date_sort = dt.strptime(f"{month} {first_day} {year}", fmt).strftime("%Y-%m-%d")
+                        break
+                    except ValueError:
+                        continue
+            except Exception:
+                pass
 
-                # Full date from quantity label e.g. "Crevasse Rescue May 2-3 2026"
-                label_el = block.select_one("label.screen-reader-text")
-                date_full = None
-                if label_el:
-                    label_text = label_el.get_text(strip=True)
-                    # Extract "Month Day-Day Year" pattern
-                    m = re.search(r"(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+[\d\-]+\s+20\d{2}", label_text, re.I)
-                    if m:
-                        date_full = m.group(0)
+            # Find parent block for stock + product ID
+            parent = label.find_parent("div", class_=lambda c: c and "iconic-woo-bundled-product" in c)
+            spots = None
+            avail = "open"
+            product_id = None
 
-                # Stock / availability
-                spots = None
-                avail = "open"
-                stock_el = block.select_one("p.stock")
+            if parent:
+                stock_el = parent.find("p", class_="stock")
                 if stock_el:
-                    stock_text = stock_el.get_text(strip=True)
-                    if "out of stock" in stock_text.lower():
+                    stock_text = stock_el.get_text(strip=True).lower()
+                    if "out of stock" in stock_text:
                         avail = "sold"
                         spots = 0
                     else:
                         sm = re.search(r"(\d+)", stock_text)
                         if sm:
                             spots = int(sm.group(1))
-                            if spots == 0:
-                                avail = "sold"
-                            elif spots <= 4:
-                                avail = "low"
+                            avail = "low" if spots <= 4 else "open"
 
-                # Product ID for deep-link booking
-                product_id = None
-                btn = block.select_one("button.single_add_to_cart_button")
+                btn = parent.find("button", class_="single_add_to_cart_button")
                 if btn:
                     product_id = btn.get("value")
 
-                # Parse date_sort
-                date_sort = None
-                if date_full:
-                    try:
-                        # Try "Month Day-Day Year" -> use first day
-                        ds = re.sub(r"(\d+)-\d+", r"", date_full)  # "May 2-3 2026" -> "May 2 2026"
-                        from datetime import datetime as dt
-                        for fmt in ["%B %d %Y", "%b %d %Y"]:
-                            try:
-                                date_sort = dt.strptime(ds.strip(), fmt).strftime("%Y-%m-%d")
-                                break
-                            except ValueError:
-                                continue
-                    except Exception:
-                        pass
-
-                if date_short or date_full:
-                    sessions.append({
-                        "date_display": date_full or date_short,
-                        "date_sort":    date_sort,
-                        "spots_remaining": spots,
-                        "avail":        avail,
-                        "product_id":   product_id,
-                    })
-
-            except Exception as e:
-                log.warning(f"Error parsing CWMS date block: {e}")
+            # Skip past dates
+            if date_sort and date_sort < datetime.utcnow().strftime("%Y-%m-%d"):
                 continue
+
+            sessions.append({
+                "date_display": date_display,
+                "date_sort":    date_sort,
+                "spots_remaining": spots,
+                "avail":        avail,
+                "product_id":   product_id,
+            })
+
+        if sessions:
+            log.info(f"Found {len(sessions)} date sessions at {clean_url}")
 
     except Exception as e:
         log.warning(f"Could not scrape CWMS course page {course_url}: {e}")
