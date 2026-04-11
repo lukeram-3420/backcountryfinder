@@ -207,10 +207,10 @@
   .provider-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.08); }
   .provider-card-name { font-size: 15px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px; }
   .provider-card-loc { font-size: 12px; color: var(--text-tertiary); font-weight: 500; margin-bottom: 10px; }
-  .provider-card-rating { font-size: 12px; font-weight: 600; color: var(--green-dark); margin-bottom: 12px; }
+  .provider-card-rating { display: block; font-size: 12px; font-weight: 600; color: var(--green-dark); margin-bottom: 6px; text-decoration: none; }
   .provider-card-tags { display: flex; gap: 6px; flex-wrap: wrap; }
   .provider-tag { font-size: 10px; font-weight: 600; padding: 3px 10px; border-radius: var(--radius-pill); background: var(--green-light); color: var(--green-dark); }
-  .provider-card-link { display: inline-block; margin-bottom: 8px; font-size: 12px; font-weight: 600; color: var(--green-dark); text-decoration: none; }
+  .provider-card-link { display: block; margin-bottom: 6px; font-size: 12px; font-weight: 600; color: var(--green-dark); text-decoration: none; }
   .provider-card-link:hover { text-decoration: underline; }
 
   /* ABOUT */
@@ -1285,7 +1285,7 @@ async function loadProviders() {
         .map(a => `<span class="provider-tag">${ACTIVITY_LABELS[a] || a}</span>`)
         .join('');
       const reviewsUrl = p.google_place_id
-        ? `https://search.google.com/local/reviews?placeid=${p.google_place_id}`
+        ? `https://www.google.com/maps/search/?api=1&query=place_id:${p.google_place_id}&query_place_id=${p.google_place_id}`
         : null;
       const rating = p.rating
         ? reviewsUrl
