@@ -1219,6 +1219,7 @@ def main():
                 "price": c.get("price"), "spots_remaining": None, "avail": "open",
                 "image_url": c.get("image_url"), "booking_url": booking_url,
                 "active": active, "custom_dates": custom_dates,
+                "summary": "", "description": c.get("description", ""),
                 "scraped_at": c["scraped_at"],
             })
         # For each CWMS course, visit the page and create one row per date
@@ -1263,6 +1264,7 @@ def main():
                     "booking_url":   session_url,
                     "custom_dates":  False,
                     "active":        session.get("avail") != "sold",
+                    "description":   course.get("description", ""),
                 })
                 dated_processed.append(session_course)
 
