@@ -478,6 +478,10 @@
       <div class="saved-toolbar">
         <span class="saved-toolbar-count" id="saved-toolbar-count">0 saved</span>
         <div class="saved-toolbar-actions">
+          <button class="toolbar-btn" onclick="clearMyList()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+            clear list
+          </button>
           <button class="toolbar-btn" onclick="openEmailListModal()">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 7 10 7 10-7"/></svg>
             email my list
@@ -1174,9 +1178,25 @@ async function copyShareLink(url,btn){try{await navigator.clipboard.writeText(ur
 async function nativeShare(url,title){try{await navigator.share({title:title||'BackcountryFinder',url});}catch(e){}}
 
 // EMAIL MY LIST
+async function clearMyList(){
+  if(!confirm('Clear your entire saved list?')) return;
+  setSaved([]);
+  renderSaved();
+}
 function openEmailListModal(){
-  const saved=getSaved();const courses=currentCourses.filter(c=>saved.includes(c.id));if(courses.length===0)return;
-  document.getElementById('elm-courses-preview').innerHTML=courses.map(c=>`<div class="elm-course-line">${c.activity==='skiing'?'⛷':c.activity==='climbing'?'🧗':c.activity==='fishing'?'🎣':c.activity==='biking'?'🚵':'🏔'} ${c.title.split('—')[0].trim()} · ${c.date.split(',')[0]} · $${c.price}</div>`).join('');
+  const saved=getSaved();
+  if(saved.length===0)return;
+  // Load saved courses from Supabase directly
+  let courses=currentCourses.filter(c=>saved.includes(c.id));
+  if(courses.length===0){
+    try{
+      const ids=saved.map(id=>`id.eq.${id}`).join(',');
+      const res=await fetch(`${SUPABASE_URL}/rest/v1/courses?select=*,providers(name)&or=(${ids})`,{headers:{'apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`}});
+      courses=await res.json();
+    }catch(e){courses=[];}
+  }
+  if(courses.length===0)return;
+  document.getElementById('elm-courses-preview').innerHTML=courses.map(c=>`<div class="elm-course-line">🏔 ${c.title.split('—')[0].trim()}${c.date_display?' · '+c.date_display:''}${c.price?' · $'+c.price:''}</div>`).join('');
   document.getElementById('elm-email').value='';
   document.getElementById('elm-form-content').style.display='block';
   document.getElementById('elm-success').style.display='none';
