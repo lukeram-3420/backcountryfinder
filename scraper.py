@@ -217,7 +217,9 @@ def load_activity_mappings_table() -> list:
     """Load activity mappings from Supabase — [{title_contains, activity}]."""
     try:
         rows = sb_get("activity_mappings", {"select": "title_contains,activity"})
-        return [(r["title_contains"].lower(), r["activity"]) for r in rows]
+        # Sort by length descending — longer/more specific patterns match first
+        mappings = [(r["title_contains"].lower(), r["activity"]) for r in rows]
+        return sorted(mappings, key=lambda x: len(x[0]), reverse=True)
     except Exception as e:
         log.warning(f"Could not load activity mappings: {e}")
         return []
@@ -1806,6 +1808,353 @@ def scrape_iag_style(provider):
     log.info(f"Scraped {len(courses)} courses from {provider['name']}")
     return courses
 
+
+# -- NOTIFICATIONS --
+
+def send_course_notifications(provider_id, course_title, new_courses):
+    """
+    Check if any subscribers are waiting for this course.
+    If so, send them an email and mark notified_at.
+    """
+    try:
+        # Find unnotified subscribers for this course
+        rows = sb_get("notifications", {
+            "select": "id,email,course_title",
+            "provider_id": f"eq.{provider_id}",
+            "course_title": f"eq.{course_title}",
+            "notified_at": "is.null",
+        })
+        if not rows:
+            return
+
+        # Build date pills
+        dates = sorted(set(c["date_display"] for c in new_courses if c.get("date_display")))[:6]
+        date_pills = "".join(
+            f'<div style="display:inline-block;background:#f5f4f0;border:1px solid #e0dfda;border-radius:20px;font-size:11px;font-weight:600;color:#444;padding:4px 12px;margin:4px;">{d}</div>'
+            for d in dates
+        )
+
+        # First course for card details
+        c = new_courses[0]
+        price = f"${c['price']} <span style='font-size:11px;color:#888;font-weight:400;'>CAD</span>" if c.get("price") else ""
+        booking_url = c.get("booking_url", "https://backcountryfinder.com")
+
+        for row in rows:
+            unsub_url = f"https://owzrztaguehebkatnatc.supabase.co/functions/v1/unsubscribe-notification?id={row['id']}"
+
+            html = f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Dates just dropped — BackcountryFinder</title></head>
+<body style="margin:0;padding:0;background:#f5f4f0;font-family:Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f4f0;padding:24px 16px;">
+<tr><td align="center">
+<table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;">
+
+<tr><td style="background:#1a2e1a;border-radius:10px 10px 0 0;padding:28px 32px;text-align:center;">
+  <p style="margin:0 0 6px;font-size:24px;color:#ffffff;font-family:Georgia,serif;letter-spacing:-0.3px;">backcountry<span style="color:#7ec87e;font-style:italic;">finder</span></p>
+  <p style="margin:0;font-size:12px;color:rgba(255,255,255,0.45);">Find your course. Find your line.</p>
+</td></tr>
+
+<tr><td style="background:#fff;padding:24px 32px 8px;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#eaf3de;border:1px solid #c0dd97;border-radius:10px;padding:18px 20px;margin-bottom:20px;">
+    <tr><td>
+      <p style="margin:0 0 4px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#3b6d11;font-family:Arial,sans-serif;">Dates just dropped</p>
+      <p style="margin:0 0 4px;font-size:17px;font-weight:700;color:#1a2e1a;font-family:Arial,sans-serif;">{course_title} is now booking</p>
+      <p style="margin:0;font-size:12px;color:#639922;font-weight:600;font-family:Arial,sans-serif;">{c.get('providers', {}).get('name', '') or provider_id} &nbsp;·&nbsp; {c.get('location_canonical','')}</p>
+    </td></tr>
+  </table>
+  <p style="margin:0 0 12px;font-size:14px;color:#444;line-height:1.7;font-family:Arial,sans-serif;">You asked us to let you know when this course opened up. It just did — here are the available dates:</p>
+  <div style="margin-bottom:16px;">{date_pills}</div>
+</td></tr>
+
+<tr><td style="background:#fff;padding:0 32px 20px;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:10px;border:1px solid #e8e7e3;overflow:hidden;">
+    <tr>
+      <td width="5" style="background:#1a2e1a;">&nbsp;</td>
+      <td style="padding:14px 16px;">
+        <span style="font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.5px;color:#7ec87e;background:#1a2e1a;padding:2px 8px;border-radius:20px;font-family:Arial,sans-serif;">{c.get('badge_canonical','')}</span>
+        <p style="margin:8px 0 4px;font-size:15px;font-weight:700;color:#1a1a1a;font-family:Arial,sans-serif;">{course_title}</p>
+        <p style="margin:0 0 10px;font-size:12px;color:#777;font-family:Arial,sans-serif;">{dates[0] if dates else 'Dates available'} &nbsp;·&nbsp; {c.get('location_canonical','')}</p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #f0efeb;padding-top:10px;">
+          <tr>
+            <td><p style="margin:0;font-size:18px;font-weight:700;color:#1a1a1a;font-family:Arial,sans-serif;">{price}</p></td>
+            <td align="right"><a href="{booking_url}" style="background:#1a2e1a;color:#fff;font-size:12px;font-weight:500;padding:9px 18px;border-radius:6px;text-decoration:none;font-family:Arial,sans-serif;display:inline-block;">Book Now →</a></td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</td></tr>
+
+<tr><td style="background:#fff;padding:0 32px 24px;text-align:center;">
+  <p style="margin:0 0 12px;font-size:13px;color:#666;font-family:Arial,sans-serif;">More courses opening up all season — we'll keep an eye out for you.</p>
+  <a href="https://backcountryfinder.com" style="background:#1a2e1a;color:#fff;font-size:13px;font-weight:500;padding:11px 24px;border-radius:6px;text-decoration:none;display:inline-block;font-family:Arial,sans-serif;">browse all courses →</a>
+</td></tr>
+
+<tr><td style="background:#1a2e1a;border-radius:0 0 10px 10px;padding:20px 32px;text-align:center;">
+  <p style="margin:0 0 8px;font-size:14px;color:rgba(255,255,255,0.6);font-family:Georgia,serif;">backcountry<span style="color:#7ec87e;">finder</span></p>
+  <p style="margin:0;font-size:11px;color:rgba(255,255,255,0.3);line-height:1.8;font-family:Arial,sans-serif;">
+    <a href="https://backcountryfinder.com" style="color:rgba(255,255,255,0.45);text-decoration:none;">backcountryfinder.com</a> &nbsp;·&nbsp;
+    <a href="mailto:luke@backcountryfinder.com" style="color:rgba(255,255,255,0.45);text-decoration:none;">luke@backcountryfinder.com</a><br>
+    You're receiving this because you asked to be notified.<br>
+    <a href="{unsub_url}" style="color:rgba(255,255,255,0.35);text-decoration:none;">unsubscribe</a>
+  </p>
+</td></tr>
+
+</table>
+</td></tr>
+</table>
+</body>
+</html>"""
+
+            try:
+                resend_key = os.environ.get("RESEND_API_KEY", "")
+                res = requests.post(
+                    "https://api.resend.com/emails",
+                    headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+                    json={
+                        "from": "BackcountryFinder <luke@backcountryfinder.com>",
+                        "to": [row["email"]],
+                        "subject": f"Dates just dropped — {course_title}",
+                        "html": html.replace("{{NOTIF_ID}}", str(notif_id)),
+                    },
+                    timeout=15,
+                )
+                if res.ok:
+                    # Mark as notified
+                    sb_upsert("notifications", [{"id": row["id"], "notified_at": datetime.utcnow().isoformat()}])
+                    log.info(f"Notification sent to {row['email']} for {course_title}")
+                else:
+                    log.warning(f"Resend failed for {row['email']}: {res.text}")
+            except Exception as e:
+                log.warning(f"Failed to send notification to {row['email']}: {e}")
+
+    except Exception as e:
+        log.warning(f"Notification check failed for {course_title}: {e}")
+
+
+def check_and_notify(provider_id, processed_courses):
+    """
+    After upserting courses, check if any were previously custom_dates=True
+    and now have real dates — fire notifications for those.
+    """
+    try:
+        # Get all current custom_dates courses for this provider from Supabase
+        existing = sb_get("courses", {
+            "select": "title,custom_dates",
+            "provider_id": f"eq.{provider_id}",
+            "custom_dates": "eq.true",
+        })
+        existing_flexible = {r["title"] for r in existing}
+
+        # Find courses that now have real dates
+        newly_dated = {}
+        for c in processed_courses:
+            if not c.get("custom_dates") and c["title"] in existing_flexible:
+                if c["title"] not in newly_dated:
+                    newly_dated[c["title"]] = []
+                newly_dated[c["title"]].append(c)
+
+        for title, courses in newly_dated.items():
+            log.info(f"Course newly dated: {title} — checking notifications")
+            send_course_notifications(provider_id, title, courses)
+
+    except Exception as e:
+        log.warning(f"check_and_notify failed for {provider_id}: {e}")
+
+
+# -- NOTIFY ME: Check and send notifications when courses get dates --
+
+def check_and_notify():
+    """
+    After each scraper run, check if any courses that had no dates
+    now have real dates. If so, email subscribers and mark as notified.
+    """
+    if not RESEND_API_KEY:
+        log.warning("No RESEND_API_KEY — skipping notifications")
+        return
+
+    try:
+        # Find notifications that haven't been sent yet
+        pending = sb_get("notifications", {
+            "select": "id,email,provider_id,course_title",
+            "notified_at": "is.null"
+        })
+        if not pending:
+            log.info("No pending notifications")
+            return
+
+        log.info(f"Checking {len(pending)} pending notifications...")
+
+        # Get all currently active dated courses
+        dated_courses = sb_get("courses", {
+            "select": "title,provider_id,date_display,date_sort,price,avail,booking_url,badge_canonical,location_canonical,providers(name,rating)",
+            "active": "eq.true",
+            "custom_dates": "eq.false",
+        })
+
+        # Build lookup by (provider_id, title)
+        from collections import defaultdict
+        course_lookup = defaultdict(list)
+        for c in (dated_courses or []):
+            key = (c["provider_id"], c["title"].lower().strip())
+            course_lookup[key].append(c)
+
+        notified_ids = []
+        for notif in pending:
+            key = (notif["provider_id"], notif["course_title"].lower().strip())
+            matches = course_lookup.get(key, [])
+            if not matches:
+                continue
+
+            # Course now has dates — send notification email
+            log.info(f"Notifying {notif['email']} about {notif['course_title']}")
+            try:
+                send_notification_email(notif["email"], notif["course_title"], matches, notif["id"])
+                notified_ids.append(notif["id"])
+            except Exception as e:
+                log.error(f"Failed to send notification to {notif['email']}: {e}")
+
+        # Mark as notified
+        if notified_ids:
+            from datetime import datetime as dt
+            now_iso = dt.utcnow().isoformat()
+            for nid in notified_ids:
+                try:
+                    requests.patch(
+                        f"{SUPABASE_URL}/rest/v1/notifications?id=eq.{nid}",
+                        headers={
+                            "apikey": SUPABASE_SERVICE_KEY,
+                            "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                            "Content-Type": "application/json",
+                        },
+                        json={"notified_at": now_iso},
+                        timeout=10
+                    )
+                except Exception as e:
+                    log.error(f"Failed to mark notification {nid} as sent: {e}")
+
+            log.info(f"Sent {len(notified_ids)} notifications")
+
+    except Exception as e:
+        log.error(f"check_and_notify failed: {e}")
+
+
+def send_notification_email(email, course_title, courses, notif_id=""):
+    """Send a notification email when a course gets dates."""
+    provider_name = ""
+    if courses:
+        p = courses[0].get("providers") or {}
+        provider_name = p.get("name") if isinstance(p, dict) else courses[0].get("provider_id", "")
+
+    location = courses[0].get("location_canonical", "") if courses else ""
+    badge = courses[0].get("badge_canonical", "") if courses else ""
+    price = courses[0].get("price") if courses else None
+    booking_url = courses[0].get("booking_url", "#") if courses else "#"
+    rating = ""
+    if courses:
+        p = courses[0].get("providers") or {}
+        rating = p.get("rating", "") if isinstance(p, dict) else ""
+
+    # Date pills — up to 6
+    date_pills = "".join([
+        f'<span style="background:#f5f4f0;border:1px solid #e0dfda;border-radius:20px;font-size:11px;font-weight:600;color:#444;padding:4px 12px;margin:3px;display:inline-block;">{c["date_display"]}</span>'
+        for c in courses[:6] if c.get("date_display")
+    ])
+
+    # First course card
+    c = courses[0]
+    meta_parts = [p for p in [c.get("date_display"), location, provider_name, f"★ {rating}" if rating else ""] if p]
+    meta = " · ".join(meta_parts)
+
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f5f4f0;font-family:Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f4f0;padding:24px 16px;">
+<tr><td align="center">
+<table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;">
+
+<tr><td style="background:#1a2e1a;border-radius:10px 10px 0 0;padding:28px 32px;text-align:center;">
+  <p style="margin:0 0 4px;font-size:22px;color:#fff;font-family:Georgia,serif;letter-spacing:-0.3px;">backcountry<span style="color:#7ec87e;font-style:italic;">finder</span></p>
+  <p style="margin:0;font-size:11px;color:rgba(255,255,255,0.4);">Find your course. Find your line.</p>
+</td></tr>
+
+<tr><td style="background:#fff;padding:24px 32px 8px;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#eaf3de;border:1px solid #c0dd97;border-radius:10px;padding:18px 20px;margin-bottom:20px;">
+    <tr><td>
+      <p style="margin:0 0 4px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#3b6d11;">Dates just dropped</p>
+      <p style="margin:0 0 4px;font-size:17px;font-weight:700;color:#1a2e1a;">{course_title} is now booking</p>
+      <p style="margin:0;font-size:12px;color:#639922;font-weight:600;">{provider_name}{' · ' + location if location else ''}</p>
+    </td></tr>
+  </table>
+  <p style="margin:0 0 14px;font-size:14px;color:#444;line-height:1.7;">You asked us to let you know when this course opened up. It just did — here are the available dates:</p>
+  <div style="margin-bottom:16px;">{date_pills}</div>
+</td></tr>
+
+<tr><td style="background:#fff;padding:0 32px 12px;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#fff;border:1px solid #e8e7e3;border-radius:10px;overflow:hidden;">
+    <tr>
+      <td width="5" style="background:#1a2e1a;">&nbsp;</td>
+      <td style="padding:14px 16px;">
+        <p style="margin:0 0 6px;"><span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:#7ec87e;background:#1a2e1a;padding:2px 8px;border-radius:20px;">{badge}</span></p>
+        <p style="margin:0 0 4px;font-size:15px;font-weight:700;color:#1a1a1a;">{course_title}</p>
+        <p style="margin:0 0 10px;font-size:12px;color:#777;line-height:1.5;">{meta}</p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #f0efeb;padding-top:10px;">
+          <tr>
+            <td><p style="margin:0;font-size:18px;font-weight:700;color:#1a1a1a;">${price or '—'} <span style="font-size:11px;color:#888;font-weight:400;">CAD</span></p></td>
+            <td align="right"><a href="{booking_url}" style="background:#1a2e1a;color:#fff;font-size:12px;font-weight:500;padding:9px 18px;border-radius:6px;text-decoration:none;display:inline-block;">Book Now →</a></td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</td></tr>
+
+<tr><td style="background:#fff;padding:0 32px 24px;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#eaf3de;border:1px solid #c0dd97;border-radius:10px;padding:18px 20px;">
+    <tr><td>
+      <p style="margin:0 0 4px;font-size:14px;font-weight:700;color:#1a2e1a;">Know someone else who'd be keen?</p>
+      <p style="margin:0 0 12px;font-size:12px;color:#3b6d11;">Share this course — their list will already have it saved when they open the link.</p>
+      <a href="https://wa.me/?text={requests.utils.quote(f'Check out {course_title} — just opened for booking on BackcountryFinder: {booking_url}')}" style="background:#25D366;color:#fff;font-size:12px;font-weight:500;padding:8px 16px;border-radius:6px;text-decoration:none;display:inline-block;">Share via WhatsApp</a>
+      <p style="margin:10px 0 0;font-size:11px;color:#639922;">or just forward this email →</p>
+    </td></tr>
+  </table>
+</td></tr>
+
+<tr><td style="background:#fff;padding:0 32px;"><hr style="border:none;border-top:1px solid #f0efeb;margin:0;"></td></tr>
+<tr><td style="background:#fff;padding:20px 32px;text-align:center;">
+  <p style="margin:0 0 12px;font-size:13px;color:#666;">More courses opening up all season — we'll keep an eye out for you.</p>
+  <a href="https://backcountryfinder.com" style="background:#1a2e1a;color:#fff;font-size:13px;font-weight:500;padding:11px 24px;border-radius:6px;text-decoration:none;display:inline-block;">browse all courses →</a>
+</td></tr>
+
+<tr><td style="background:#1a2e1a;border-radius:0 0 10px 10px;padding:20px 32px;text-align:center;">
+  <p style="margin:0 0 8px;font-size:13px;color:rgba(255,255,255,0.6);font-family:Georgia,serif;">backcountry<span style="color:#7ec87e;">finder</span></p>
+  <p style="margin:0;font-size:11px;color:rgba(255,255,255,0.3);line-height:1.8;">
+    <a href="https://backcountryfinder.com" style="color:rgba(255,255,255,0.4);text-decoration:none;">backcountryfinder.com</a> &nbsp;·&nbsp;
+    <a href="mailto:luke@backcountryfinder.com" style="color:rgba(255,255,255,0.4);text-decoration:none;">luke@backcountryfinder.com</a><br>
+    You're receiving this because you asked to be notified about this course.<br>
+    <a href="https://owzrztaguehebkatnatc.supabase.co/functions/v1/unsubscribe-notification?id={{NOTIF_ID}}" style="color:rgba(255,255,255,0.35);text-decoration:none;">unsubscribe</a>
+  </p>
+</td></tr>
+
+</table></td></tr></table>
+</body></html>"""
+
+    res = requests.post(
+        "https://api.resend.com/emails",
+        headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
+        json={
+            "from": "BackcountryFinder <luke@backcountryfinder.com>",
+            "to": [email],
+            "subject": f"{course_title} just opened for booking — BackcountryFinder",
+            "html": html.replace("{{NOTIF_ID}}", str(notif_id)),
+        },
+        timeout=15
+    )
+    if not res.ok:
+        raise Exception(f"Resend error {res.status_code}: {res.text}")
+    log.info(f"Notification sent to {email} for {course_title}")
+
 # -- GOOGLE PLACES --
 
 def find_place_id(provider_name, location):
@@ -2327,6 +2676,13 @@ def main():
         deduped = list(seen.values())
         if len(deduped) < len(all_courses):
             log.warning(f"Deduplicated {len(all_courses) - len(deduped)} duplicate course IDs before upsert")
+
+        # Check for courses that flipped from flexible → dated — fire notifications
+        providers_scraped = set(c["provider_id"] for c in deduped)
+        for pid in providers_scraped:
+            provider_courses = [c for c in deduped if c["provider_id"] == pid]
+            check_and_notify(pid, provider_courses)
+
         # Strip description — it's a scrape-time field, not stored in Supabase
         for c in deduped:
             c.pop("description", None)
@@ -2344,6 +2700,7 @@ def main():
     # Send summary email
     send_scrape_summary(len(all_courses), provider_summary, len(location_flags))
 
+    check_and_notify()
     log.info("=== Scraper complete ===")
 
 
