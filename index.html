@@ -1412,12 +1412,7 @@ async function submitGetListed(){
   document.getElementById('listed-form-content').style.display='none';document.getElementById('listed-success').style.display='block';setTimeout(closeProviderModal,3500);
 }
 
-// NOTIFY
-let currentNotifyCourse='';
-function openNotifyModal(courseTitle){currentNotifyCourse=courseTitle;document.getElementById('modal-course-title').textContent=courseTitle;document.getElementById('modal-email').value='';document.getElementById('modal-form-content').style.display='block';document.getElementById('modal-success').style.display='none';document.getElementById('notify-modal').classList.add('active');}
-function closeNotifyModal(){document.getElementById('notify-modal').classList.remove('active');}
-function closeModal(e){if(e.target===document.getElementById('notify-modal'))closeNotifyModal();}
-async function submitNotify(){const email=document.getElementById('modal-email').value.trim();if(!email||!email.includes('@')){document.getElementById('modal-email').style.borderColor='#e24b4a';return;}document.getElementById('modal-email').style.borderColor='';await saveEmail(email,currentNotifyCourse,'notify_me');document.getElementById('modal-form-content').style.display='none';document.getElementById('modal-success').style.display='block';setTimeout(closeNotifyModal,2800);}
+
 
 // TOAST
 let toastTimer=null;
