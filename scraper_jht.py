@@ -89,17 +89,30 @@ def requests_retry_session(
     return session
 
 # ── Google Places ─────────────────────────────────────────────────────────────
-def find_place_id(location_str):
+def find_place_details(location_str):
     api_key = os.environ.get("GOOGLE_PLACES_API_KEY", "")
     if not api_key:
-        return None
+        return None, None, None
     city = location_str.split(",")[0].strip()
     r = requests.get(
         "https://maps.googleapis.com/maps/api/place/findplacefromtext/json",
-        params={"input": city, "inputtype": "textquery", "fields": "place_id", "key": api_key},
+        params={
+            "input": city,
+            "inputtype": "textquery",
+            "fields": "place_id,rating,user_ratings_total",
+            "key": api_key,
+        },
     )
     candidates = r.json().get("candidates", [])
-    return candidates[0]["place_id"] if candidates else None
+    if not candidates:
+        return None, None, None
+    c = candidates[0]
+    return c.get("place_id"), c.get("rating"), c.get("user_ratings_total")
+
+
+def find_place_id(location_str):
+    place_id, _, _ = find_place_details(location_str)
+    return place_id
 
 # ── Date parsing ──────────────────────────────────────────────────────────────
 def parse_dates_from_text(text):
@@ -369,7 +382,7 @@ def main():
     print(f"── {PROVIDER_NAME} scraper starting ──")
 
     # Upsert provider row
-    place_id_jasper  = find_place_id("Jasper, AB")
+    place_id_jasper, rating, review_count = find_place_details("Jasper, AB")
     place_id_mcbride = find_place_id("McBride, BC")
     print(f"Place IDs — Jasper: {place_id_jasper} | McBride: {place_id_mcbride}")
 
@@ -380,6 +393,13 @@ def main():
         "location": "Jasper, AB",
         "active":   True,
     }])
+
+    if rating:
+        sb_patch("providers", "id", PROVIDER_ID, {
+            "google_rating": rating,
+            "google_review_count": review_count,
+            "google_place_id": place_id_jasper,
+        })
 
     all_courses = []
     errors = 0
