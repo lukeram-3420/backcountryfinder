@@ -635,6 +635,7 @@ def scrape_course_page(session: requests.Session, browser, course_url: str, utm:
         time.sleep(random.uniform(0.5, 1.0))
         iframe_resp = session.get(iframe_src, timeout=20)
         iframe_resp.raise_for_status()
+        log.info(f"  iframe HTML: {iframe_resp.text[:800]}")
         iframe_soup = BeautifulSoup(iframe_resp.text, "html.parser")
 
         date_rows = iframe_soup.find_all("div", class_="row", attrs={"data-spaces": True})
