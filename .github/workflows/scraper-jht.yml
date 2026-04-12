@@ -1,0 +1,25 @@
+name: Scraper — Jasper Hikes & Tours
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 8 * * *'   # daily at 8am UTC — dates change infrequently
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4 anthropic
+      - name: Run scraper
+        run: python scraper_jht.py
+        env:
+          SUPABASE_URL:          ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY:  ${{ secrets.SUPABASE_SERVICE_KEY }}
+          RESEND_API_KEY:        ${{ secrets.RESEND_API_KEY }}
+          GOOGLE_PLACES_API_KEY: ${{ secrets.GOOGLE_PLACES_API_KEY }}
+          ANTHROPIC_API_KEY:     ${{ secrets.ANTHROPIC_API_KEY }}
