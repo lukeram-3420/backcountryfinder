@@ -2,7 +2,10 @@
 """
 BackcountryFinder — Yamnuska Mountain Adventures scraper
 Standalone scraper, runs independently of scraper.py.
-Custom WordPress site — dates scraped from radio buttons with data-spaces attribute.
+
+Platform: Custom WordPress + forms.yamnuska.com booking system.
+Dates, prices and location GUIDs are embedded in a tripDates iframe src URL.
+The iframe itself contains the date radio buttons with data-spaces availability.
 """
 
 import os
@@ -14,6 +17,7 @@ import logging
 import hashlib
 from datetime import datetime, date
 from typing import Optional
+from urllib.parse import urlparse, parse_qs
 
 import requests
 from bs4 import BeautifulSoup
@@ -113,22 +117,23 @@ PROVIDER = {
     ],
 }
 
-# Radio button name attribute → canonical location
-# Expand this as new name values are discovered in logs
-LOCATION_MAP = {
-    "date_canmore":  "Canmore, AB",
-    "date_calgary":  "Calgary, AB",
-    "date_rogers":   "Rogers Pass, BC",
-    "date_bugaboo":  "Bugaboos, BC",
-    "date_purcell":  "Purcell Mountains, BC",
-    "date_battle":   "Battle Abbey, BC",
-    "date_banff":    "Banff, AB",
-    "date_golden":   "Golden, BC",
-    "date_yoho":     "Yoho, BC",
-    "date_tonquin":  "Jasper, AB",
+# iframe src param key → canonical location raw string
+# Each course page has one location; the param key identifies it.
+# Expand as new keys are discovered in logs.
+IFRAME_LOCATION_MAP = {
+    "canmore": "Canmore, AB",
+    "calgary": "Calgary, AB",
+    "rogers":  "Rogers Pass, BC",
+    "bugaboo": "Bugaboos, BC",
+    "purcell": "Purcell Mountains, BC",
+    "battle":  "Battle Abbey, BC",
+    "banff":   "Banff, AB",
+    "golden":  "Golden, BC",
+    "yoho":    "Yoho, BC",
+    "jasper":  "Jasper, AB",
+    "tonquin": "Jasper, AB",
 }
 
-# Rotating user agents — makes requests look more like a real browser
 USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
@@ -218,18 +223,20 @@ def normalise_location(raw: str, mappings: dict) -> Optional[str]:
             return canonical
     if ANTHROPIC_API_KEY:
         known = list(set(mappings.values()))
-        result = claude_classify(f"""Normalise this location for a backcountry booking aggregator.
+        result = claude_classify(
+            f"""Normalise this location for a backcountry booking aggregator in western Canada.
 Known canonical locations: {", ".join(known)}
 Raw location: "{raw}"
 If it matches a known location, return that exact value. Otherwise suggest a clean canonical name.
-Respond with JSON only: {{"location_canonical": "value", "is_new": false}}""")
+Respond with JSON only: {{"location_canonical": "value", "is_new": false}}"""
+        )
         if result.get("location_canonical"):
             canonical = result["location_canonical"]
             log.info(f"Claude normalised '{raw}' → '{canonical}'")
             sb_insert("location_mappings", {"location_raw": raw, "location_canonical": canonical})
             mappings[key] = canonical
             return canonical
-    return raw  # fallback: use raw rather than None
+    return raw
 
 
 def resolve_activity(title: str, description: str, mappings: list) -> str:
@@ -239,11 +246,13 @@ def resolve_activity(title: str, description: str, mappings: list) -> str:
             return activity
     if ANTHROPIC_API_KEY:
         known = list(set(a for _, a in mappings))
-        result = claude_classify(f"""Classify this backcountry course activity.
+        result = claude_classify(
+            f"""Classify this backcountry course activity type.
 Known types: {", ".join(known) if known else "skiing, climbing, mountaineering, hiking, guided"}
 Title: "{title}"
 Description: "{description}"
-Respond with JSON only: {{"activity": "value", "label": "Human Label", "is_new": false}}""")
+Respond with JSON only: {{"activity": "value", "label": "Human Label", "is_new": false}}"""
+        )
         if result.get("activity"):
             activity = result["activity"]
             label = result.get("label", activity.replace("_", " ").title())
@@ -254,10 +263,10 @@ Respond with JSON only: {{"activity": "value", "label": "Human Label", "is_new":
             return activity
     # Keyword fallback
     keywords = {
-        "skiing":         ["ast", "avalanche", "backcountry ski", "splitboard", "freerider"],
+        "skiing":         ["ast", "avalanche", "backcountry ski", "splitboard", "freerider", "ski tour"],
         "climbing":       ["climb", "rock", "multi-pitch", "rappel", "trad", "sport lead", "via ferrata"],
-        "mountaineering": ["mountaineer", "alpine", "scramble", "glacier", "crevasse", "summit", "11,000"],
-        "hiking":         ["hik", "backpack", "navigation", "trek"],
+        "mountaineering": ["mountaineer", "alpine", "scramble", "glacier", "crevasse", "11,000", "alpinist"],
+        "hiking":         ["hik", "backpack", "navigation", "trek", "wapta"],
     }
     for activity, kws in keywords.items():
         if any(kw in text for kw in kws):
@@ -421,7 +430,8 @@ def update_provider_ratings():
             result = r.json().get("result", {})
             if result.get("rating"):
                 sb_upsert("providers", [{"id": p["id"], "name": p["name"], "google_place_id": pid,
-                                         "rating": result["rating"], "review_count": result.get("user_ratings_total")}])
+                                         "rating": result["rating"],
+                                         "review_count": result.get("user_ratings_total")}])
                 log.info(f"{p['name']}: ★ {result['rating']} ({result.get('user_ratings_total', 0)} reviews)")
         except Exception as e:
             log.warning(f"Place details failed: {e}")
@@ -437,8 +447,8 @@ def send_email(subject: str, html: str) -> None:
     r = requests.post(
         "https://api.resend.com/emails",
         headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
-        json={"from": f"BackcountryFinder Scraper <{FROM_EMAIL}>", "to": [NOTIFY_EMAIL],
-              "subject": subject, "html": html},
+        json={"from": f"BackcountryFinder Scraper <{FROM_EMAIL}>",
+              "to": [NOTIFY_EMAIL], "subject": subject, "html": html},
     )
     if not r.ok:
         log.error(f"Email failed: {r.status_code} {r.text}")
@@ -466,10 +476,10 @@ def send_summary(count: int, ok: bool) -> None:
     send_email(f"Yamnuska scraper — {count} courses updated", html)
 
 
-# ── FETCH WITH SESSION ──
+# ── SESSION ──
 
 def make_session() -> requests.Session:
-    """Create a session that looks like a real browser visit."""
+    """Create a requests session that looks like a real browser."""
     session = requests.Session()
     session.headers.update({
         "User-Agent":                random.choice(USER_AGENTS),
@@ -483,13 +493,11 @@ def make_session() -> requests.Session:
         "Sec-Fetch-Site":            "none",
         "Cache-Control":             "max-age=0",
     })
-    # Seed session with homepage cookies first
     try:
         log.info("Seeding session with homepage visit...")
         session.get("https://yamnuska.com/", timeout=15)
         time.sleep(random.uniform(1.5, 3.0))
-        # Also visit the avalanche page to look like a browsing user
-        session.headers.update({"Referer": "https://yamnuska.com/", "Sec-Fetch-Site": "same-origin"})
+        session.headers.update({"Sec-Fetch-Site": "same-origin"})
     except Exception as e:
         log.warning(f"Homepage seed failed: {e}")
     return session
@@ -497,161 +505,223 @@ def make_session() -> requests.Session:
 
 # ── SCRAPER ──
 
+def scrape_course_page(session: requests.Session, course_url: str, utm: str) -> list:
+    """
+    Scrape one Yamnuska course page.
+
+    Structure:
+      - Main page has <iframe data-for='tripDates' src='//yamnuska.com/tripDates.php?...'>
+      - iframe src params: location GUID (e.g. canmore=GUID), price (e.g. priceCanmore=1598)
+      - Fetching the iframe URL returns HTML with <div class="row" data-spaces="N"> radio buttons
+    """
+    results = []
+    try:
+        session.headers.update({"User-Agent": random.choice(USER_AGENTS)})
+        resp = session.get(course_url, timeout=20)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        # Title
+        h1 = soup.find("h1")
+        title = h1.get_text(strip=True) if h1 else (
+            course_url.rstrip("/").split("/")[-1].replace("-", " ").title()
+        )
+
+        # Description — first 2 substantial paragraphs from entry-content
+        description = ""
+        content = soup.find("div", class_=re.compile(r"entry-content|page-content|course-content"))
+        if content:
+            paras = []
+            for p in content.find_all("p"):
+                text = p.get_text(" ", strip=True)
+                if len(text) > 60:
+                    paras.append(text)
+                if len(paras) >= 2:
+                    break
+            description = " ".join(paras)
+
+        # OG image
+        image_url = None
+        og = soup.find("meta", property="og:image")
+        if og:
+            image_url = og.get("content")
+
+        # Find tripDates iframe
+        iframe = soup.find("iframe", attrs={"data-for": "tripDates"})
+        if not iframe:
+            log.info(f"  No tripDates iframe — flexible dates card")
+            return [{
+                "title":           title,
+                "location_raw":    PROVIDER["location"],
+                "price":           None,
+                "date_display":    "Flexible dates",
+                "date_sort":       None,
+                "spots_remaining": None,
+                "avail":           "open",
+                "booking_url":     f"{course_url}?{utm}",
+                "image_url":       image_url,
+                "description":     description,
+                "custom_dates":    True,
+            }]
+
+        # Parse iframe src for location key and price
+        iframe_src = iframe.get("src", "")
+        if iframe_src.startswith("//"):
+            iframe_src = "https:" + iframe_src
+
+        parsed = urlparse(iframe_src)
+        params = parse_qs(parsed.query)
+
+        # Find which location param has a real GUID (GUIDs are long; skip "1" placeholders)
+        location_key  = None
+        for key in IFRAME_LOCATION_MAP:
+            val = params.get(key, [""])[0]
+            if val and len(val) > 10:
+                location_key = key
+                break
+
+        if not location_key:
+            log.info(f"  No location GUID in iframe src — flexible dates card")
+            log.info(f"  iframe params: { {k: v for k, v in params.items()} }")
+            return [{
+                "title":           title,
+                "location_raw":    PROVIDER["location"],
+                "price":           None,
+                "date_display":    "Flexible dates",
+                "date_sort":       None,
+                "spots_remaining": None,
+                "avail":           "open",
+                "booking_url":     f"{course_url}?{utm}",
+                "image_url":       image_url,
+                "description":     description,
+                "custom_dates":    True,
+            }]
+
+        location_raw = IFRAME_LOCATION_MAP[location_key]
+        log.info(f"  Location: {location_key} → {location_raw}")
+
+        # Price — param is priceCanmore, priceCalgary, priceRogers etc.
+        price = None
+        price_key = f"price{location_key.title()}"
+        raw_price = params.get(price_key, params.get("priceCanmore", [""]))[0]
+        if raw_price:
+            try:
+                price = int(float(raw_price))
+            except (ValueError, TypeError):
+                pass
+        log.info(f"  Price ({price_key}): ${price}")
+
+        # Fetch the iframe to get date radio buttons
+        time.sleep(random.uniform(0.5, 1.5))
+        iframe_resp = session.get(iframe_src, timeout=20)
+        iframe_resp.raise_for_status()
+        iframe_soup = BeautifulSoup(iframe_resp.text, "html.parser")
+
+        date_rows = iframe_soup.find_all("div", class_="row", attrs={"data-spaces": True})
+
+        if not date_rows:
+            log.info(f"  No date rows in iframe — flexible dates card")
+            return [{
+                "title":           title,
+                "location_raw":    location_raw,
+                "price":           price,
+                "date_display":    "Flexible dates",
+                "date_sort":       None,
+                "spots_remaining": None,
+                "avail":           "open",
+                "booking_url":     f"{course_url}?{utm}",
+                "image_url":       image_url,
+                "description":     description,
+                "custom_dates":    True,
+            }]
+
+        open_count = sold_count = 0
+        for row in date_rows:
+            radio = row.find("input", {"type": "radio"})
+            if not radio:
+                continue
+
+            did       = radio.get("value", "")
+            date_text = row.get_text(strip=True)
+            date_sort = parse_date_sort(date_text)
+
+            if not date_sort:
+                log.warning(f"  Could not parse date: '{date_text}'")
+                continue
+            if not is_future(date_sort):
+                continue
+
+            # Spots remaining → availability (max 12)
+            spaces = int(row.get("data-spaces", 12))
+            if spaces == 0:
+                avail = "sold"
+                sold_count += 1
+            elif spaces <= 2:
+                avail = "critical"
+                open_count += 1
+            elif spaces <= 5:
+                avail = "low"
+                open_count += 1
+            else:
+                avail = "open"
+                open_count += 1
+
+            try:
+                date_display = datetime.strptime(date_sort, "%Y-%m-%d").strftime("%b %-d, %Y")
+            except Exception:
+                date_display = date_text
+
+            booking_url = (
+                f"https://forms.yamnuska.com/booking.aspx"
+                f"?DID={did}&NG=1&PRICE={price or ''}&{utm}"
+            )
+
+            results.append({
+                "title":           title,
+                "location_raw":    location_raw,
+                "price":           price,
+                "date_display":    date_display,
+                "date_sort":       date_sort,
+                "spots_remaining": spaces,
+                "avail":           avail,
+                "booking_url":     booking_url,
+                "image_url":       image_url,
+                "description":     description,
+                "custom_dates":    False,
+            })
+
+        log.info(f"  '{title}' — {open_count} open, {sold_count} sold | price=${price}")
+
+    except requests.HTTPError as e:
+        log.error(f"  HTTP {e.response.status_code} on {course_url}")
+    except Exception as e:
+        log.error(f"  Error on {course_url}: {e}")
+
+    return results
+
+
 def scrape_yamnuska(session: requests.Session) -> list:
     all_courses = []
     scraped_at  = datetime.utcnow().isoformat()
-    provider    = PROVIDER
-    utm         = provider["utm"]
-    provider_id = provider["id"]
+    utm         = PROVIDER["utm"]
+    provider_id = PROVIDER["id"]
 
-    log.info(f"=== Scraping {provider['name']} ({len(provider['courses'])} pages) ===")
+    log.info(f"=== Scraping {PROVIDER['name']} ({len(PROVIDER['courses'])} pages) ===")
 
-    for i, course_url in enumerate(provider["courses"]):
-        log.info(f"[{i+1}/{len(provider['courses'])}] {course_url}")
-        try:
-            # Rotate user agent per request
-            session.headers.update({"User-Agent": random.choice(USER_AGENTS)})
-            resp = session.get(course_url, timeout=20)
-            resp.raise_for_status()
-            soup = BeautifulSoup(resp.text, "html.parser")
-
-            # Title
-            h1 = soup.find("h1")
-            title = h1.get_text(strip=True) if h1 else (
-                course_url.rstrip("/").split("/")[-1].replace("-", " ").title()
-            )
-
-            # Price — first $ amount in page text
-            price = None
-            price_match = re.search(r"\$(\d{2,5})", resp.text)
-            if price_match:
-                price = int(price_match.group(1))
-
-            # Description — first 2 meaningful paragraphs from entry-content
-            description = ""
-            content = soup.find("div", class_=re.compile(r"entry-content|page-content|course-content"))
-            if content:
-                paras = []
-                for p in content.find_all("p"):
-                    text = p.get_text(" ", strip=True)
-                    if len(text) > 60:
-                        paras.append(text)
-                    if len(paras) >= 2:
-                        break
-                description = " ".join(paras)
-
-            # OG image
-            image_url = None
-            og_img = soup.find("meta", property="og:image")
-            if og_img:
-                image_url = og_img.get("content")
-
-            # Date radio buttons — each in <div class="row" data-spaces="N">
-            date_rows = soup.find_all("div", class_="row", attrs={"data-spaces": True})
-
-            if not date_rows:
-                log.info(f"  No dates found — adding as flexible dates card")
-                all_courses.append({
-                    "title":           title,
-                    "provider_id":     provider_id,
-                    "activity_raw":    "",
-                    "location_raw":    provider["location"],
-                    "date_display":    "Flexible dates",
-                    "date_sort":       None,
-                    "duration_days":   None,
-                    "price":           price,
-                    "spots_remaining": None,
-                    "avail":           "open",
-                    "image_url":       image_url,
-                    "booking_url":     f"{course_url}?{utm}",
-                    "description":     description,
-                    "summary":         "",
-                    "custom_dates":    True,
-                    "scraped_at":      scraped_at,
-                })
-            else:
-                open_count = sold_count = 0
-                for row in date_rows:
-                    radio = row.find("input", {"type": "radio"})
-                    if not radio:
-                        continue
-
-                    did        = radio.get("value", "")
-                    radio_name = radio.get("name", "")
-
-                    # Date text is the text node in the div
-                    date_text = row.get_text(strip=True)
-                    date_sort = parse_date_sort(date_text)
-                    if not date_sort:
-                        log.warning(f"  Could not parse date: '{date_text}'")
-                        continue
-                    if not is_future(date_sort):
-                        continue
-
-                    # Spots remaining → availability (max 12)
-                    spaces = int(row.get("data-spaces", 12))
-                    if spaces == 0:
-                        avail = "sold"
-                        sold_count += 1
-                    elif spaces <= 2:
-                        avail = "critical"
-                        open_count += 1
-                    elif spaces <= 5:
-                        avail = "low"
-                        open_count += 1
-                    else:
-                        avail = "open"
-                        open_count += 1
-
-                    # Location from radio name attribute
-                    location_raw = provider["location"]
-                    for key, loc in LOCATION_MAP.items():
-                        if key in radio_name:
-                            location_raw = loc
-                            break
-                    else:
-                        if radio_name and radio_name not in LOCATION_MAP:
-                            log.info(f"  Unknown location key '{radio_name}' — add to LOCATION_MAP")
-
-                    # Date display
-                    try:
-                        date_display = datetime.strptime(date_sort, "%Y-%m-%d").strftime("%b %-d, %Y")
-                    except Exception:
-                        date_display = date_text
-
-                    booking_url = (
-                        f"https://forms.yamnuska.com/booking.aspx"
-                        f"?DID={did}&NG=1&PRICE={price or ''}&{utm}"
-                    )
-
-                    all_courses.append({
-                        "title":           title,
-                        "provider_id":     provider_id,
-                        "activity_raw":    "",
-                        "location_raw":    location_raw,
-                        "date_display":    date_display,
-                        "date_sort":       date_sort,
-                        "duration_days":   None,
-                        "price":           price,
-                        "spots_remaining": spaces,
-                        "avail":           avail,
-                        "image_url":       image_url,
-                        "booking_url":     booking_url,
-                        "description":     description,
-                        "summary":         "",
-                        "custom_dates":    False,
-                        "scraped_at":      scraped_at,
-                    })
-
-                log.info(f"  '{title}' — {open_count} open, {sold_count} sold | price=${price}")
-
-        except requests.HTTPError as e:
-            log.error(f"  HTTP {e.response.status_code} on {course_url}")
-        except Exception as e:
-            log.error(f"  Error on {course_url}: {e}")
-
-        if i < len(provider["courses"]) - 1:
-            time.sleep(random.uniform(2, 5))
+    for i, course_url in enumerate(PROVIDER["courses"]):
+        log.info(f"[{i+1}/{len(PROVIDER['courses'])}] {course_url}")
+        entries = scrape_course_page(session, course_url, utm)
+        for entry in entries:
+            all_courses.append({
+                **entry,
+                "provider_id":   provider_id,
+                "activity_raw":  "",
+                "duration_days": None,
+                "summary":       "",
+                "scraped_at":    scraped_at,
+            })
+        if i < len(PROVIDER["courses"]) - 1:
+            time.sleep(random.uniform(2, 4))
 
     log.info(f"Total raw courses scraped: {len(all_courses)}")
     return all_courses
@@ -664,13 +734,11 @@ def main():
 
     update_provider_ratings()
 
-    # Load mappings from Supabase
-    loc_mappings      = load_location_mappings()
-    activity_maps     = load_activity_mappings()
-    activity_labels   = load_activity_labels()
+    loc_mappings    = load_location_mappings()
+    activity_maps   = load_activity_mappings()
+    activity_labels = load_activity_labels()
     log.info(f"Loaded {len(loc_mappings)} location mappings, {len(activity_maps)} activity mappings")
 
-    # Create browser-like session and scrape
     session     = make_session()
     raw_courses = scrape_yamnuska(session)
 
@@ -679,10 +747,9 @@ def main():
         send_summary(0, ok=False)
         return
 
-    # Process each raw course
     processed = []
     for c in raw_courses:
-        loc_raw      = c.get("location_raw") or PROVIDER["location"]
+        loc_raw       = c.get("location_raw") or PROVIDER["location"]
         loc_canonical = normalise_location(loc_raw, loc_mappings) or loc_raw
 
         activity_canonical = resolve_activity(c["title"], c.get("description", ""), activity_maps)
@@ -731,7 +798,7 @@ def main():
                     "activity":    c.get("activity_canonical", "guided"),
                 })
         if unique_inputs:
-            summaries       = generate_summaries_batch(unique_inputs)
+            summaries        = generate_summaries_batch(unique_inputs)
             title_to_summary = {c["title"]: summaries.get(c["id"], "") for c in unique_inputs}
             for c in processed:
                 c["summary"] = title_to_summary.get(c["title"], "")
@@ -742,14 +809,13 @@ def main():
         c.pop("description", None)
 
     # Deduplicate by ID
-    seen   = {}
+    seen = {}
     for c in processed:
         seen[c["id"]] = c
     deduped = list(seen.values())
     if len(deduped) < len(processed):
         log.warning(f"Deduplicated {len(processed) - len(deduped)} duplicate IDs")
 
-    # Upsert to Supabase
     sb_upsert("courses", deduped)
     log.info(f"Total courses upserted: {len(deduped)}")
 
