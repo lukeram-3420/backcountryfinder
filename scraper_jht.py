@@ -143,9 +143,18 @@ def parse_spots(text):
 
 
 def parse_price(text):
-    """Extract first dollar amount found, e.g. '$299' or '$349 + GST'."""
-    m = re.search(r'\$(\d+)', text)
-    return int(m.group(1)) if m else None
+    """Extract the first dollar amount over $50, e.g. '$299' or '$349 + GST'."""
+    amounts = re.findall(r'\$([0-9][0-9,]*)', text)
+    for amount in amounts:
+        value = int(amount.replace(',', ''))
+        if value > 50:
+            return value
+    return None
+
+
+def is_full(text):
+    """Detect explicit full availability language in the course text."""
+    return bool(re.search(r'\bfull\b|full!', text, re.IGNORECASE))
 
 
 def has_no_availability(text):
@@ -211,8 +220,8 @@ def scrape_page(path, default_activity, default_location):
     courses = []
     full_text = soup.get_text(separator="\n")
 
-    # Split on h2/h3 headings to get course sections
-    headings = soup.find_all(["h2", "h3"])
+    # Split on h1/h2/h3 headings to get course sections
+    headings = soup.find_all(["h1", "h2", "h3"])
     for heading in headings:
         title = heading.get_text(strip=True)
         if len(title) < 5 or title.lower() in ("rates:", "how to sign up:", "what's next?"):
@@ -237,6 +246,7 @@ def scrape_page(path, default_activity, default_location):
         price  = parse_price(section_text)
         spots  = parse_spots(section_text)
         location = resolve_location_from_text(section_text, default_location)
+        sold   = is_full(section_text)
 
         # Determine activity from title
         activity = default_activity
@@ -269,6 +279,7 @@ def scrape_page(path, default_activity, default_location):
             except Exception:
                 duration_days = None
 
+            avail = "sold" if sold else avail_value(spots)
             courses.append({
                 "id":                 course_id,
                 "provider_id":        PROVIDER_ID,
@@ -283,7 +294,7 @@ def scrape_page(path, default_activity, default_location):
                 "duration_days":      duration_days,
                 "price":              price,
                 "spots_remaining":    spots,
-                "avail":              avail_value(spots),
+                "avail":              avail,
                 "image_url":          None,
                 "booking_url":        booking_url,
                 "summary":            summary,
@@ -291,7 +302,7 @@ def scrape_page(path, default_activity, default_location):
                 "badge_canonical":    None,
                 "custom_dates":       False,
                 "scraped_at":         datetime.utcnow().isoformat(),
-                "active":             avail_value(spots) != "sold",
+                "active":             avail != "sold",
             })
             print(f"  ✓ {title} | {display} | {activity} | {location} | ${price} | {avail_value(spots)}")
 
