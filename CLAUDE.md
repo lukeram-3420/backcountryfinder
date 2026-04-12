@@ -89,3 +89,18 @@ Key Supabase tables: `courses` (listings), `activity_mappings` / `location_mappi
 ## Adding a New Provider
 
 Follow `add-provider-instructions.md` for the full onboarding process. Always reference that file when adding a provider.
+
+## Slash commands
+
+### /add-scraper
+A new standalone scraper file is about to be pasted. When I paste it:
+1. Save it as the filename specified in the file's top docstring (e.g. `scraper_bsa.py`)
+2. Confirm the filename and line count
+3. Do not run it yet
+
+### /trigger-scraper $SCRAPER_ID
+Trigger a GitHub Actions workflow via the GitHub CLI:
+```bash
+gh workflow run scraper-$SCRAPER_ID.yml --repo lukeram-3420/backcountryfinder
+gh run list --workflow=scraper-$SCRAPER_ID.yml --repo lukeram-3420/backcountryfinder --limit 3
+```
