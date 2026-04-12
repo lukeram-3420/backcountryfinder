@@ -51,6 +51,9 @@ def sb_upsert(table, rows):
         headers={**HEADERS_SB, "Prefer": "resolution=merge-duplicates"},
         json=rows,
     )
+    if not r.ok:
+        print("ERROR upserting to Supabase:", r.status_code)
+        print(r.text)
     r.raise_for_status()
 
 
@@ -235,21 +238,37 @@ def scrape_page(path, default_activity, default_location):
         for (start, end, display) in dates:
             course_id = make_id(activity, start, title)
             booking_url = f"{BOOKING_BASE}?{UTM}"
+            try:
+                duration_days = (
+                    datetime.strptime(end, "%Y-%m-%d") - datetime.strptime(start, "%Y-%m-%d")
+                ).days + 1
+            except Exception:
+                duration_days = None
 
             courses.append({
-                "id":              course_id,
-                "provider_id":     PROVIDER_ID,
-                "title":           title,
-                "activity":        activity,
-                "location":        location,
-                "start_date":      start,
-                "end_date":        end,
-                "price":           price,
-                "spots_remaining": spots,
-                "avail":           avail_value(spots),
-                "booking_url":     booking_url,
-                "summary":         summary,
-                "active":          True,
+                "id":                 course_id,
+                "provider_id":        PROVIDER_ID,
+                "title":              title,
+                "activity":           activity,
+                "activity_raw":       title,
+                "activity_canonical": activity,
+                "location_raw":       location,
+                "location_canonical": location,
+                "date_display":       display,
+                "date_sort":          start,
+                "duration_days":      duration_days,
+                "price":              price,
+                "spots_remaining":    spots,
+                "avail":              avail_value(spots),
+                "image_url":          None,
+                "booking_url":        booking_url,
+                "description":        description,
+                "summary":            summary,
+                "badge":              None,
+                "badge_canonical":    None,
+                "custom_dates":       False,
+                "scraped_at":         datetime.utcnow().isoformat(),
+                "active":             avail_value(spots) != "sold",
             })
             print(f"  ✓ {title} | {display} | {activity} | {location} | ${price} | {avail_value(spots)}")
 
