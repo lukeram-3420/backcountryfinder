@@ -597,7 +597,7 @@
 
 <!-- EMAIL MODAL -->
 <div class="email-list-modal-overlay" id="notify-modal" onclick="closeNotifyModal(event)">
-  <div class="email-list-modal elm-modal">
+  <div class="email-list-modal elm-modal" onclick="event.stopPropagation()">
     <button class="elm-close" onclick="closeNotifyModal()">×</button>
     <div id="notify-form-content">
       <div class="elm-tag">notify me</div>
@@ -605,7 +605,8 @@
       <p class="elm-sub" id="notify-course-name" style="color:#1a2e1a;font-weight:600;font-size:13px;margin-bottom:12px;"></p>
       <p class="elm-sub">We'll email you the moment this course opens bookings — no spam, one email per course.</p>
       <div class="pmodal-field"><label>your email *</label><input type="email" id="notify-email" placeholder="you@email.com"></div>
-      <button class="elm-submit" onclick="submitNotify()">notify me when it opens</button>
+      <label class="elm-optin-label"><input type="checkbox" id="notify-optin" checked> keep me updated on new courses and providers</label>
+      <button class="elm-submit" onclick="submitNotify()">notify me when it opens →</button>
     </div>
     <div id="notify-success" style="display:none;text-align:center;padding:20px 0;">
       <div style="font-size:32px;margin-bottom:12px;">🔔</div>
@@ -615,23 +616,7 @@
   </div>
 </div>
 
-<div class="email-list-modal-overlay" id="notify-modal" onclick="closeNotifyModal(event)">
-  <div class="email-list-modal elm-modal">
-    <button class="elm-close" onclick="closeNotifyModal()">×</button>
-    <div class="elm-tag">notify me</div>
-    <h3 class="elm-title">Get notified when dates drop</h3>
-    <p class="elm-subtitle" id="notify-course-name" style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;"></p>
-    <div id="notify-form-content">
-      <div class="pmodal-field"><label>your email *</label><input type="email" id="notify-email" placeholder="you@yourprovider.com"></div>
-      <button class="elm-submit" onclick="submitNotify()">notify me when dates open →</button>
-    </div>
-    <div id="notify-success" style="display:none;text-align:center;padding:20px 0;">
-      <div style="font-size:24px;margin-bottom:8px;">✓</div>
-      <div style="font-weight:700;color:#1a2e1a;margin-bottom:4px;">You're on the list</div>
-      <div style="font-size:13px;color:var(--text-secondary);">We'll email you as soon as dates are available.</div>
-    </div>
-  </div>
-</div>
+
 
 <div class="email-list-modal-overlay" id="email-list-modal" onclick="closeEmailListModal(event)">
   <div class="email-list-modal elm-modal">
