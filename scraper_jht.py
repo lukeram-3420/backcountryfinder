@@ -2,6 +2,8 @@ import os
 import re
 import hashlib
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from bs4 import BeautifulSoup
 from datetime import datetime
 from anthropic import Anthropic
@@ -64,6 +66,27 @@ def sb_patch(table, col, val, data):
         json=data,
     )
     r.raise_for_status()
+
+
+def requests_retry_session(
+    retries=3,
+    backoff_factor=0.5,
+    status_forcelist=(500, 502, 503, 504),
+    session=None,
+):
+    session = session or requests.Session()
+    retry = Retry(
+        total=retries,
+        connect=retries,
+        read=retries,
+        backoff_factor=backoff_factor,
+        status_forcelist=status_forcelist,
+        allowed_methods=["GET"],
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
 
 # ── Google Places ─────────────────────────────────────────────────────────────
 def find_place_id(location_str):
@@ -178,7 +201,8 @@ def generate_summary(title, description):
 # ── Page scraper ──────────────────────────────────────────────────────────────
 def scrape_page(path, default_activity, default_location):
     url = WEBSITE + path
-    r = requests.get(url, timeout=20)
+    session = requests_retry_session()
+    r = session.get(url, timeout=20)
     r.raise_for_status()
     soup = BeautifulSoup(r.text, "html.parser")
 
@@ -262,7 +286,6 @@ def scrape_page(path, default_activity, default_location):
                 "avail":              avail_value(spots),
                 "image_url":          None,
                 "booking_url":        booking_url,
-                "description":        description,
                 "summary":            summary,
                 "badge":              None,
                 "badge_canonical":    None,
