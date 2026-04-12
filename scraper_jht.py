@@ -65,6 +65,7 @@ def sb_patch(table, col, val, data):
         headers=HEADERS_SB,
         json=data,
     )
+    print(f"PATCH response: {r.status_code} {r.text}")
     r.raise_for_status()
 
 
