@@ -42,9 +42,16 @@ CF_HEADERS = {
     "X-On-Behalf": "Off",
 }
 
-# ── Skip categories ───────────────────────────────────────────────────────────
-# Populated after first debug run — see "Categories found" output
-SKIP_CATEGORIES: set = set()
+# ── Keep only real course categories ─────────────────────────────────────────
+KEEP_CATEGORIES = {
+    "alpine climbing",
+    "avalanche safety training",
+    "backcountry riding",
+    "backcountry skiing",
+    "hiking & trekking",
+    "ice climbing",
+    "rock climbing",
+}
 
 # ── Activity resolution ───────────────────────────────────────────────────────
 ACTIVITY_MAP = [
@@ -96,6 +103,8 @@ def sb_upsert(table, rows):
         headers=SUPABASE_HEADERS,
         json=rows
     )
+    if not r.ok:
+        print(f"  ⚠ Supabase error {r.status_code}: {r.text[:300]}")
     r.raise_for_status()
 
 # ── Google Places ─────────────────────────────────────────────────────────────
@@ -124,14 +133,9 @@ def cf_get(endpoint, params=None):
 
 def fetch_items() -> dict:
     data = cf_get("item")
-    print(f"  Raw item response keys: {list(data.keys())}")
     items = data.get("items", {})
-    print(f"  Sample item keys (first item): {list(list(items.values())[0].keys()) if items else 'none'}")
-
-    # Debug — print all unique categories so we can populate SKIP_CATEGORIES
     cats = sorted({item.get("category", "none") for item in items.values()})
     print(f"  Categories found: {cats}")
-
     return items
 
 def fetch_availability(item_ids: list, start: str, end: str) -> dict:
@@ -141,20 +145,19 @@ def fetch_availability(item_ids: list, start: str, end: str) -> dict:
         "end_date":   end,
     }
     data = cf_get("item/cal", params=params)
-    print(f"  Raw cal response keys: {list(data.keys())}")
     return data.get("items", {})
 
 # ── Stable ID ─────────────────────────────────────────────────────────────────
-def make_id(provider_id, activity, date_str, title):
+def make_id(provider_id, activity, date_sort, title):
     slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:30]
-    return f"{provider_id}-{activity}-{date_str}-{slug}"
+    return f"{provider_id}-{activity}-{date_sort}-{slug}"
 
 # ── Email summary ─────────────────────────────────────────────────────────────
 def send_summary(upserted: int, skipped: int):
     body = (
         f"<h2>Alpine Air Adventures scrape complete</h2>"
         f"<p>Upserted <strong>{upserted}</strong> course-date rows · "
-        f"skipped <strong>{skipped}</strong> (add-ons / no upcoming dates).</p>"
+        f"skipped <strong>{skipped}</strong>.</p>"
         f"<p>{datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC</p>"
     )
     requests.post(
@@ -171,29 +174,23 @@ def send_summary(upserted: int, skipped: int):
 def main():
     print("🏔 Alpine Air Adventures — Checkfront API scraper")
 
-    today    = datetime.date.today()
-    end_date = today + datetime.timedelta(days=LOOKAHEAD_DAYS)
-    start_s  = today.strftime("%Y%m%d")
-    end_s    = end_date.strftime("%Y%m%d")
-
-    place_id_cache: dict = {}
+    today      = datetime.date.today()
+    end_date   = today + datetime.timedelta(days=LOOKAHEAD_DAYS)
+    start_s    = today.strftime("%Y%m%d")
+    end_s      = end_date.strftime("%Y%m%d")
+    scraped_at = datetime.datetime.utcnow().isoformat()
 
     # 1. Fetch item catalogue
     print("  Fetching item catalogue...")
     items = fetch_items()
     print(f"  Found {len(items)} items total")
 
-    # Filter to bookable course items only
     course_items = {
         iid: item for iid, item in items.items()
-        if item.get("category", "").lower() not in SKIP_CATEGORIES
+        if item.get("category", "").lower() in KEEP_CATEGORIES
         and item.get("status", "A") == "A"
     }
-    print(f"  {len(course_items)} items after filtering")
-
-    # Debug — print all item names so we can verify what's included/excluded
-    for iid, item in course_items.items():
-        print(f"    [{item.get('category','?')}] {item.get('name','?')}")
+    print(f"  {len(course_items)} course items after filtering")
 
     # 2. Fetch availability calendar
     print(f"  Fetching availability {start_s} → {end_s}...")
@@ -201,11 +198,7 @@ def main():
     cal = fetch_availability(item_ids, start_s, end_s)
     print(f"  Calendar entries returned: {len(cal)}")
 
-    # 3. Summaries skipped for now — Anthropic API unreachable from runner
-    # Re-enable once network access confirmed or secret verified
-    summaries: dict = {}
-
-    # 4. Build rows
+    # 3. Build rows
     rows = []
     skipped = 0
 
@@ -215,25 +208,22 @@ def main():
             skipped += 1
             continue
 
-        # Price parsing — handle flat float or tiered dict
+        # Price
         price_raw = item.get("price")
         if isinstance(price_raw, dict):
             try:
-                price = float(next(iter(price_raw.values())))
+                price = int(float(next(iter(price_raw.values()))))
             except (StopIteration, ValueError):
                 price = None
         else:
             try:
-                price = float(price_raw) if price_raw else None
+                price = int(float(price_raw)) if price_raw else None
             except (ValueError, TypeError):
                 price = None
 
-        activity = resolve_activity(title)
-        location = resolve_location(title)
-
-        if location not in place_id_cache:
-            place_id_cache[location] = find_place_id(location)
-        place_id = place_id_cache[location]
+        activity    = resolve_activity(title)
+        location    = resolve_location(title)
+        category    = item.get("category", "")
 
         item_cal = cal.get(str(item_id), {})
         if not item_cal:
@@ -252,31 +242,42 @@ def main():
             except ValueError:
                 continue
 
-            course_id = make_id(PROVIDER["id"], activity, date_key, title)
-            booking_url = (
+            date_sort    = d.isoformat()
+            date_display = d.strftime("%b %-d, %Y")
+            course_id    = make_id(PROVIDER["id"], activity, date_key, title)
+            booking_url  = (
                 f"{BOOKING_URL}?item_id={item_id}&start_date={date_key}"
                 f"&utm_source=backcountryfinder&utm_medium=referral"
             )
 
             rows.append({
-                "id":              course_id,
-                "provider_id":     PROVIDER["id"],
-                "title":           title,
-                "activity":        activity,
-                "location":        location,
-                "date":            d.isoformat(),
-                "price":           price,
-                "spots_remaining": None,
-                "avail":           "open",
-                "active":          True,
-                "booking_url":     booking_url,
-                "summary":         "",
-                "place_id":        place_id,
+                "id":                course_id,
+                "provider_id":       PROVIDER["id"],
+                "title":             title,
+                "activity":          activity,
+                "activity_raw":      category,
+                "activity_canonical": activity,
+                "location_raw":      location,
+                "location_canonical": location,
+                "date_sort":         date_sort,
+                "date_display":      date_display,
+                "duration_days":     item.get("len", 1),
+                "price":             price,
+                "spots_remaining":   None,
+                "avail":             "open",
+                "active":            True,
+                "booking_url":       booking_url,
+                "summary":           "",
+                "image_url":         None,
+                "badge":             None,
+                "badge_canonical":   None,
+                "custom_dates":      False,
+                "scraped_at":        scraped_at,
             })
 
     print(f"  Built {len(rows)} course-date rows · {skipped} items skipped")
 
-    # 5. Upsert in batches of 50
+    # 4. Upsert in batches of 50
     for i in range(0, len(rows), 50):
         sb_upsert("courses", rows[i:i+50])
 
