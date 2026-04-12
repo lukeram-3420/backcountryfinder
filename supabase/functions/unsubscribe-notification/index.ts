@@ -92,7 +92,7 @@ serve(async (req) => {
 
   } catch (err) {
     return new Response(
-      htmlPage("Something went wrong", "We couldn't process your unsubscribe request. Please try again or email luke@backcountryfinder.com.", false),
+      htmlPage("Something went wrong", "We couldn't process your unsubscribe request. Please try again or email hello@backcountryfinder.com.", false),
       { status: 500, headers: { "Content-Type": "text/html" } }
     );
   }
