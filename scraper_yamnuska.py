@@ -21,6 +21,7 @@ from urllib.parse import urlparse, parse_qs
 
 import requests
 from bs4 import BeautifulSoup
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 # ── CONFIG ──
 SUPABASE_URL          = os.environ["SUPABASE_URL"]
@@ -476,59 +477,61 @@ def send_summary(count: int, ok: bool) -> None:
     send_email(f"Yamnuska scraper — {count} courses updated", html)
 
 
-# ── SESSION ──
+# ── REQUESTS SESSION (for iframe fetches only) ──
 
 def make_session() -> requests.Session:
-    """Create a requests session that looks like a real browser."""
+    """Lightweight session for fetching tripDates.php iframe URLs — plain HTML, no JS needed."""
     session = requests.Session()
     session.headers.update({
-        "User-Agent":                random.choice(USER_AGENTS),
-        "Accept":                    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language":           "en-CA,en;q=0.9",
-        "Accept-Encoding":           "gzip, deflate, br",
-        "Connection":                "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Dest":            "document",
-        "Sec-Fetch-Mode":            "navigate",
-        "Sec-Fetch-Site":            "none",
-        "Cache-Control":             "max-age=0",
+        "User-Agent":      random.choice(USER_AGENTS),
+        "Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-CA,en;q=0.9",
+        "Referer":         "https://yamnuska.com/",
     })
-    try:
-        log.info("Seeding session with homepage visit...")
-        session.get("https://yamnuska.com/", timeout=15)
-        time.sleep(random.uniform(1.5, 3.0))
-        session.headers.update({"Sec-Fetch-Site": "same-origin"})
-    except Exception as e:
-        log.warning(f"Homepage seed failed: {e}")
     return session
 
 
-# ── SCRAPER ──
+# ── PLAYWRIGHT: extract iframe src from JS-rendered main page ──
 
-def scrape_course_page(session: requests.Session, course_url: str, utm: str) -> list:
+def get_iframe_src_playwright(browser, course_url: str) -> tuple:
     """
-    Scrape one Yamnuska course page.
+    Use a headless browser to load the course page and extract:
+      - page title
+      - description text
+      - OG image URL
+      - tripDates iframe src URL
 
-    Structure:
-      - Main page has <iframe data-for='tripDates' src='//yamnuska.com/tripDates.php?...'>
-      - iframe src params: location GUID (e.g. canmore=GUID), price (e.g. priceCanmore=1598)
-      - Fetching the iframe URL returns HTML with <div class="row" data-spaces="N"> radio buttons
+    Returns (title, description, image_url, iframe_src)
+    iframe_src is None if no tripDates iframe found.
     """
-    results = []
+    title = course_url.rstrip("/").split("/")[-1].replace("-", " ").title()
+    description = ""
+    image_url   = None
+    iframe_src  = None
+
     try:
-        session.headers.update({"User-Agent": random.choice(USER_AGENTS)})
-        resp = session.get(course_url, timeout=20)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
+        page = browser.new_page()
+        page.set_extra_http_headers({"Accept-Language": "en-CA,en;q=0.9"})
+        page.goto(course_url, wait_until="domcontentloaded", timeout=30000)
 
-        # Title
+        # Wait for iframe to appear (up to 10s) — if not found, page has no dates
+        try:
+            page.wait_for_selector("iframe[data-for='tripDates']", timeout=10000)
+            iframe_el  = page.query_selector("iframe[data-for='tripDates']")
+            iframe_src = iframe_el.get_attribute("src") if iframe_el else None
+            if iframe_src and iframe_src.startswith("//"):
+                iframe_src = "https:" + iframe_src
+        except PlaywrightTimeout:
+            pass  # No iframe — course has no dates yet
+
+        # Extract title, description, image from rendered HTML
+        html  = page.content()
+        soup  = BeautifulSoup(html, "html.parser")
+
         h1 = soup.find("h1")
-        title = h1.get_text(strip=True) if h1 else (
-            course_url.rstrip("/").split("/")[-1].replace("-", " ").title()
-        )
+        if h1:
+            title = h1.get_text(strip=True)
 
-        # Description — first 2 substantial paragraphs from entry-content
-        description = ""
         content = soup.find("div", class_=re.compile(r"entry-content|page-content|course-content"))
         if content:
             paras = []
@@ -540,15 +543,36 @@ def scrape_course_page(session: requests.Session, course_url: str, utm: str) -> 
                     break
             description = " ".join(paras)
 
-        # OG image
-        image_url = None
         og = soup.find("meta", property="og:image")
         if og:
             image_url = og.get("content")
 
-        # Find tripDates iframe
-        iframe = soup.find("iframe", attrs={"data-for": "tripDates"})
-        if not iframe:
+        page.close()
+
+    except Exception as e:
+        log.error(f"  Playwright error on {course_url}: {e}")
+        try:
+            page.close()
+        except Exception:
+            pass
+
+    return title, description, image_url, iframe_src
+
+
+# ── SCRAPER ──
+
+def scrape_course_page(session: requests.Session, browser, course_url: str, utm: str) -> list:
+    """
+    Scrape one Yamnuska course page using a hybrid approach:
+      1. Playwright loads the main page (JS-rendered) → extracts iframe src
+      2. requests fetches the iframe URL (plain HTML) → parses dates + availability
+    """
+    results = []
+    try:
+        # Step 1: Playwright — get iframe src + page metadata
+        title, description, image_url, iframe_src = get_iframe_src_playwright(browser, course_url)
+
+        if not iframe_src:
             log.info(f"  No tripDates iframe — flexible dates card")
             return [{
                 "title":           title,
@@ -564,16 +588,12 @@ def scrape_course_page(session: requests.Session, course_url: str, utm: str) -> 
                 "custom_dates":    True,
             }]
 
-        # Parse iframe src for location key and price
-        iframe_src = iframe.get("src", "")
-        if iframe_src.startswith("//"):
-            iframe_src = "https:" + iframe_src
-
+        # Step 2: Parse iframe src params for location key and price
         parsed = urlparse(iframe_src)
         params = parse_qs(parsed.query)
 
         # Find which location param has a real GUID (GUIDs are long; skip "1" placeholders)
-        location_key  = None
+        location_key = None
         for key in IFRAME_LOCATION_MAP:
             val = params.get(key, [""])[0]
             if val and len(val) > 10:
@@ -600,8 +620,8 @@ def scrape_course_page(session: requests.Session, course_url: str, utm: str) -> 
         location_raw = IFRAME_LOCATION_MAP[location_key]
         log.info(f"  Location: {location_key} → {location_raw}")
 
-        # Price — param is priceCanmore, priceCalgary, priceRogers etc.
-        price = None
+        # Price from iframe src params (e.g. priceCanmore=1598)
+        price     = None
         price_key = f"price{location_key.title()}"
         raw_price = params.get(price_key, params.get("priceCanmore", [""]))[0]
         if raw_price:
@@ -611,8 +631,8 @@ def scrape_course_page(session: requests.Session, course_url: str, utm: str) -> 
                 pass
         log.info(f"  Price ({price_key}): ${price}")
 
-        # Fetch the iframe to get date radio buttons
-        time.sleep(random.uniform(0.5, 1.5))
+        # Step 3: requests — fetch the iframe (plain HTML, no JS needed)
+        time.sleep(random.uniform(0.5, 1.0))
         iframe_resp = session.get(iframe_src, timeout=20)
         iframe_resp.raise_for_status()
         iframe_soup = BeautifulSoup(iframe_resp.text, "html.parser")
@@ -693,35 +713,44 @@ def scrape_course_page(session: requests.Session, course_url: str, utm: str) -> 
         log.info(f"  '{title}' — {open_count} open, {sold_count} sold | price=${price}")
 
     except requests.HTTPError as e:
-        log.error(f"  HTTP {e.response.status_code} on {course_url}")
+        log.error(f"  HTTP {e.response.status_code} fetching iframe for {course_url}")
     except Exception as e:
         log.error(f"  Error on {course_url}: {e}")
 
     return results
 
 
-def scrape_yamnuska(session: requests.Session) -> list:
+def scrape_yamnuska() -> list:
     all_courses = []
     scraped_at  = datetime.utcnow().isoformat()
     utm         = PROVIDER["utm"]
     provider_id = PROVIDER["id"]
 
+    session = make_session()
+
     log.info(f"=== Scraping {PROVIDER['name']} ({len(PROVIDER['courses'])} pages) ===")
 
-    for i, course_url in enumerate(PROVIDER["courses"]):
-        log.info(f"[{i+1}/{len(PROVIDER['courses'])}] {course_url}")
-        entries = scrape_course_page(session, course_url, utm)
-        for entry in entries:
-            all_courses.append({
-                **entry,
-                "provider_id":   provider_id,
-                "activity_raw":  "",
-                "duration_days": None,
-                "summary":       "",
-                "scraped_at":    scraped_at,
-            })
-        if i < len(PROVIDER["courses"]) - 1:
-            time.sleep(random.uniform(2, 4))
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        log.info("Playwright browser launched")
+
+        for i, course_url in enumerate(PROVIDER["courses"]):
+            log.info(f"[{i+1}/{len(PROVIDER['courses'])}] {course_url}")
+            entries = scrape_course_page(session, browser, course_url, utm)
+            for entry in entries:
+                all_courses.append({
+                    **entry,
+                    "provider_id":   provider_id,
+                    "activity_raw":  "",
+                    "duration_days": None,
+                    "summary":       "",
+                    "scraped_at":    scraped_at,
+                })
+            if i < len(PROVIDER["courses"]) - 1:
+                time.sleep(random.uniform(1, 3))
+
+        browser.close()
+        log.info("Playwright browser closed")
 
     log.info(f"Total raw courses scraped: {len(all_courses)}")
     return all_courses
@@ -739,8 +768,7 @@ def main():
     activity_labels = load_activity_labels()
     log.info(f"Loaded {len(loc_mappings)} location mappings, {len(activity_maps)} activity mappings")
 
-    session     = make_session()
-    raw_courses = scrape_yamnuska(session)
+    raw_courses = scrape_yamnuska()
 
     if not raw_courses:
         log.warning("No courses scraped — keeping existing Supabase data")
