@@ -48,8 +48,8 @@ HEADERS = {
     )
 }
 
-# ── Manual overrides for fuzzy match misses ───────────────────────────────────
-# Checkfront title → WordPress title (exact match)
+# ── Manual fuzzy match overrides ──────────────────────────────────────────────
+# Checkfront title → WordPress title (None = no WP page, use MANUAL_OVERRIDES)
 MANUAL_MATCHES = {
     "Backcountry Skiing: Ski Touring & Splitboarding (Private)": "Ski Touring & Splitboarding: Private",
     "Backcountry Skiing: Ski Touring & Splitboarding (Spring)":  "Ski Touring & Splitboarding: Spring Rockies",
@@ -58,7 +58,21 @@ MANUAL_MATCHES = {
     "Backcountry Ski: Ski Basecamp - Women's Only":             "Ski Basecamp: Sorcerer Pass, Selkirk Mountains British Columbia",
     "Backcountry Skiing: Ski Basecamp Sorcerer Pass":           "Ski Basecamp: Sorcerer Pass, Selkirk Mountains British Columbia",
     "Alpine Climbing: Private Alpine Climbing Guide":            "Private Alpine, Customize Your Summit Experience",
-    "Backcountry Riding: Intro Backcountry Riding":             None,  # not on WordPress site
+    "Backcountry Riding: Intro Backcountry Riding":             None,
+    "Rock Climbing: Multi Pitch":                               "Multi-Pitch Rock Climbing",
+    "Rock Climbing: Rappelling":                                None,
+}
+
+# ── Manual overrides for courses with no WordPress product page ───────────────
+MANUAL_OVERRIDES = {
+    "Backcountry Riding: Intro Backcountry Riding": {
+        "price":   130,
+        "summary": "Introduction to backcountry riding in the Canadian Rockies with ACMG guides.",
+    },
+    "Rock Climbing: Rappelling": {
+        "price":   None,
+        "summary": "Learn fundamental rappelling techniques on Banff's stunning rock faces.",
+    },
 }
 
 # ── Supabase helpers ──────────────────────────────────────────────────────────
@@ -149,7 +163,6 @@ def scrape_product_page(url: str) -> str:
 # ── Haiku summaries ───────────────────────────────────────────────────────────
 def generate_summaries(items: list) -> dict:
     client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
-
     prompt = (
         "For each course below, write a single punchy 1-sentence description "
         "(≤18 words) for a backcountry adventure aggregator. "
@@ -167,7 +180,6 @@ def generate_summaries(items: list) -> dict:
             messages=[{"role": "user", "content": prompt}]
         )
         text = resp.content[0].text.strip()
-        # Strip markdown code fences if present
         text = re.sub(r"^```json\s*|\s*```$", "", text, flags=re.MULTILINE).strip()
         return json.loads(text)
     except Exception as e:
@@ -212,15 +224,14 @@ def update_provider_reviews():
 # ── Fuzzy title match ─────────────────────────────────────────────────────────
 def normalize(s: str) -> str:
     s = s.lower()
-    s = re.sub(r"^[^:]+:\s*", "", s)  # strip "Category: " prefix
+    s = re.sub(r"^[^:]+:\s*", "", s)
     s = re.sub(r"[^a-z0-9\s]", "", s)
     s = re.sub(r"\s+", " ", s).strip()
     return s
 
 def best_match(cf_title: str, wp_titles: list) -> str | None:
-    # Check manual overrides first
     if cf_title in MANUAL_MATCHES:
-        return MANUAL_MATCHES[cf_title]  # may be None (intentional skip)
+        return MANUAL_MATCHES[cf_title]
 
     cf_norm  = normalize(cf_title)
     cf_words = set(cf_norm.split())
@@ -242,12 +253,13 @@ def best_match(cf_title: str, wp_titles: list) -> str | None:
     return best_wp if best_score > 0.3 else None
 
 # ── Email summary ─────────────────────────────────────────────────────────────
-def send_summary(updated: int, no_match: int, no_price: int):
+def send_summary(updated: int, overridden: int, no_match: int, no_price: int):
     body = (
         f"<h2>Alpine Air Adventures — details scrape complete</h2>"
-        f"<p>Updated <strong>{updated}</strong> course titles · "
-        f"no match: <strong>{no_match}</strong> · "
-        f"no price: <strong>{no_price}</strong>.</p>"
+        f"<p>Updated <strong>{updated}</strong> · "
+        f"manual overrides <strong>{overridden}</strong> · "
+        f"no match <strong>{no_match}</strong> · "
+        f"no price <strong>{no_price}</strong>.</p>"
         f"<p>{datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC</p>"
     )
     requests.post(
@@ -301,11 +313,27 @@ def main():
 
     # 6. Match and patch
     print("\n  Matching and patching courses...")
-    updated  = 0
-    no_match = 0
-    no_price = 0
+    updated    = 0
+    overridden = 0
+    no_match   = 0
+    no_price   = 0
 
     for cf_title in cf_titles:
+        # Apply manual overrides first
+        if cf_title in MANUAL_OVERRIDES:
+            override = MANUAL_OVERRIDES[cf_title]
+            payload  = {k: v for k, v in override.items() if v is not None}
+            if payload:
+                sb_patch(
+                    "courses",
+                    f"provider_id=eq.{PROVIDER_ID}&title=eq.{requests.utils.quote(cf_title)}",
+                    payload
+                )
+            print(f"    ✅ Override: {cf_title} → ${override.get('price')} | {override.get('summary','')[:50]}")
+            overridden += 1
+            continue
+
+        # Fuzzy match to WordPress
         match = best_match(cf_title, list(products.keys()))
 
         if match is None and cf_title in MANUAL_MATCHES:
@@ -341,8 +369,8 @@ def main():
         updated += 1
         time.sleep(0.1)
 
-    print(f"\n  Done — updated: {updated} · no match: {no_match} · no price: {no_price}")
-    send_summary(updated, no_match, no_price)
+    print(f"\n  Done — updated: {updated} · overridden: {overridden} · no match: {no_match} · no price: {no_price}")
+    send_summary(updated, overridden, no_match, no_price)
 
 
 if __name__ == "__main__":
