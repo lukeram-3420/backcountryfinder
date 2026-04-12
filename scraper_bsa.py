@@ -143,6 +143,7 @@ def upsert_courses(rows: list[dict]):
         headers=sb_headers(),
         json=rows,
     )
+    print(r.text)
     r.raise_for_status()
     log.info(f"Upserted {len(rows)} courses")
 
