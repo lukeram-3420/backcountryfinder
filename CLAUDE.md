@@ -104,3 +104,9 @@ Trigger a GitHub Actions workflow via the GitHub CLI:
 gh workflow run scraper-$SCRAPER_ID.yml --repo lukeram-3420/backcountryfinder
 gh run list --workflow=scraper-$SCRAPER_ID.yml --repo lukeram-3420/backcountryfinder --limit 3
 ```
+## Git
+When making any file changes, always commit and push automatically using:
+```bash
+git add -A && git commit -m "<describe what changed>" && git push
+```
+Never wait for manual confirmation to commit.

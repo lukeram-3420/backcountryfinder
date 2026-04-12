@@ -228,7 +228,7 @@ DATE_PATTERN = re.compile(
     r"(✓|✗|•)?\s*"
     r"(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
     r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
-    r r"\s+(\d{1,2})(?:st|nd|rd|th)?(?:[–\-](\d{1,2}))?(?:\s*\(([^)]+)\))?",
+    r"\s+(\d{1,2})(?:st|nd|rd|th)?(?:[–\-](\d{1,2}))?(?:\s*\(([^)]+)\))?",
     re.IGNORECASE,
 )
 
