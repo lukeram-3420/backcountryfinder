@@ -33,30 +33,36 @@ NOTIFY_EMAIL   = "luke@backcountryfinder.com"
 
 LOOKAHEAD_DAYS = 180
 
-HEADERS = {
+SUPABASE_HEADERS = {
     "apikey":        SUPABASE_KEY,
     "Authorization": f"Bearer {SUPABASE_KEY}",
     "Content-Type":  "application/json",
     "Prefer":        "resolution=merge-duplicates",
 }
 
-# ── Skip categories (add-ons, food, gifts, transfers, corporate, military) ───
-SKIP_CATEGORIES = {"food", "add ons", "gift certificates", "driving tours",
-                   "calgary airport service", "jr mtn guide"}
+CF_HEADERS = {
+    "X-On-Behalf": "Off",
+}
+
+# ── Skip categories ───────────────────────────────────────────────────────────
+SKIP_CATEGORIES = {
+    "food", "add ons", "gift certificates", "driving tours",
+    "calgary airport service", "jr mtn guide",
+}
 
 # ── Activity resolution ───────────────────────────────────────────────────────
 ACTIVITY_MAP = [
-    (["ast", "avalanche", "companion rescue", "crevasse"],       "skiing"),
-    (["ice climbing"],                                            "climbing"),
-    (["rock climbing", "rappel", "rope rescue"],                  "climbing"),
+    (["ast", "avalanche", "companion rescue", "crevasse"],        "skiing"),
+    (["ice climbing"],                                             "climbing"),
+    (["rock climbing", "rappel", "rope rescue"],                   "climbing"),
     (["ski touring", "splitboard", "backcountry ski", "ski camp",
       "ski traverse", "wapta", "bow yoho", "rogers pass",
-      "spring rockies"],                                          "skiing"),
+      "spring rockies"],                                           "skiing"),
     (["mountaineering", "alpine", "athabasca", "victoria",
       "andromeda", "logan", "bugaboos", "fay", "huber",
-      "mountain skills week"],                                    "mountaineering"),
+      "mountain skills week"],                                     "mountaineering"),
     (["hiking", "trekking", "scramble", "temple", "sulphur",
-      "larch", "o'hara", "six glaciers"],                        "hiking"),
+      "larch", "o'hara", "six glaciers"],                         "hiking"),
 ]
 
 LOCATION_MAP = [
@@ -89,8 +95,11 @@ def resolve_location(title: str) -> str:
 def sb_upsert(table, rows):
     if not rows:
         return
-    r = requests.post(f"{SUPABASE_URL}/rest/v1/{table}",
-                      headers=HEADERS, json=rows)
+    r = requests.post(
+        f"{SUPABASE_URL}/rest/v1/{table}",
+        headers=SUPABASE_HEADERS,
+        json=rows
+    )
     r.raise_for_status()
 
 # ── Google Places ─────────────────────────────────────────────────────────────
@@ -106,29 +115,32 @@ def find_place_id(location: str) -> str | None:
     candidates = r.json().get("candidates", [])
     return candidates[0]["place_id"] if candidates else None
 
-# ── Checkfront API calls ──────────────────────────────────────────────────────
+# ── Checkfront API ────────────────────────────────────────────────────────────
 def cf_get(endpoint, params=None):
-    r = requests.get(f"{CF_BASE}/{endpoint}", params=params, timeout=15)
+    r = requests.get(
+        f"{CF_BASE}/{endpoint}",
+        params=params,
+        headers=CF_HEADERS,
+        timeout=15
+    )
     r.raise_for_status()
     return r.json()
 
 def fetch_items() -> dict:
-    """Returns dict of item_id → item details (name, category, stock, price)."""
     data = cf_get("item")
-    return data.get("item", {})
+    print(f"  Raw item response keys: {list(data.keys())}")
+    items = data.get("item", {})
+    print(f"  Sample item keys (first item): {list(list(items.values())[0].keys()) if items else 'none'}")
+    return items
 
-def fetch_availability(item_ids: list[str], start: str, end: str) -> dict:
-    """
-    Returns availability calendar:
-      { item_id: { "YYYYMMDD": 1, ... } }
-    1 = available on that date (public API only returns 1/absent, not exact count)
-    """
+def fetch_availability(item_ids: list, start: str, end: str) -> dict:
     params = {
         "item_id[]": item_ids,
         "start_date": start,
         "end_date":   end,
     }
     data = cf_get("item/cal", params=params)
+    print(f"  Raw cal response keys: {list(data.keys())}")
     return data.get("calendar", {})
 
 # ── Stable ID ─────────────────────────────────────────────────────────────────
@@ -137,7 +149,7 @@ def make_id(provider_id, activity, date_str, title):
     return f"{provider_id}-{activity}-{date_str}-{slug}"
 
 # ── Haiku summaries ───────────────────────────────────────────────────────────
-def generate_summaries(titles: list[str]) -> dict[str, str]:
+def generate_summaries(titles: list) -> dict:
     client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
     unique = list(dict.fromkeys(titles))
     prompt = (
@@ -183,10 +195,9 @@ def main():
     start_s  = today.strftime("%Y%m%d")
     end_s    = end_date.strftime("%Y%m%d")
 
-    # Place IDs cache per location
-    place_id_cache: dict[str, str | None] = {}
+    place_id_cache: dict = {}
 
-    # 1. Fetch full item catalogue
+    # 1. Fetch item catalogue
     print("  Fetching item catalogue...")
     items = fetch_items()
     print(f"  Found {len(items)} items total")
@@ -199,33 +210,39 @@ def main():
     }
     print(f"  {len(course_items)} items after filtering add-ons/gifts")
 
-    # 2. Fetch availability calendar for all course items
+    # 2. Fetch availability calendar
     print(f"  Fetching availability {start_s} → {end_s}...")
     item_ids = list(course_items.keys())
     cal = fetch_availability(item_ids, start_s, end_s)
+    print(f"  Calendar entries returned: {len(cal)}")
 
-    # 3. Build course-date rows
-    all_titles = [item["name"] for item in course_items.values()]
-    print(f"  Generating summaries for {len(set(all_titles))} unique titles...")
-    summaries = generate_summaries(list(set(all_titles)))
+    # 3. Generate summaries
+    all_titles = list({item["name"] for item in course_items.values() if item.get("name")})
+    print(f"  Generating summaries for {len(all_titles)} unique titles...")
+    summaries = generate_summaries(all_titles)
 
+    # 4. Build rows
     rows = []
     skipped = 0
 
     for item_id, item in course_items.items():
-        title     = item.get("name", "").strip()
+        title = item.get("name", "").strip()
         if not title:
             skipped += 1
             continue
 
-        # Price: Checkfront returns price as float in rated responses;
-        # in the unrated item list it's in item["price"] or nested
+        # Price parsing — handle flat float or tiered dict
         price_raw = item.get("price")
         if isinstance(price_raw, dict):
-            # Grab first value from price tiers
-            price = float(next(iter(price_raw.values()), 0) or 0) or None
+            try:
+                price = float(next(iter(price_raw.values())))
+            except (StopIteration, ValueError):
+                price = None
         else:
-            price = float(price_raw) if price_raw else None
+            try:
+                price = float(price_raw) if price_raw else None
+            except (ValueError, TypeError):
+                price = None
 
         activity = resolve_activity(title)
         location = resolve_location(title)
@@ -234,7 +251,6 @@ def main():
             place_id_cache[location] = find_place_id(location)
         place_id = place_id_cache[location]
 
-        # Dates available for this item
         item_cal = cal.get(str(item_id), {})
         if not item_cal:
             skipped += 1
@@ -243,16 +259,16 @@ def main():
         for date_key, available in item_cal.items():
             if not available:
                 continue
-            # date_key is YYYYMMDD
             try:
-                d = datetime.date(int(date_key[:4]),
-                                  int(date_key[4:6]),
-                                  int(date_key[6:8]))
+                d = datetime.date(
+                    int(date_key[:4]),
+                    int(date_key[4:6]),
+                    int(date_key[6:8])
+                )
             except ValueError:
                 continue
-            date_iso = d.isoformat()
-            course_id = make_id(PROVIDER["id"], activity, date_key, title)
 
+            course_id = make_id(PROVIDER["id"], activity, date_key, title)
             booking_url = (
                 f"{BOOKING_URL}?item_id={item_id}&start_date={date_key}"
                 f"&utm_source=backcountryfinder&utm_medium=referral"
@@ -264,10 +280,10 @@ def main():
                 "title":           title,
                 "activity":        activity,
                 "location":        location,
-                "date":            date_iso,
+                "date":            d.isoformat(),
                 "price":           price,
-                "spots_remaining": None,   # public API returns 1/absent, not count
-                "avail":           "open", # all returned dates are available
+                "spots_remaining": None,
+                "avail":           "open",
                 "active":          True,
                 "booking_url":     booking_url,
                 "summary":         summaries.get(title, ""),
@@ -276,7 +292,7 @@ def main():
 
     print(f"  Built {len(rows)} course-date rows · {skipped} items skipped")
 
-    # 4. Upsert in batches of 50
+    # 5. Upsert in batches of 50
     for i in range(0, len(rows), 50):
         sb_upsert("courses", rows[i:i+50])
 
