@@ -170,6 +170,104 @@ SKAHA_COURSE_PAGES = [
     {"path": "/summer-alpine/crevasse-rescue-and-glacier-travel/",                   "title": "Crevasse Rescue & Glacier Travel",                    "activity": "mountaineering"},
 ]
 
+# Yamnuska Mountain Adventures — custom WordPress + forms.yamnuska.com booking system
+# Each course is a standalone WP page; dates are radio buttons with data-spaces attribute.
+YAMNUSKA_PROVIDERS = [
+    {
+        "id":       "yamnuska",
+        "name":     "Yamnuska Mountain Adventures",
+        "base_url": "https://yamnuska.com",
+        "utm":      "utm_source=backcountryfinder&utm_medium=referral",
+        "location": "Canmore, AB",
+        "courses": [
+            # ── Avalanche ──
+            "https://yamnuska.com/avalanche-courses/ast-1/",
+            "https://yamnuska.com/avalanche-courses/avalanche-skills-training-1-for-ice-climbers/",
+            "https://yamnuska.com/avalanche-courses/ast-1-refresher/",
+            "https://yamnuska.com/avalanche-courses/ast-2/",
+            "https://yamnuska.com/avalanche-courses/ast2-rogerspass/",
+            "https://yamnuska.com/avalanche-courses/purcell-mountain-lodge-ast-2/",
+            "https://yamnuska.com/avalanche-courses/ast-2-battle-abbey-lodge/",
+            # ── Mountaineering — Beginner ──
+            "https://yamnuska.com/mountaineering/beginner-programs/mountain-scrambling/",
+            "https://yamnuska.com/mountaineering/beginner-programs/mountain-climbing-instruction/",
+            "https://yamnuska.com/mountaineering/beginner-programs/intro-mountaineering-course-canadian-rockies/",
+            "https://yamnuska.com/mountaineering/beginner-programs/womens-intro-to-mountaineering/",
+            "https://yamnuska.com/mountaineering/beginner-programs/youth-mountaineering-course/",
+            "https://yamnuska.com/mountaineering/crevasse-rescue/",
+            "https://yamnuska.com/navigation-1-back-to-basics-with-map-compass/",
+            "https://yamnuska.com/navigation-2-digital-trip-planning-electronic-navigation/",
+            "https://yamnuska.com/mountaineering/beginner-programs/wapta-icefields/",
+            # ── Mountaineering — Intermediate/Advanced ──
+            "https://yamnuska.com/mountaineering/intermediate-advanced-programs/yoho-climbing/",
+            "https://yamnuska.com/mountaineering/intermediate-advanced-programs/intro-alpine-rock-bugaboos/",
+            "https://yamnuska.com/ice-climbing/intermediate-and-advanced-programs/intro-to-alpine-rock-fairy-meadows/",
+            "https://yamnuska.com/mountaineering/intermediate-advanced-programs/alpine-iceclimbing/",
+            "https://yamnuska.com/mountaineering/intermediate-advanced-programs/castle-mountain-alpine-rock-climbing-adventure/",
+            "https://yamnuska.com/mountaineering/intermediate-advanced-programs/moraine-lake-alpine-classics/",
+            "https://yamnuska.com/mountaineering/intermediate-advanced-programs/rogers-pass-alpinist-camp/",
+            "https://yamnuska.com/mountaineering/intermediate-advanced-programs/bugaboos-climbing/",
+            "https://yamnuska.com/mountaineering/intermediate-advanced-programs/tonquin-valley-alpine-climbing/",
+            # ── 11,000ers ──
+            "https://yamnuska.com/mountaineering/canadian-rockies-11000ers1/mount-temple-11000/",
+            "https://yamnuska.com/mountaineering/canadian-rockies-11000ers1/mt-woolley-diadem/",
+            "https://yamnuska.com/mountaineering/canadian-rockies-11000ers1/mount-hector/",
+            "https://yamnuska.com/mountaineering/canadian-rockies-11000ers1/mount-athabasca/",
+            "https://yamnuska.com/mountaineering/canadian-rockies-11000ers1/mt-joffre-expedition/",
+            "https://yamnuska.com/mountaineering/canadian-rockies-11000ers1/mount-victoria/",
+            "https://yamnuska.com/mountaineering/canadian-rockies-11000ers1/mt-edith-cavell-climb/",
+            "https://yamnuska.com/mountaineering/canadian-rockies-11000ers1/climb-mount-assiniboine/",
+            "https://yamnuska.com/mountaineering/canadian-rockies-11000ers1/climb-mount-robson/",
+            # ── Fast and Light ──
+            "https://yamnuska.com/mountaineering/fast-light-series/mt-lady-macdonald-se-ridge/",
+            "https://yamnuska.com/mountaineering/fast-light-series/achilles-spire/",
+            "https://yamnuska.com/mountaineering/fast-light-series/castle-mountain/",
+            "https://yamnuska.com/mountaineering/fast-light-series/mt-victoria-south-east-ridge/",
+            "https://yamnuska.com/mountaineering/fast-light-series/mt-aberdeen/",
+            "https://yamnuska.com/mountaineering/fast-light-series/mount-andromeda/",
+            "https://yamnuska.com/mountaineering/fast-light-series/mt-stanley/",
+            "https://yamnuska.com/mountaineering/fast-light-series/mt-louis-kain-route/",
+            "https://yamnuska.com/mountaineering/fast-light-series/climb-mt-fay/",
+            "https://yamnuska.com/mountaineering/fast-light-series/mt-sir-donald-northwest-ridge-new-2014/",
+            "https://yamnuska.com/mountaineering/fast-light-series/mt-temple-east-ridge/",
+            # ── Rock ──
+            "https://yamnuska.com/rock-climbing/discover-rock-climbing/",
+            "https://yamnuska.com/rock-climbing/beginner-rock-climbing-course/",
+            "https://yamnuska.com/rock-climbing/instruction-outdoors/",
+            "https://yamnuska.com/rock-climbing/multi-pitch-climbing-course/",
+            "https://yamnuska.com/rock-climbing/trad-lessons/",
+            "https://yamnuska.com/rock-climbing/lead-climbing-essentials-from-sport-to-trad/",
+            "https://yamnuska.com/rock-climbing/rock-climbing-level-5-rock-rescue/",
+            "https://yamnuska.com/rock-climbing/multi-pitch-rock-climbing-days/",
+            "https://yamnuska.com/rock-climbing/guide-service/",
+            "https://yamnuska.com/rock-climbing/signature-series-rock-leader-with-sean-isaac/",
+            "https://yamnuska.com/rock-climbing/el-potrero-chico-rock-climbing/",
+            # ── Ski ──
+            "https://yamnuska.com/ski-mountaineering/backcountry-skiing/",
+            "https://yamnuska.com/ski-mountaineering/instructional-backcountry-skiing-boarding/womens-intro-to-backcountry-skiing-splitboarding/",
+            "https://yamnuska.com/ski-mountaineering/2-day-backcountry-freerider-camp/",
+            "https://yamnuska.com/ski-mountaineering/canadian-rockies-steep-deep-couloir-camp/",
+            "https://yamnuska.com/ski-mountaineering/rogerspass-mountain-guide/",
+            # ── Alpine School ──
+            "https://yamnuska.com/mountain-semesters/alpine-school/",
+        ],
+    },
+]
+
+# location name attribute → canonical location (expanded as new names are discovered)
+YAMNUSKA_LOCATION_MAP = {
+    "date_canmore":  "Canmore, AB",
+    "date_calgary":  "Calgary, AB",
+    "date_rogers":   "Rogers Pass, BC",
+    "date_bugaboo":  "Bugaboos, BC",
+    "date_purcell":  "Purcell Mountains, BC",
+    "date_battle":   "Battle Abbey, BC",
+    "date_banff":    "Banff, AB",
+    "date_golden":   "Golden, BC",
+    "date_yoho":     "Yoho, BC",
+    "date_tonquin":  "Jasper, AB",
+}
+
 # Activity keyword mapping
 ACTIVITY_KEYWORDS = {
     # Order matters — checked top to bottom, first match wins
@@ -524,6 +622,170 @@ def scrape_skaha() -> list:
             time.sleep(delay)
     log.info(f"Skaha total raw courses: {len(all_courses)}")
     return all_courses
+
+# ── YAMNUSKA MOUNTAIN ADVENTURES SCRAPER ──
+
+def scrape_yamnuska(provider: dict) -> list:
+    """
+    Scrape Yamnuska Mountain Adventures — custom WordPress site.
+    Each course page lists dates as radio buttons inside <div class="row" data-spaces="N">.
+    data-spaces = spots remaining (max 12). Booking URL built from DID GUID in radio value.
+    """
+    import random
+    all_courses = []
+    scraped_at  = datetime.utcnow().isoformat()
+    base_url    = provider["base_url"]
+    utm         = provider["utm"]
+    provider_id = provider["id"]
+    log.info(f"=== Scraping {provider['name']} ({len(provider['courses'])} pages) ===")
+
+    for i, course_url in enumerate(provider["courses"]):
+        log.info(f"[{i+1}/{len(provider['courses'])}] {course_url}")
+        try:
+            resp = requests.get(course_url, headers=HEADERS, timeout=20)
+            resp.raise_for_status()
+            soup = BeautifulSoup(resp.text, "html.parser")
+
+            # Title
+            h1 = soup.find("h1")
+            title = h1.get_text(strip=True) if h1 else course_url.rstrip("/").split("/")[-1].replace("-", " ").title()
+
+            # Price — first $ amount in page text
+            price = None
+            price_match = re.search(r"\$(\d{2,5})", resp.text)
+            if price_match:
+                price = int(price_match.group(1))
+
+            # Description — first 2 meaningful paragraphs from entry-content
+            description = ""
+            content = soup.find("div", class_=re.compile(r"entry-content|page-content|course-content"))
+            if content:
+                paras = []
+                for p in content.find_all("p"):
+                    text = p.get_text(" ", strip=True)
+                    if len(text) > 60:
+                        paras.append(text)
+                    if len(paras) >= 2:
+                        break
+                description = " ".join(paras)
+
+            # Image
+            image_url = None
+            og_img = soup.find("meta", property="og:image")
+            if og_img:
+                image_url = og_img.get("content")
+
+            # Date radio buttons — each in <div class="row" data-spaces="N">
+            date_rows = soup.find_all("div", class_="row", attrs={"data-spaces": True})
+
+            if not date_rows:
+                log.info(f"  No dates found — adding as flexible dates card")
+                all_courses.append({
+                    "title":           title,
+                    "provider_id":     provider_id,
+                    "activity_raw":    "",
+                    "location_raw":    provider["location"],
+                    "date_display":    "Flexible dates",
+                    "date_sort":       None,
+                    "duration_days":   None,
+                    "price":           price,
+                    "spots_remaining": None,
+                    "avail":           "open",
+                    "image_url":       image_url,
+                    "booking_url":     f"{course_url}?{utm}",
+                    "description":     description,
+                    "summary":         "",
+                    "custom_dates":    True,
+                    "scraped_at":      scraped_at,
+                })
+            else:
+                open_count = 0
+                sold_count = 0
+                for row in date_rows:
+                    radio = row.find("input", {"type": "radio"})
+                    if not radio:
+                        continue
+
+                    did = radio.get("value", "")
+                    radio_name = radio.get("name", "")
+
+                    # Date text — text node inside the div after the input
+                    date_text = row.get_text(strip=True)
+                    date_sort = parse_date_sort(date_text)
+                    if not date_sort:
+                        log.warning(f"  Could not parse date: '{date_text}'")
+                        continue
+
+                    # Skip past dates
+                    if not is_future(date_sort):
+                        continue
+
+                    # Spots remaining → availability
+                    spaces = int(row.get("data-spaces", 12))
+                    if spaces == 0:
+                        avail = "sold"
+                        sold_count += 1
+                    elif spaces <= 2:
+                        avail = "critical"
+                        open_count += 1
+                    elif spaces <= 5:
+                        avail = "low"
+                        open_count += 1
+                    else:
+                        avail = "open"
+                        open_count += 1
+
+                    # Location from radio name attribute
+                    location_raw = provider["location"]  # default
+                    for key, loc in YAMNUSKA_LOCATION_MAP.items():
+                        if key in radio_name:
+                            location_raw = loc
+                            break
+                    if radio_name and radio_name not in [k for k in YAMNUSKA_LOCATION_MAP]:
+                        log.info(f"  Unknown location key: '{radio_name}' — defaulting to {location_raw}")
+
+                    # Date display
+                    try:
+                        date_display = datetime.strptime(date_sort, "%Y-%m-%d").strftime("%b %-d, %Y")
+                    except Exception:
+                        date_display = date_text
+
+                    booking_url = (
+                        f"https://forms.yamnuska.com/booking.aspx"
+                        f"?DID={did}&NG=1&PRICE={price or ''}&{utm}"
+                    )
+
+                    all_courses.append({
+                        "title":           title,
+                        "provider_id":     provider_id,
+                        "activity_raw":    "",
+                        "location_raw":    location_raw,
+                        "date_display":    date_display,
+                        "date_sort":       date_sort,
+                        "duration_days":   None,
+                        "price":           price,
+                        "spots_remaining": spaces,
+                        "avail":           avail,
+                        "image_url":       image_url,
+                        "booking_url":     booking_url,
+                        "description":     description,
+                        "summary":         "",
+                        "custom_dates":    False,
+                        "scraped_at":      scraped_at,
+                    })
+
+                log.info(f"  '{title}' — {open_count} open, {sold_count} sold | price=${price}")
+
+        except Exception as e:
+            log.error(f"  [yamnuska] error on {course_url}: {e}")
+
+        if i < len(provider["courses"]) - 1:
+            delay = random.uniform(2, 5)
+            time.sleep(delay)
+
+    log.info(f"Yamnuska total raw courses: {len(all_courses)}")
+    return all_courses
+
 
 # ── REZDY SCRAPER ──
 
@@ -2736,6 +2998,81 @@ def main():
                 for c in processed:
                     if c["id"] in summaries:
                         c["summary"] = summaries[c["id"]]
+
+        for c in processed:
+            c.pop("description", None)
+
+        provider_summary.append({"name": provider["name"], "count": len(processed), "ok": len(processed) > 0})
+        all_courses.extend(processed)
+        time.sleep(2)
+
+    # Scrape Yamnuska Mountain Adventures
+    for provider in (YAMNUSKA_PROVIDERS if provider_filter in ("all", "yamnuska") else []):
+        raw_courses = scrape_yamnuska(provider)
+        processed = []
+        for c in raw_courses:
+            loc_raw = c.get("location_raw") or provider["location"]
+            loc_canonical, loc_is_new, loc_add_mapping = normalise_location(loc_raw, mappings)
+            if loc_add_mapping:
+                sb_insert("location_mappings", {"location_raw": loc_raw, "location_canonical": loc_canonical})
+                mappings[loc_raw.lower().strip()] = loc_canonical
+            if not loc_canonical:
+                loc_canonical = loc_raw
+                location_flags.append({"location_raw": loc_raw, "provider_id": provider["id"], "course_title": c["title"]})
+
+            activity_canonical, act_is_new, act_add_mapping = resolve_activity(c["title"], c.get("description", ""), activity_maps, provider["name"])
+            if act_add_mapping:
+                sb_insert("activity_mappings", {"title_contains": c["title"].lower()[:100], "activity": activity_canonical})
+                activity_maps.append((c["title"].lower()[:100], activity_canonical))
+
+            badge_canonical = build_badge(activity_canonical, c.get("duration_days"))
+            course_id = stable_id(provider["id"], activity_canonical, c.get("date_sort"), c["title"])
+
+            processed.append({
+                "id":                 course_id,
+                "title":              c["title"],
+                "provider_id":        provider["id"],
+                "badge":              badge_canonical,
+                "activity":           activity_canonical,
+                "activity_raw":       c.get("activity_raw", ""),
+                "activity_canonical": activity_canonical,
+                "badge_canonical":    badge_canonical,
+                "location_raw":       loc_raw,
+                "location_canonical": loc_canonical,
+                "date_display":       c.get("date_display"),
+                "date_sort":          c.get("date_sort"),
+                "duration_days":      c.get("duration_days"),
+                "price":              c.get("price"),
+                "spots_remaining":    c.get("spots_remaining"),
+                "avail":              c.get("avail", "open"),
+                "image_url":          c.get("image_url"),
+                "booking_url":        c.get("booking_url"),
+                "active":             c.get("avail") != "sold",
+                "custom_dates":       c.get("custom_dates", False),
+                "summary":            "",
+                "description":        c.get("description", ""),
+                "scraped_at":         c["scraped_at"],
+            })
+
+        # Batch summaries — deduplicate by title
+        if processed:
+            log.info(f"Generating summaries for {provider['name']}...")
+            seen_titles = {}
+            unique_inputs = []
+            for c in processed:
+                if c.get("description") and c["title"] not in seen_titles:
+                    seen_titles[c["title"]] = c["id"]
+                    unique_inputs.append({
+                        "id": c["id"], "title": c["title"],
+                        "description": c.get("description", ""),
+                        "provider": provider["name"],
+                        "activity": c.get("activity_canonical", "guided"),
+                    })
+            if unique_inputs:
+                summaries = generate_summaries_batch(unique_inputs)
+                title_to_summary = {c["title"]: summaries.get(c["id"], "") for c in unique_inputs}
+                for c in processed:
+                    c["summary"] = title_to_summary.get(c["title"], "")
 
         for c in processed:
             c.pop("description", None)
