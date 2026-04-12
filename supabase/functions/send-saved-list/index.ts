@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-const FROM_EMAIL = "luke@backcountryfinder.com";
+const FROM_EMAIL = "hello@backcountryfinder.com";
 const SITE_URL = "https://backcountryfinder.com";
 
 const corsHeaders = {
@@ -199,7 +199,7 @@ function buildEmail(courses: Course[], sharedIds: string): string {
               <p style="margin:0 0 8px;font-size:14px;color:rgba(255,255,255,0.6);font-family:Georgia,serif;">backcountry<span style="color:#7ec87e;">finder</span></p>
               <p style="margin:0;font-size:11px;color:rgba(255,255,255,0.3);line-height:1.8;">
                 <a href="${SITE_URL}" style="color:rgba(255,255,255,0.45);text-decoration:none;">backcountryfinder.com</a> &nbsp;·&nbsp;
-                <a href="mailto:luke@backcountryfinder.com" style="color:rgba(255,255,255,0.45);text-decoration:none;">luke@backcountryfinder.com</a>
+                <a href="mailto:hello@backcountryfinder.com" style="color:rgba(255,255,255,0.45);text-decoration:none;">hello@backcountryfinder.com</a>
                 <br>You received this because you requested your saved list.
                 <br><a href="#" style="color:rgba(255,255,255,0.35);text-decoration:none;">unsubscribe</a>
               </p>
