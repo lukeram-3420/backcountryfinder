@@ -129,7 +129,7 @@ def cf_get(endpoint, params=None):
 def fetch_items() -> dict:
     data = cf_get("item")
     print(f"  Raw item response keys: {list(data.keys())}")
-    items = data.get("item", {})
+    items = data.get("items", {})
     print(f"  Sample item keys (first item): {list(list(items.values())[0].keys()) if items else 'none'}")
     return items
 
@@ -141,7 +141,7 @@ def fetch_availability(item_ids: list, start: str, end: str) -> dict:
     }
     data = cf_get("item/cal", params=params)
     print(f"  Raw cal response keys: {list(data.keys())}")
-    return data.get("calendar", {})
+    return data.get("items", {})
 
 # ── Stable ID ─────────────────────────────────────────────────────────────────
 def make_id(provider_id, activity, date_str, title):
