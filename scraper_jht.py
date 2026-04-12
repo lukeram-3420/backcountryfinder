@@ -87,8 +87,8 @@ def parse_dates_from_text(text):
     results = []
     # Pattern: Month. D-Dth or Month D-D
     pattern = re.compile(
-        r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?
-        \s+'
+        r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?' \
+        r'\s+' \
         r'(\d{1,2})[-–](\d{1,2})(?:st|nd|rd|th)?',
         re.IGNORECASE,
     )
