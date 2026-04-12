@@ -143,13 +143,43 @@ def parse_spots(text):
 
 
 def parse_price(text):
-    """Extract the first dollar amount over $50, e.g. '$299' or '$349 + GST'."""
+    """Extract the first dollar amount over $20, e.g. '$299' or '$349 + GST'."""
     amounts = re.findall(r'\$([0-9][0-9,]*)', text)
     for amount in amounts:
         value = int(amount.replace(',', ''))
-        if value > 50:
+        if value > 20:
             return value
     return None
+
+
+def clean_title(title):
+    title = title.strip()
+    title = re.sub(
+        r'^(?:[A-Za-z]{3}\.\s*\d{1,2}(?:[-–]\d{1,2})(?:st|nd|rd|th)?(?:,\s*\d{4})?:\s*)',
+        '',
+        title,
+        flags=re.IGNORECASE,
+    )
+    title = re.sub(r':\s*$', '', title).strip()
+    return title
+
+
+def is_body_heading(title):
+    t = title.strip().lower()
+    if not t:
+        return True
+    body_prefixes = (
+        'this is', 'join us', 'for a limited', 'for a limited time',
+        'group sizes', 'group size', 'we do', 'you provide', 'we provide',
+        'why choose us', 'private rates', 'group rates', 'rates:',
+        'current events:', 'important notes:', 'frequently asked questions',
+        'available', 'explore the', 'ski among', 'available 2026',
+    )
+    if t.startswith(body_prefixes):
+        return True
+    if 'current availability' in t or 'rates:' in t or '©2025' in t:
+        return True
+    return False
 
 
 def is_full(text):
@@ -222,17 +252,28 @@ def scrape_page(path, default_activity, default_location):
 
     # Split on h1/h2/h3 headings to get course sections
     headings = soup.find_all(["h1", "h2", "h3"])
+    sections = []
     for heading in headings:
-        title = heading.get_text(strip=True)
-        if len(title) < 5 or title.lower() in ("rates:", "how to sign up:", "what's next?"):
+        raw_title = heading.get_text(strip=True)
+        if len(raw_title) < 5 or raw_title.lower() in ("rates:", "how to sign up:", "what's next?"):
             continue
 
-        # Gather text from siblings until next heading
-        section_text = title + "\n"
+        section_text = raw_title + "\n"
         for sib in heading.find_next_siblings():
-            if sib.name in ("h2", "h3"):
+            if sib.name in ("h1", "h2", "h3"):
                 break
             section_text += sib.get_text(separator=" ", strip=True) + "\n"
+
+        if is_body_heading(raw_title):
+            if sections:
+                sections[-1]["text"] += section_text
+            continue
+
+        sections.append({"title": raw_title, "text": section_text})
+
+    for section in sections:
+        title = clean_title(section["title"])
+        section_text = section["text"]
 
         # Skip if no dates found and explicit no-availability
         dates = parse_dates_from_text(section_text)
@@ -246,7 +287,7 @@ def scrape_page(path, default_activity, default_location):
         price  = parse_price(section_text)
         spots  = parse_spots(section_text)
         location = resolve_location_from_text(section_text, default_location)
-        sold   = is_full(section_text)
+        sold   = is_full(title) or is_full(section_text)
 
         # Determine activity from title
         activity = default_activity
