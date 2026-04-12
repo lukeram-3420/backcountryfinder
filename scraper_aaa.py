@@ -11,7 +11,6 @@ import os
 import re
 import json
 import datetime
-import anthropic
 import requests
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -28,7 +27,6 @@ SUPABASE_URL   = os.environ["SUPABASE_URL"]
 SUPABASE_KEY   = os.environ["SUPABASE_SERVICE_KEY"]
 RESEND_KEY     = os.environ["RESEND_API_KEY"]
 GOOGLE_KEY     = os.environ.get("GOOGLE_PLACES_API_KEY", "")
-ANTHROPIC_KEY  = os.environ["ANTHROPIC_API_KEY"]
 NOTIFY_EMAIL   = "luke@backcountryfinder.com"
 
 LOOKAHEAD_DAYS = 180
@@ -45,10 +43,8 @@ CF_HEADERS = {
 }
 
 # ── Skip categories ───────────────────────────────────────────────────────────
-SKIP_CATEGORIES = {
-    "food", "add ons", "gift certificates", "driving tours",
-    "calgary airport service", "jr mtn guide",
-}
+# Populated after first debug run — see "Categories found" output
+SKIP_CATEGORIES: set = set()
 
 # ── Activity resolution ───────────────────────────────────────────────────────
 ACTIVITY_MAP = [
@@ -131,6 +127,11 @@ def fetch_items() -> dict:
     print(f"  Raw item response keys: {list(data.keys())}")
     items = data.get("items", {})
     print(f"  Sample item keys (first item): {list(list(items.values())[0].keys()) if items else 'none'}")
+
+    # Debug — print all unique categories so we can populate SKIP_CATEGORIES
+    cats = sorted({item.get("category", "none") for item in items.values()})
+    print(f"  Categories found: {cats}")
+
     return items
 
 def fetch_availability(item_ids: list, start: str, end: str) -> dict:
@@ -147,26 +148,6 @@ def fetch_availability(item_ids: list, start: str, end: str) -> dict:
 def make_id(provider_id, activity, date_str, title):
     slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:30]
     return f"{provider_id}-{activity}-{date_str}-{slug}"
-
-# ── Haiku summaries ───────────────────────────────────────────────────────────
-def generate_summaries(titles: list) -> dict:
-    client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
-    unique = list(dict.fromkeys(titles))
-    prompt = (
-        "For each course title below, write a single punchy 1-sentence description "
-        "(≤18 words) for a backcountry adventure aggregator. "
-        "Return only JSON: {\"title\": \"summary\"}.\n\n" +
-        "\n".join(f"- {t}" for t in unique)
-    )
-    resp = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=1000,
-        messages=[{"role": "user", "content": prompt}]
-    )
-    try:
-        return json.loads(resp.content[0].text.strip())
-    except Exception:
-        return {}
 
 # ── Email summary ─────────────────────────────────────────────────────────────
 def send_summary(upserted: int, skipped: int):
@@ -208,7 +189,11 @@ def main():
         if item.get("category", "").lower() not in SKIP_CATEGORIES
         and item.get("status", "A") == "A"
     }
-    print(f"  {len(course_items)} items after filtering add-ons/gifts")
+    print(f"  {len(course_items)} items after filtering")
+
+    # Debug — print all item names so we can verify what's included/excluded
+    for iid, item in course_items.items():
+        print(f"    [{item.get('category','?')}] {item.get('name','?')}")
 
     # 2. Fetch availability calendar
     print(f"  Fetching availability {start_s} → {end_s}...")
@@ -216,10 +201,9 @@ def main():
     cal = fetch_availability(item_ids, start_s, end_s)
     print(f"  Calendar entries returned: {len(cal)}")
 
-    # 3. Generate summaries
-    all_titles = list({item["name"] for item in course_items.values() if item.get("name")})
-    print(f"  Generating summaries for {len(all_titles)} unique titles...")
-    summaries = generate_summaries(all_titles)
+    # 3. Summaries skipped for now — Anthropic API unreachable from runner
+    # Re-enable once network access confirmed or secret verified
+    summaries: dict = {}
 
     # 4. Build rows
     rows = []
@@ -286,7 +270,7 @@ def main():
                 "avail":           "open",
                 "active":          True,
                 "booking_url":     booking_url,
-                "summary":         summaries.get(title, ""),
+                "summary":         "",
                 "place_id":        place_id,
             })
 
