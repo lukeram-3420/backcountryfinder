@@ -9,7 +9,6 @@ Endpoints used:
 
 import os
 import re
-import json
 import datetime
 import requests
 
@@ -134,8 +133,19 @@ def cf_get(endpoint, params=None):
 def fetch_items() -> dict:
     data = cf_get("item")
     items = data.get("items", {})
+
     cats = sorted({item.get("category", "none") for item in items.values()})
     print(f"  Categories found: {cats}")
+
+    statuses = sorted({str(item.get("status", "none")) for item in items.values()})
+    print(f"  Statuses found: {statuses}")
+
+    # Debug: show category + status for first 5 items
+    for i, (iid, item) in enumerate(items.items()):
+        if i >= 5:
+            break
+        print(f"    [{item.get('category','?')}] status={item.get('status','?')} — {item.get('name','?')}")
+
     return items
 
 def fetch_availability(item_ids: list, start: str, end: str) -> dict:
@@ -148,9 +158,9 @@ def fetch_availability(item_ids: list, start: str, end: str) -> dict:
     return data.get("items", {})
 
 # ── Stable ID ─────────────────────────────────────────────────────────────────
-def make_id(provider_id, activity, date_sort, title):
+def make_id(provider_id, activity, date_key, title):
     slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:30]
-    return f"{provider_id}-{activity}-{date_sort}-{slug}"
+    return f"{provider_id}-{activity}-{date_key}-{slug}"
 
 # ── Email summary ─────────────────────────────────────────────────────────────
 def send_summary(upserted: int, skipped: int):
@@ -185,12 +195,16 @@ def main():
     items = fetch_items()
     print(f"  Found {len(items)} items total")
 
+    # Filter — no status filter, category allowlist only
     course_items = {
         iid: item for iid, item in items.items()
         if item.get("category", "").lower() in KEEP_CATEGORIES
-        and item.get("status", "A") == "A"
     }
     print(f"  {len(course_items)} course items after filtering")
+
+    # Show everything that made it through
+    for iid, item in course_items.items():
+        print(f"    [{item.get('category','?')}] status={item.get('status','?')} — {item.get('name','?')}")
 
     # 2. Fetch availability calendar
     print(f"  Fetching availability {start_s} → {end_s}...")
@@ -221,9 +235,9 @@ def main():
             except (ValueError, TypeError):
                 price = None
 
-        activity    = resolve_activity(title)
-        location    = resolve_location(title)
-        category    = item.get("category", "")
+        activity = resolve_activity(title)
+        location = resolve_location(title)
+        category = item.get("category", "")
 
         item_cal = cal.get(str(item_id), {})
         if not item_cal:
@@ -251,28 +265,28 @@ def main():
             )
 
             rows.append({
-                "id":                course_id,
-                "provider_id":       PROVIDER["id"],
-                "title":             title,
-                "activity":          activity,
-                "activity_raw":      category,
+                "id":                 course_id,
+                "provider_id":        PROVIDER["id"],
+                "title":              title,
+                "activity":           activity,
+                "activity_raw":       category,
                 "activity_canonical": activity,
-                "location_raw":      location,
+                "location_raw":       location,
                 "location_canonical": location,
-                "date_sort":         date_sort,
-                "date_display":      date_display,
-                "duration_days":     item.get("len", 1),
-                "price":             price,
-                "spots_remaining":   None,
-                "avail":             "open",
-                "active":            True,
-                "booking_url":       booking_url,
-                "summary":           "",
-                "image_url":         None,
-                "badge":             None,
-                "badge_canonical":   None,
-                "custom_dates":      False,
-                "scraped_at":        scraped_at,
+                "date_sort":          date_sort,
+                "date_display":       date_display,
+                "duration_days":      item.get("len", 1),
+                "price":              price,
+                "spots_remaining":    None,
+                "avail":              "open",
+                "active":             True,
+                "booking_url":        booking_url,
+                "summary":            "",
+                "image_url":          None,
+                "badge":              None,
+                "badge_canonical":    None,
+                "custom_dates":       False,
+                "scraped_at":         scraped_at,
             })
 
     print(f"  Built {len(rows)} course-date rows · {skipped} items skipped")
