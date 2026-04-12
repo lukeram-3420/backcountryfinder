@@ -404,9 +404,9 @@ def main():
 
     if rating:
         sb_patch("providers", "id", PROVIDER_ID, {
-            "google_rating": rating,
-            "google_review_count": review_count,
             "google_place_id": place_id_jasper,
+            "rating": rating,
+            "review_count": review_count,
         })
 
     all_courses = []
