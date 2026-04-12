@@ -139,7 +139,6 @@
   .save-btn svg { transition: opacity 0.15s; }
   .save-btn .save-label { transition: opacity 0.15s; }
   .save-btn svg { flex-shrink: 0; }
-  /* Mobile: icon only */
   /* ── SKELETON LOADING ── */
   @keyframes shimmer { 0%{background-position:-600px 0} 100%{background-position:600px 0} }
   .skel { background: linear-gradient(90deg,#ececec 25%,#f5f5f5 50%,#ececec 75%); background-size:600px 100%; animation:shimmer 1.4s infinite linear; border-radius:6px; }
@@ -595,7 +594,7 @@
   </div>
 </nav>
 
-<!-- EMAIL MODAL -->
+<!-- NOTIFY MODAL -->
 <div class="email-list-modal-overlay" id="notify-modal" onclick="closeNotifyModal(event)">
   <div class="email-list-modal elm-modal" onclick="event.stopPropagation()">
     <button class="elm-close" onclick="closeNotifyModal()">×</button>
@@ -616,8 +615,7 @@
   </div>
 </div>
 
-
-
+<!-- EMAIL MY LIST MODAL -->
 <div class="email-list-modal-overlay" id="email-list-modal" onclick="closeEmailListModal(event)">
   <div class="email-list-modal elm-modal">
     <button class="elm-close" onclick="closeEmailListModal()">×</button>
@@ -679,9 +677,6 @@
   </div>
 </div>
 
-<!-- NOTIFY MODAL -->
-
-
 <div class="toast" id="book-toast"></div>
 <div class="micro-toast" id="micro-toast">
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="20" rx="6" ry="2.5" fill="rgba(255,255,255,0.6)"/><ellipse cx="12" cy="14.5" rx="4.5" ry="2" fill="rgba(255,255,255,0.8)"/><ellipse cx="12" cy="9.5" rx="3" ry="1.8" fill="#4ade80"/></svg>
@@ -690,6 +685,41 @@
 
 <script>
 const ADS_ENABLED = false;
+
+// ── CLICK TRACKING ──
+const SESSION_ID = (() => {
+  let id = sessionStorage.getItem('bcf_session');
+  if (!id) { id = crypto.randomUUID(); sessionStorage.setItem('bcf_session', id); }
+  return id;
+})();
+
+async function logClick(course) {
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/click_events`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Prefer': 'return=minimal'
+      },
+      body: JSON.stringify({
+        provider_name: (course.providers && course.providers.name) || course.provider_id || '',
+        course_type:   course.activity_canonical || course.activity_raw || '',
+        location:      course.location_canonical || course.location_raw || '',
+        price:         course.price || null,
+        booking_url:   course.booking_url || '',
+        session_id:    SESSION_ID
+      })
+    });
+  } catch(e) { /* non-blocking — never interrupt the user */ }
+}
+
+function utmUrl(url) {
+  if (!url || url === '#') return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}utm_source=backcountryfinder&utm_medium=referral`;
+}
 
 // Activity labels loaded dynamically from Supabase
 let ACTIVITY_LABELS = {};
@@ -704,6 +734,7 @@ async function loadActivityLabels() {
     rows.forEach(r => { ACTIVITY_LABELS[r.activity] = r.label; });
   } catch(e) { console.warn('Could not load activity labels:', e); }
 }
+
 const SUPABASE_EDGE_URL = 'https://owzrztaguehebkatnatc.supabase.co/functions/v1/send-saved-list';
 const NOTIFY_URL = 'https://owzrztaguehebkatnatc.supabase.co/functions/v1/notify-submission';
 const SUPABASE_URL = 'https://owzrztaguehebkatnatc.supabase.co';
@@ -726,7 +757,7 @@ let isLoading = false;
 let currentFilters = { activity: '', location: '', date: '', provider: '' };
 const PAGE_SIZE = 12;
 const CACHE_KEY = 'bcf_cache';
-const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+const CACHE_TTL = 30 * 60 * 1000;
 
 // ── SAVED / CAIRN ──
 function getSaved(){try{return JSON.parse(localStorage.getItem('bcf_saved')||'[]');}catch(e){return[];}}
@@ -736,7 +767,6 @@ function toggleSave(id){
   const wasUnsaved = !isSaved(id);
   let s=getSaved();s=s.includes(id)?s.filter(x=>x!==id):[...s,id];setSaved(s);
   renderSaved();
-  // Re-render the specific card to update its state
   const btn = document.querySelector(`[onclick="toggleSave('${id}')"]`);
   if (btn) {
     const card = btn.closest('.course-card');
@@ -795,12 +825,10 @@ async function fetchCourses(page = 0, append = false) {
     currentCourses = cached;
     renderCards(cached, false);
     isLoading = false;
-    // Refresh in background
     fetchFromSupabase(page, append, true);
     return;
   }
 
-  // Only show skeleton on first page load, not on show more
   if (!append) showSkeleton();
   await fetchFromSupabase(page, append, false);
 }
@@ -808,31 +836,25 @@ async function fetchCourses(page = 0, append = false) {
 async function fetchFromSupabase(page = 0, append = false, background = false) {
   try {
     const from = page * PAGE_SIZE;
-    const to = from + PAGE_SIZE - 1;
     const today = new Date().toISOString().split('T')[0];
 
-    // Build filters array for clean Supabase query
     const filters = ['active=eq.true'];
-
     if (currentFilters.activity) filters.push(`activity_canonical=eq.${encodeURIComponent(currentFilters.activity)}`);
     if (currentFilters.provider) filters.push(`provider_id=eq.${encodeURIComponent(currentFilters.provider)}`);
-
     if (currentFilters.location) {
       const loc = encodeURIComponent(currentFilters.location);
       filters.push(`or=(location_canonical.eq.${loc},location_raw.eq.${loc})`);
     }
-
     if (currentFilters.date) {
       filters.push(`or=(date_sort.gte.${currentFilters.date},custom_dates.eq.true)`);
     }
 
-    // Sort
     let order = 'order=date_sort.asc.nullslast';
     if (currentSort === 'price')        order = 'order=price.asc';
     if (currentSort === 'availability') order = 'order=avail.asc';
 
     const queryString = filters.join('&');
-    let url = `${SUPABASE_URL}/rest/v1/courses?select=*,providers(name,rating,review_count)&${queryString}&${order}&limit=${PAGE_SIZE}&offset=${from}`;
+    const url = `${SUPABASE_URL}/rest/v1/courses?select=*,providers(name,rating,review_count)&${queryString}&${order}&limit=${PAGE_SIZE}&offset=${from}`;
 
     const res = await fetch(url, {
       headers: {
@@ -860,7 +882,6 @@ async function fetchFromSupabase(page = 0, append = false, background = false) {
     }
 
     renderCards(courses, append);
-    // Dropdowns loaded once on init — no need to reload on every fetch
 
   } catch(err) {
     console.error('Fetch error:', err);
@@ -927,7 +948,6 @@ async function loadActivitiesDropdown() {
 // ── LOCATION DROPDOWN ──
 async function loadLocationsDropdown() {
   try {
-    // Fetch all distinct canonical + raw locations from active courses
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/courses?select=location_canonical,location_raw&active=eq.true`,
       { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
@@ -946,11 +966,11 @@ async function loadLocationsDropdown() {
   } catch(e) { /* keep static options */ }
 }
 
-function buildCard(c){
+function buildCard(c) {
   const saved = isSaved(c.id);
   const spots = c.spots_remaining;
   const spotWord = spots === 1 ? 'spot' : 'spots';
-  const availLabel = c.avail==='open' ? 'Open'
+  const availLabel = c.avail==='open'     ? 'Open'
     : c.avail==='critical' ? `${spots ?? '1-2'} ${spotWord} left`
     : c.avail==='low'      ? `${spots ?? '3-4'} ${spotWord} left`
     : 'Sold out';
@@ -962,7 +982,20 @@ function buildCard(c){
   const badge = c.badge_canonical || c.badge || ACTIVITY_LABELS[activity] || activity.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
   const imgUrl = c.image_url || IMG[activity] || IMG.hiking;
   const bookingUrl = c.booking_url || '#';
-  const safeTitle = (c.title||'').replace(/'/g,"\'");
+  const safeTitle = (c.title||'').replace(/'/g,"\\'");
+
+  // Serialize course data for click tracking — escape for safe inline use
+  const courseJson = JSON.stringify({
+    provider_id:        c.provider_id || '',
+    activity_canonical: c.activity_canonical || '',
+    activity_raw:       c.activity_raw || '',
+    location_canonical: c.location_canonical || '',
+    location_raw:       c.location_raw || '',
+    price:              c.price || null,
+    booking_url:        bookingUrl,
+    providers:          { name: providerName }
+  }).replace(/</g, '\\u003c').replace(/'/g, "\\'");
+
   return `<div class="course-card">
     <div class="card-img">
       <img src="${imgUrl}" alt="${c.title}" loading="lazy" onerror="this.src='${IMG[c.activity]||IMG.hiking}'">
@@ -1002,7 +1035,7 @@ function buildCard(c){
           ?`<button class="book-btn" style="background:#f5f4f0;color:#1a2e1a;border:1px solid #c8c7c2;" onclick="openNotifyModal('${c.id}','${safeTitle}','${c.provider_id}')">Notify me 🔔</button>`
           :c.avail==='sold'
             ?`<button class="book-btn" style="background:#f5f4f0;color:#888;border:1px solid #c8c7c2;cursor:default;">Sold out</button>`
-            :`<a class="book-btn" href="${bookingUrl}" target="_blank" rel="noopener" onclick="setTimeout(showToast,800)">Book Now <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-left:2px;"><path d="M7 17L17 7"/><path d="M7 7h10v10"/></svg></a>`
+            :`<a class="book-btn" href="${utmUrl(bookingUrl)}" target="_blank" rel="noopener" onclick="logClick(JSON.parse('${courseJson}'));setTimeout(showToast,800)">Book Now <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-left:2px;"><path d="M7 17L17 7"/><path d="M7 7h10v10"/></svg></a>`
         }
       </div>
     </div>
@@ -1030,7 +1063,6 @@ function renderCards(courses, append=false){
   addRemoveReadyListeners();
 }
 
-
 async function renderSaved(){
   const saved=getSaved();
   const empty=document.getElementById('saved-empty');
@@ -1048,7 +1080,6 @@ async function renderSaved(){
       {headers:{'apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`}}
     );
     const savedCourses=await res.json();
-    // Clean up stale IDs — remove any saved IDs that no longer exist in Supabase
     const validIds = savedCourses.map(c=>c.id);
     const cleanedSaved = saved.filter(id=>validIds.includes(id));
     if(cleanedSaved.length !== saved.length) {
@@ -1088,7 +1119,6 @@ function setProviderFilter(providerId, providerName) {
     label.textContent = `Viewing: ${providerName}`;
     chip.style.display = 'inline-flex';
   }
-  // Write to URL so it can be shared
   if (window.history && window.history.replaceState)
     window.history.replaceState({}, '', `?provider=${providerId}`);
   showPage('search');
@@ -1110,7 +1140,6 @@ function initProviderFilter() {
   const params = new URLSearchParams(window.location.search);
   const provider = params.get('provider');
   if (!provider) return;
-  // Look up provider name from loaded providers
   currentFilters.provider = provider;
   const chip = document.getElementById('provider-filter-chip');
   const label = document.getElementById('provider-filter-label');
@@ -1118,7 +1147,6 @@ function initProviderFilter() {
     label.textContent = `Viewing: ${provider}`;
     chip.style.display = 'inline-flex';
   }
-  // Fetch provider name from Supabase to show proper name
   fetch(`${SUPABASE_URL}/rest/v1/providers?select=name&id=eq.${provider}`,
     {headers: {'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`}})
     .then(r => r.json())
@@ -1133,7 +1161,6 @@ function runSearch(){
   currentFilters.date = document.getElementById('search-date').value;
   currentPage=0;
   fetchCourses(0, false);
-  // Ensure dropdowns visually reflect the selected filters
   if (currentFilters.activity) document.getElementById('search-activity').value = currentFilters.activity;
   if (currentFilters.location) document.getElementById('search-location').value = currentFilters.location;
 }
@@ -1180,7 +1207,6 @@ setInterval(()=>{
 function getSharedIds(){const p=new URLSearchParams(window.location.search);const s=p.get('shared');return s?s.split(',').filter(Boolean):[];}
 function initSharedCourses(){
   const ids=getSharedIds();if(ids.length===0)return;
-  // Save IDs immediately — don't wait for currentCourses to load
   let saved=getSaved();ids.forEach(id=>{if(!saved.includes(id))saved.push(id);});setSaved(saved);
   const banner=document.getElementById('shared-banner');
   const title=document.getElementById('shared-banner-title');
@@ -1243,19 +1269,16 @@ document.addEventListener('click',function(e){
 async function copyShareLink(url,btn){try{await navigator.clipboard.writeText(url);const orig=btn.textContent;btn.textContent='copied!';setTimeout(()=>{btn.textContent=orig;},2000);}catch(e){prompt('Copy this link:',url);}}
 async function nativeShare(url,title){try{await navigator.share({title:title||'BackcountryFinder',url});}catch(e){}}
 
-// NOTIFY ME
-
 function clearMyList(){
   if(!confirm('Clear your entire saved list?')) return;
   setSaved([]);
   renderSaved();
-  // Re-render cards on search page to reset cairn button states
   if(currentCourses.length>0) renderCards(currentCourses, false);
 }
+
 async function openEmailListModal(){
   const saved=getSaved();
   if(saved.length===0)return;
-  // Load saved courses from Supabase directly
   let courses=currentCourses.filter(c=>saved.includes(c.id));
   if(courses.length===0){
     try{
@@ -1271,6 +1294,7 @@ async function openEmailListModal(){
   document.getElementById('elm-success').style.display='none';
   document.getElementById('email-list-modal').classList.add('active');
 }
+
 let _notifyProvider = '';
 let _notifyCourse = '';
 
@@ -1310,7 +1334,6 @@ async function submitNotify() {
         course_title: _notifyCourse,
       })
     });
-    // Send confirmation email
     fetch('https://owzrztaguehebkatnatc.supabase.co/functions/v1/notify-signup-confirmation', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -1338,7 +1361,6 @@ async function submitEmailList(){
       rawCourses=await res.json();
     }catch(e){rawCourses=[];}
   }
-  // Map to Edge Function expected format
   const courses=rawCourses.map(c=>({
     id:          c.id,
     title:       c.title,
@@ -1418,71 +1440,46 @@ async function submitGetListed(){
   document.getElementById('listed-form-content').style.display='none';document.getElementById('listed-success').style.display='block';setTimeout(closeProviderModal,3500);
 }
 
-
-
 // TOAST
 let toastTimer=null;
 function showToast(){clearTimeout(toastTimer);const toast=document.getElementById('book-toast');toast.innerHTML=`<div class="toast-top"><div><div class="toast-title">Heading to book?</div><div class="toast-sub">Get new experience alerts — no spam.</div></div><button class="toast-close" onclick="closeToast()">×</button></div><div class="toast-row"><input class="toast-input" type="email" id="toast-email" placeholder="your@email.com"><button class="toast-btn" onclick="submitToast()">yes please</button></div><button class="toast-dismiss" onclick="closeToast()">no thanks</button>`;toast.classList.add('active');toastTimer=setTimeout(closeToast,12000);}
 function closeToast(){document.getElementById('book-toast').classList.remove('active');clearTimeout(toastTimer);}
 async function submitToast(){const emailEl=document.getElementById('toast-email');if(!emailEl)return;const email=emailEl.value.trim();if(!email||!email.includes('@')){emailEl.style.borderColor='#e24b4a';emailEl.focus();return;}emailEl.style.borderColor='';await saveEmail(email,null,'book_now_toast');document.getElementById('book-toast').innerHTML=`<div style="text-align:center;padding:4px 0;"><div style="font-size:24px;margin-bottom:6px;">✓</div><div style="font-size:13px;font-weight:700;">You're on the list</div><div style="font-size:12px;color:var(--text-tertiary);margin-top:4px;font-weight:500;">We'll send you new experience alerts.</div></div>`;setTimeout(closeToast,2500);}
 
-// ── INIT ──
-loadActivityLabels().then(() => {
-  initProviderFilter();
-  fetchCourses(0, false);
-  loadActivitiesDropdown();
-  loadLocationsDropdown();
-});
-initSharedCourses();
-
 // ── PROVIDERS PAGE ──
 async function loadProviders() {
   const grid = document.getElementById('provider-cards');
   if (!grid) return;
-
   try {
-    // Fetch active providers
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/providers?select=id,name,website,location,rating,review_count,google_place_id,logo_url&active=eq.true&order=name.asc`,
       { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
     );
     const providers = await res.json();
-
     if (!providers.length) {
       grid.innerHTML = '<p style="color:var(--text-tertiary);font-size:13px;">No providers listed yet.</p>';
       return;
     }
-
-    // Fetch distinct activities per provider from courses table
     const coursesRes = await fetch(
       `${SUPABASE_URL}/rest/v1/courses?select=provider_id,activity_canonical`,
       { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
     );
     const courses = await coursesRes.json();
-
-    // Build activity map: { provider_id: Set of activities }
     const activityMap = {};
     courses.forEach(c => {
       if (!activityMap[c.provider_id]) activityMap[c.provider_id] = new Set();
       if (c.activity_canonical) activityMap[c.provider_id].add(c.activity_canonical);
     });
-
     grid.innerHTML = providers.map(p => {
       const activities = [...(activityMap[p.id] || [])];
-      const tags = activities
-        .map(a => `<span class="provider-tag">${ACTIVITY_LABELS[a] || a}</span>`)
-        .join('');
-      const reviewsUrl = p.google_place_id
-        ? `https://search.google.com/local/reviews?placeid=${p.google_place_id}`
-        : null;
+      const tags = activities.map(a => `<span class="provider-tag">${ACTIVITY_LABELS[a] || a}</span>`).join('');
+      const reviewsUrl = p.google_place_id ? `https://search.google.com/local/reviews?placeid=${p.google_place_id}` : null;
       const rating = p.rating
         ? reviewsUrl
           ? `<a href="${reviewsUrl}" target="_blank" rel="noopener" class="provider-card-rating" style="display:block;text-decoration:none;margin-bottom:6px;">★ ${p.rating}${p.review_count ? ` · ${p.review_count}+ reviews` : ''}</a>`
           : `<div class="provider-card-rating">★ ${p.rating}${p.review_count ? ` · ${p.review_count}+ reviews` : ''}</div>`
         : '';
-      const website = p.website
-        ? `<a href="${p.website}" target="_blank" rel="noopener" class="provider-card-link">visit website ↗</a>`
-        : '';
+      const website = p.website ? `<a href="${p.website}" target="_blank" rel="noopener" class="provider-card-link">visit website ↗</a>` : '';
       const logo = p.logo_url
         ? `<div class="provider-card-logo"><img src="${p.logo_url}" alt="${p.name} logo" loading="lazy"></div>`
         : `<div class="provider-card-logo" style="background:#1a2e1a;"><span style="color:#4ade80;font-weight:800;font-size:16px;letter-spacing:-0.3px;">${p.name}</span></div>`;
@@ -1498,14 +1495,13 @@ async function loadProviders() {
           </div>
         </div>`;
     }).join('');
-
   } catch(e) {
     console.error('Failed to load providers:', e);
     grid.innerHTML = '<p style="color:var(--text-tertiary);font-size:13px;">Could not load providers.</p>';
   }
 }
 
-// REMOVE-READY: saved buttons get remove-ready class after first mouse-leave
+// REMOVE-READY
 function addRemoveReadyListeners() {
   document.querySelectorAll('.save-btn.saved').forEach(btn => {
     if (!btn.dataset.removeListening) {
@@ -1524,6 +1520,15 @@ function showMicroToast() {
   toast.classList.add('show');
   microToastTimer = setTimeout(() => toast.classList.remove('show'), 3000);
 }
+
+// ── INIT ──
+loadActivityLabels().then(() => {
+  initProviderFilter();
+  fetchCourses(0, false);
+  loadActivitiesDropdown();
+  loadLocationsDropdown();
+});
+initSharedCourses();
 </script>
 </body>
 </html>
