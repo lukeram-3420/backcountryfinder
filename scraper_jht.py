@@ -156,13 +156,9 @@ def parse_spots(text):
 
 
 def parse_price(text):
-    """Extract the first dollar amount over $20, e.g. '$299' or '$349 + GST'."""
-    amounts = re.findall(r'\$([0-9][0-9,]*)', text)
-    for amount in amounts:
-        value = int(amount.replace(',', ''))
-        if value > 20:
-            return value
-    return None
+    """Extract the first dollar amount over $50, e.g. '$299' or '$349 + GST'."""
+    m = re.search(r'\$(\d+)', text)
+    return int(m.group(1)) if m and int(m.group(1)) >= 50 else None
 
 
 def clean_title(title):
@@ -246,7 +242,9 @@ def generate_summary(title, description):
                 f"Context: {description[:300]}"
             }],
         )
-        return msg.content[0].text.strip()
+        summary = msg.content[0].text.strip()
+        summary = re.sub(r'^#+\s*', '', summary).strip()
+        return summary
     except Exception:
         return description[:100] if description else title
 
@@ -286,7 +284,11 @@ def scrape_page(path, default_activity, default_location):
 
     for section in sections:
         title = clean_title(section["title"])
+        title = re.sub(r'^[\w]+\.\s+\d{1,2}[-–]\d{1,2}(?:th|st|nd|rd)?,?\s+\d{4}:\s*', '', title).strip().rstrip(':')
         section_text = section["text"]
+
+        if len(title) < 8 or title.lower().startswith("this is a") or title.lower() in ("rates:", "how to sign up:", "what's next?"):
+            continue
 
         # Skip if no dates found and explicit no-availability
         dates = parse_dates_from_text(section_text)
@@ -333,7 +335,12 @@ def scrape_page(path, default_activity, default_location):
             except Exception:
                 duration_days = None
 
-            avail = "sold" if sold else avail_value(spots)
+            if re.search(r'\bfull\b', title + ' ' + section_text, re.IGNORECASE):
+                avail = "sold"
+                active = False
+            else:
+                avail = avail_value(spots)
+                active = True
             courses.append({
                 "id":                 course_id,
                 "provider_id":        PROVIDER_ID,
@@ -356,7 +363,7 @@ def scrape_page(path, default_activity, default_location):
                 "badge_canonical":    None,
                 "custom_dates":       False,
                 "scraped_at":         datetime.utcnow().isoformat(),
-                "active":             avail != "sold",
+                "active":             active,
             })
             print(f"  ✓ {title} | {display} | {activity} | {location} | ${price} | {avail_value(spots)}")
 
@@ -414,6 +421,14 @@ def main():
             errors += 1
 
     if all_courses:
+        seen = set()
+        deduped = []
+        for c in all_courses:
+            key = (c['title'], c['date_sort'])
+            if key not in seen:
+                seen.add(key)
+                deduped.append(c)
+        all_courses = deduped
         sb_upsert("courses", all_courses)
         print(f"\n✓ Upserted {len(all_courses)} courses")
     else:
