@@ -1310,6 +1310,12 @@ async function submitNotify() {
         course_title: _notifyCourse,
       })
     });
+    // Send confirmation email
+    fetch('https://owzrztaguehebkatnatc.supabase.co/functions/v1/notify-signup-confirmation', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({email, course_title: _notifyCourse, provider_name: ''})
+    });
   } catch(e) {}
   document.getElementById('notify-form-content').style.display = 'none';
   document.getElementById('notify-success').style.display = 'block';
