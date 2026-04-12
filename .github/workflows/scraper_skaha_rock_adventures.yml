@@ -1,10 +1,5 @@
 name: Scraper — Skaha Rock Adventures
 
-on:
-  schedule:
-    - cron: '0 */6 * * *'   # every 6 hours
-  workflow_dispatch:          # manual trigger
-
 jobs:
   scrape:
     runs-on: ubuntu-latest
