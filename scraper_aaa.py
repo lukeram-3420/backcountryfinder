@@ -56,27 +56,34 @@ KEEP_CATEGORIES = {
 ACTIVITY_MAP = [
     (["ast", "avalanche", "companion rescue", "crevasse"],        "skiing"),
     (["ice climbing"],                                             "climbing"),
-    (["rock climbing", "rappel", "rope rescue"],                   "climbing"),
+    (["rock climbing", "rappel", "rope rescue", "via ferrat",
+      "weekend warrior", "climb the ghost"],                      "climbing"),
     (["ski touring", "splitboard", "backcountry ski", "ski camp",
       "ski traverse", "wapta", "bow yoho", "rogers pass",
-      "spring rockies"],                                           "skiing"),
+      "spring rockies", "off piste", "bugs to rogers",
+      "waddington", "ski and ride"],                              "skiing"),
     (["mountaineering", "alpine", "athabasca", "victoria",
       "andromeda", "logan", "bugaboos", "fay", "huber",
-      "mountain skills week"],                                     "mountaineering"),
+      "mountain skills week", "alberta high"],                    "mountaineering"),
     (["hiking", "trekking", "scramble", "temple", "sulphur",
-      "larch", "o'hara", "six glaciers"],                         "hiking"),
+      "larch", "o'hara", "six glaciers", "castle mountain",
+      "moraine lake", "plain of 6"],                             "hiking"),
 ]
 
 LOCATION_MAP = [
-    ("rogers pass",  "Rogers Pass, BC"),
-    ("bugaboos",     "Bugaboos, BC"),
-    ("tantalus",     "Tantalus Range, BC"),
-    ("selkirk",      "Revelstoke, BC"),
-    ("kananaskis",   "Kananaskis, AB"),
-    ("lake louise",  "Lake Louise, AB"),
-    ("bow yoho",     "Banff, AB"),
-    ("wapta",        "Banff, AB"),
-    ("jasper",       "Jasper, AB"),
+    ("rogers pass",   "Rogers Pass, BC"),
+    ("bugs to rogers","Rogers Pass, BC"),
+    ("bugaboos",      "Bugaboos, BC"),
+    ("waddington",    "Waddington, BC"),
+    ("tantalus",      "Tantalus Range, BC"),
+    ("selkirk",       "Revelstoke, BC"),
+    ("kananaskis",    "Kananaskis, AB"),
+    ("lake louise",   "Lake Louise, AB"),
+    ("bow yoho",      "Banff, AB"),
+    ("wapta",         "Banff, AB"),
+    ("jasper",        "Jasper, AB"),
+    ("canmore",       "Canmore, AB"),
+    ("ghost",         "Canmore, AB"),
 ]
 
 def resolve_activity(title: str) -> str:
@@ -133,19 +140,8 @@ def cf_get(endpoint, params=None):
 def fetch_items() -> dict:
     data = cf_get("item")
     items = data.get("items", {})
-
     cats = sorted({item.get("category", "none") for item in items.values()})
     print(f"  Categories found: {cats}")
-
-    statuses = sorted({str(item.get("status", "none")) for item in items.values()})
-    print(f"  Statuses found: {statuses}")
-
-    # Debug: show category + status for first 5 items
-    for i, (iid, item) in enumerate(items.items()):
-        if i >= 5:
-            break
-        print(f"    [{item.get('category','?')}] status={item.get('status','?')} — {item.get('name','?')}")
-
     return items
 
 def fetch_availability(item_ids: list, start: str, end: str) -> dict:
@@ -157,10 +153,10 @@ def fetch_availability(item_ids: list, start: str, end: str) -> dict:
     data = cf_get("item/cal", params=params)
     return data.get("items", {})
 
-# ── Stable ID ─────────────────────────────────────────────────────────────────
-def make_id(provider_id, activity, date_key, title):
-    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:30]
-    return f"{provider_id}-{activity}-{date_key}-{slug}"
+# ── Stable ID — includes item_id to prevent slug collisions ──────────────────
+def make_id(provider_id, activity, date_key, item_id, title):
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:20]
+    return f"{provider_id}-{activity}-{date_key}-{item_id}-{slug}"
 
 # ── Email summary ─────────────────────────────────────────────────────────────
 def send_summary(upserted: int, skipped: int):
@@ -195,16 +191,11 @@ def main():
     items = fetch_items()
     print(f"  Found {len(items)} items total")
 
-    # Filter — no status filter, category allowlist only
     course_items = {
         iid: item for iid, item in items.items()
         if item.get("category", "").lower() in KEEP_CATEGORIES
     }
     print(f"  {len(course_items)} course items after filtering")
-
-    # Show everything that made it through
-    for iid, item in course_items.items():
-        print(f"    [{item.get('category','?')}] status={item.get('status','?')} — {item.get('name','?')}")
 
     # 2. Fetch availability calendar
     print(f"  Fetching availability {start_s} → {end_s}...")
@@ -258,7 +249,8 @@ def main():
 
             date_sort    = d.isoformat()
             date_display = d.strftime("%b %-d, %Y")
-            course_id    = make_id(PROVIDER["id"], activity, date_key, title)
+            course_id    = make_id(PROVIDER["id"], activity, date_key,
+                                   item_id, title)
             booking_url  = (
                 f"{BOOKING_URL}?item_id={item_id}&start_date={date_key}"
                 f"&utm_source=backcountryfinder&utm_medium=referral"
