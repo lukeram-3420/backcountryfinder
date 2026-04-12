@@ -23,8 +23,8 @@ SUPABASE_KEY          = os.environ["SUPABASE_SERVICE_KEY"]
 RESEND_API_KEY        = os.environ["RESEND_API_KEY"]
 GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "")
 ANTHROPIC_API_KEY     = os.environ.get("ANTHROPIC_API_KEY", "")
-NOTIFY_EMAIL          = "luke@backcountryfinder.com"
-FROM_EMAIL            = "luke@backcountryfinder.com"
+NOTIFY_EMAIL          = "hello@backcountryfinder.com"
+FROM_EMAIL            = "hello@backcountryfinder.com"
 PLACES_API_URL        = "https://maps.googleapis.com/maps/api/place"
 CLAUDE_MODEL          = "claude-haiku-4-5-20251001"
 
@@ -1895,7 +1895,7 @@ def send_course_notifications(provider_id, course_title, new_courses):
   <p style="margin:0 0 8px;font-size:14px;color:rgba(255,255,255,0.6);font-family:Georgia,serif;">backcountry<span style="color:#7ec87e;">finder</span></p>
   <p style="margin:0;font-size:11px;color:rgba(255,255,255,0.3);line-height:1.8;font-family:Arial,sans-serif;">
     <a href="https://backcountryfinder.com" style="color:rgba(255,255,255,0.45);text-decoration:none;">backcountryfinder.com</a> &nbsp;·&nbsp;
-    <a href="mailto:luke@backcountryfinder.com" style="color:rgba(255,255,255,0.45);text-decoration:none;">luke@backcountryfinder.com</a><br>
+    <a href="mailto:hello@backcountryfinder.com" style="color:rgba(255,255,255,0.45);text-decoration:none;">hello@backcountryfinder.com</a><br>
     You're receiving this because you asked to be notified.<br>
     <a href="{unsub_url}" style="color:rgba(255,255,255,0.35);text-decoration:none;">unsubscribe</a>
   </p>
@@ -1913,7 +1913,7 @@ def send_course_notifications(provider_id, course_title, new_courses):
                     "https://api.resend.com/emails",
                     headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
                     json={
-                        "from": "BackcountryFinder <luke@backcountryfinder.com>",
+                        "from": "BackcountryFinder <hello@backcountryfinder.com>",
                         "to": [row["email"]],
                         "subject": f"Dates just dropped — {course_title}",
                         "html": html.replace("{{NOTIF_ID}}", str(notif_id)),
@@ -2104,7 +2104,7 @@ def send_notification_email(email, course_title, courses, notif_id=""):
   <p style="margin:0 0 8px;font-size:13px;color:rgba(255,255,255,0.6);font-family:Georgia,serif;">backcountry<span style="color:#7ec87e;">finder</span></p>
   <p style="margin:0;font-size:11px;color:rgba(255,255,255,0.3);line-height:1.8;">
     <a href="https://backcountryfinder.com" style="color:rgba(255,255,255,0.4);text-decoration:none;">backcountryfinder.com</a> &nbsp;·&nbsp;
-    <a href="mailto:luke@backcountryfinder.com" style="color:rgba(255,255,255,0.4);text-decoration:none;">luke@backcountryfinder.com</a><br>
+    <a href="mailto:hello@backcountryfinder.com" style="color:rgba(255,255,255,0.4);text-decoration:none;">hello@backcountryfinder.com</a><br>
     You're receiving this because you asked to be notified about this course.<br>
     <a href="https://owzrztaguehebkatnatc.supabase.co/functions/v1/unsubscribe-notification?id={{NOTIF_ID}}" style="color:rgba(255,255,255,0.35);text-decoration:none;">unsubscribe</a>
   </p>
@@ -2117,7 +2117,7 @@ def send_notification_email(email, course_title, courses, notif_id=""):
         "https://api.resend.com/emails",
         headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
         json={
-            "from": "BackcountryFinder <luke@backcountryfinder.com>",
+            "from": "BackcountryFinder <hello@backcountryfinder.com>",
             "to": [email],
             "subject": f"{course_title} just opened for booking — BackcountryFinder",
             "html": html.replace("{{NOTIF_ID}}", str(notif_id)),
