@@ -55,11 +55,31 @@ In production, scrapers run via GitHub Actions with `workflow_dispatch` (manual 
 
 ### Columns scrapers never touch
 The following columns on the courses table are never written by any scraper under any circumstances:
-- flagged
-- flagged_reason  
-- flagged_note
+- `flagged`, `flagged_reason`, `flagged_note` — user reports via `notify-report` edge function
+- `auto_flagged`, `flag_reason` — validator auto-hide via `validate_provider.py`
 
-These are set by `validate_provider.py` (auto-hide bad rows) and the `notify-report` edge function (user reports). Scrapers must never include them in any upsert payload. `validate_provider.py` resets all flags for a provider at the start of each run, so fixed rows get automatically unflagged.
+Scrapers must never include any of these in any upsert payload.
+
+### Two-flag system
+| Column set | Written by | Purpose |
+|------------|-----------|---------|
+| `flagged` + `flagged_reason` + `flagged_note` | `notify-report` edge function (user reports) | User-submitted issue reports. Auto-cleared by `validate_provider.py` when the issue is resolved. |
+| `auto_flagged` + `flag_reason` | `validate_provider.py` only | Validator auto-hide for bad data. Reset to `false` at the start of every validation run. |
+
+### Auto-clear rules for user flags
+The validator clears user report flags (`flagged=false`) when:
+- `wrong_price` → price is now present, positive, and not >5x median
+- `wrong_date` → date_sort is valid and in the future
+- `sold_out` → avail is not 'open' (confirms the sold-out state)
+- `bad_description` → summary is present and passes contradiction checks
+- `button_broken` → **never auto-cleared**, manual resolution only
+- `other` → **never auto-cleared**, manual resolution only
+
+### Frontend filter rule
+All courses queries must include both filters:
+```
+flagged=not.is.true&auto_flagged=not.is.true
+```
 
 ## Architecture
 
@@ -347,6 +367,9 @@ CREATE TABLE IF NOT EXISTS scraper_run_log (
   run_at timestamptz default now(),
   course_count int not null
 );
+
+ALTER TABLE courses ADD COLUMN IF NOT EXISTS auto_flagged boolean default false;
+ALTER TABLE courses ADD COLUMN IF NOT EXISTS flag_reason text;
 ```
 
 ## Supabase Edge Function conventions
