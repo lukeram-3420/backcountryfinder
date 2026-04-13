@@ -793,6 +793,242 @@ def check_course_page(booking_url: str) -> dict:
     return result
 
 
+# ── WEBSITE SCRAPING (Pass 2 — WordPress course/trip pages) ──
+
+WEBSITE_BASE = "https://altusmountainguides.com"
+
+LISTING_PAGES = [
+    f"{WEBSITE_BASE}/mountaineering-courses",
+    f"{WEBSITE_BASE}/climbing-courses",
+    f"{WEBSITE_BASE}/climbing-trips",
+]
+
+# Date patterns for specific dates like "May 29 - June 1" or "July 4 & 5"
+WP_DATE_PATTERN = re.compile(
+    r"(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|"
+    r"Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
+    r"\s+(\d{1,2})"
+    r"(?:\s*[-–&]\s*"
+    r"(?:(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|"
+    r"Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+)?"
+    r"(\d{1,2}))?"
+    r"(?:,?\s*(20\d{2}))?",
+    re.IGNORECASE,
+)
+
+# Seasonal patterns like "Saturdays (May - Sept)" — no specific dates
+SEASONAL_PATTERN = re.compile(
+    r"(monday|tuesday|wednesday|thursday|friday|saturday|sunday)s?\s*\(",
+    re.IGNORECASE,
+)
+
+
+def collect_website_urls() -> list:
+    """Scrape listing pages and collect individual course/trip URLs."""
+    seen = set()
+    urls = []
+    for listing_url in LISTING_PAGES:
+        log.info(f"  Fetching listing: {listing_url}")
+        try:
+            r = requests.get(listing_url, headers=HEADERS, timeout=20)
+            r.raise_for_status()
+            soup = BeautifulSoup(r.text, "html.parser")
+            for a in soup.find_all("a", href=True):
+                href = a["href"]
+                if re.search(r"altusmountainguides\.com/(courses|trips)/[^/]+", href):
+                    clean = href.split("?")[0].rstrip("/")
+                    if clean not in seen:
+                        seen.add(clean)
+                        urls.append(clean)
+        except Exception as e:
+            log.warning(f"  Failed to fetch listing {listing_url}: {e}")
+        time.sleep(0.5)
+    log.info(f"  Found {len(urls)} course/trip URLs from website")
+    return urls
+
+
+def parse_wp_dates(text: str) -> list:
+    """
+    Extract specific dates from page text.
+    Returns list of (date_sort, date_display, duration_days) tuples.
+    """
+    results = []
+    current_year = date.today().year
+
+    for m in WP_DATE_PATTERN.finditer(text):
+        month1 = m.group(1)
+        day1 = int(m.group(2))
+        month2 = m.group(3)  # may be None (same-month range or single date)
+        day2_str = m.group(4)  # may be None
+        year_str = m.group(5)  # may be None
+
+        year = int(year_str) if year_str else current_year
+
+        # Parse start date
+        try:
+            start = datetime.strptime(f"{month1} {day1} {year}", "%B %d %Y")
+        except ValueError:
+            try:
+                start = datetime.strptime(f"{month1} {day1} {year}", "%b %d %Y")
+            except ValueError:
+                continue
+
+        # If month already passed and no year given, assume next year
+        if not year_str and start.date() < date.today():
+            year += 1
+            try:
+                start = start.replace(year=year)
+            except ValueError:
+                continue
+
+        date_sort = start.strftime("%Y-%m-%d")
+
+        # Parse end date for duration
+        duration_days = 1
+        if day2_str:
+            day2 = int(day2_str)
+            end_month = month2 or month1
+            try:
+                end = datetime.strptime(f"{end_month} {day2} {year}", "%B %d %Y")
+            except ValueError:
+                try:
+                    end = datetime.strptime(f"{end_month} {day2} {year}", "%b %d %Y")
+                except ValueError:
+                    end = start
+            duration_days = max((end - start).days + 1, 1)
+
+        # Build display string
+        if day2_str and month2:
+            date_display = f"{start.strftime('%b')} {day1} – {month2[:3]} {day2_str}"
+        elif day2_str:
+            date_display = f"{start.strftime('%b')} {day1}–{day2_str}"
+        else:
+            date_display = start.strftime("%b %-d, %Y")
+
+        results.append((date_sort, date_display, duration_days))
+
+    return results
+
+
+def scrape_website_course(url: str) -> list:
+    """Scrape a single Altus course/trip detail page. Returns list of course row dicts."""
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=20)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, "html.parser")
+    except Exception as e:
+        log.warning(f"  Failed to fetch {url}: {e}")
+        return []
+
+    # Title
+    h1 = soup.find("h1")
+    title = h1.get_text(strip=True) if h1 else url.rstrip("/").split("/")[-1].replace("-", " ").title()
+
+    # Price — look for $NNN pattern in page text
+    price = None
+    price_match = re.search(r"\$\s?([\d,]+)", soup.get_text())
+    if price_match:
+        try:
+            val = int(price_match.group(1).replace(",", ""))
+            if val >= 50:
+                price = val
+        except ValueError:
+            pass
+
+    # Duration — look for "N Days" or "N Day" pattern
+    duration_days = None
+    dur_match = re.search(r"(\d+)\s*day", soup.get_text(), re.IGNORECASE)
+    if dur_match:
+        duration_days = int(dur_match.group(1))
+
+    # Image — og:image
+    image_url = None
+    og = soup.find("meta", property="og:image")
+    if og and og.get("content"):
+        image_url = og["content"]
+
+    # Description — first substantial paragraph
+    desc_parts = []
+    for p in soup.find_all("p"):
+        text = p.get_text(strip=True)
+        if len(text) > 80 and len(desc_parts) < 3:
+            desc_parts.append(text)
+    description = " ".join(desc_parts)[:800]
+
+    # Booking URL — Rezdy link from "Book Now" button
+    booking_url = None
+    rezdy_link = soup.find("a", href=re.compile(r"rezdy\.com"))
+    if rezdy_link:
+        href = rezdy_link["href"].split("?")[0]
+        booking_url = f"{href}?{PROVIDER['utm']}"
+    if not booking_url:
+        booking_url = f"{url}?{PROVIDER['utm']}"
+
+    # Location — extract from text or default
+    location_raw = "Squamish, BC"  # most Altus courses are in Squamish
+    loc_text = soup.get_text().lower()
+    if "canmore" in loc_text or "rockies" in loc_text or "canadian rockies" in loc_text:
+        location_raw = "Canmore, AB"
+    elif "rogers pass" in loc_text:
+        location_raw = "Rogers Pass, BC"
+    elif "bugaboo" in loc_text:
+        location_raw = "Bugaboos, BC"
+
+    # Dates — check for specific dates vs seasonal
+    page_text = soup.get_text()
+    specific_dates = parse_wp_dates(page_text)
+    is_seasonal = bool(SEASONAL_PATTERN.search(page_text))
+
+    scraped_at = datetime.utcnow().isoformat()
+    rows = []
+
+    if specific_dates:
+        for date_sort, date_display, dur in specific_dates:
+            if not is_future(date_sort):
+                continue
+            rows.append({
+                "title":         title,
+                "provider_id":   PROVIDER["id"],
+                "activity":      "guided",  # will be resolved later
+                "activity_raw":  "guided",
+                "location_raw":  location_raw,
+                "price":         price,
+                "date_display":  date_display,
+                "date_sort":     date_sort,
+                "duration_days": dur or duration_days,
+                "image_url":     image_url,
+                "booking_url":   booking_url,
+                "description":   description,
+                "summary":       "",
+                "avail":         "open",
+                "custom_dates":  False,
+                "scraped_at":    scraped_at,
+            })
+    else:
+        # Seasonal or no dates — single flexible-dates row
+        rows.append({
+            "title":         title,
+            "provider_id":   PROVIDER["id"],
+            "activity":      "guided",
+            "activity_raw":  "guided",
+            "location_raw":  location_raw,
+            "price":         price,
+            "date_display":  "Flexible dates",
+            "date_sort":     None,
+            "duration_days": duration_days,
+            "image_url":     image_url,
+            "booking_url":   booking_url,
+            "description":   description,
+            "summary":       "",
+            "avail":         "open",
+            "custom_dates":  True,
+            "scraped_at":    scraped_at,
+        })
+
+    log.info(f"  {url} → {len(rows)} row(s) | ${price} | {len(specific_dates)} dates")
+    return rows
+
+
 # ── MAIN ──
 
 def main():
@@ -907,7 +1143,63 @@ def main():
             "scraped_at":         c["scraped_at"],
         })
 
-    # Batch generate summaries for Rezdy courses
+    # ── Pass 2: Scrape website course/trip pages ──
+    log.info(f"\n=== Pass 2: Scraping {provider['name']} website ===")
+    wp_urls = collect_website_urls()
+
+    for wp_url in wp_urls:
+        wp_rows = scrape_website_course(wp_url)
+        for c in wp_rows:
+            # Resolve activity
+            activity_canonical, act_is_new, act_add_mapping = resolve_activity(
+                c["title"], c.get("description", ""), activity_maps, provider["name"]
+            )
+            if act_add_mapping:
+                sb_insert("activity_mappings", {"title_contains": c["title"].lower()[:100], "activity": activity_canonical})
+                activity_maps.append((c["title"].lower()[:100], activity_canonical))
+
+            # Resolve location
+            loc_raw = c.get("location_raw") or ""
+            loc_canonical = None
+            if loc_raw:
+                loc_canonical, loc_is_new, loc_add_mapping = normalise_location(loc_raw, mappings)
+                if loc_add_mapping:
+                    sb_insert("location_mappings", {"location_raw": loc_raw, "location_canonical": loc_canonical})
+                    mappings[loc_raw.lower().strip()] = loc_canonical
+
+            badge_canonical = build_badge(activity_canonical, c.get("duration_days"))
+            course_id = stable_id(provider["id"], activity_canonical, c.get("date_sort"), c["title"])
+
+            processed.append({
+                "id":                 course_id,
+                "title":              c["title"],
+                "provider_id":        provider["id"],
+                "badge":              badge_canonical,
+                "activity":           activity_canonical,
+                "activity_raw":       c.get("activity_raw", "guided"),
+                "activity_canonical": activity_canonical,
+                "badge_canonical":    badge_canonical,
+                "location_raw":       loc_raw or None,
+                "location_canonical": loc_canonical,
+                "date_display":       c.get("date_display"),
+                "date_sort":          c.get("date_sort"),
+                "duration_days":      c.get("duration_days"),
+                "price":              c.get("price"),
+                "spots_remaining":    None,
+                "avail":              c.get("avail", "open"),
+                "image_url":          c.get("image_url"),
+                "booking_url":        c.get("booking_url"),
+                "active":             True,
+                "custom_dates":       c.get("custom_dates", False),
+                "summary":            "",
+                "description":        c.get("description", ""),
+                "scraped_at":         c["scraped_at"],
+            })
+        time.sleep(0.5)
+
+    log.info(f"Total processed after both passes: {len(processed)}")
+
+    # Batch generate summaries for all courses (both passes)
     if processed:
         log.info(f"Generating summaries for {len(processed)} {provider['name']} courses...")
         summary_inputs = [
