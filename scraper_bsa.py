@@ -109,7 +109,8 @@ def resolve_location(title: str, description: str = "") -> str:
 
 # ── Google Places ─────────────────────────────────────────────────────────────
 
-def find_place_id(location: str) -> str | None:
+def find_place_id(location: str) -> dict | None:
+    """Find place info from Google Places API. Returns dict with place_id, rating, review_count."""
     if not GOOGLE_KEY:
         return None
     city = location.split(",")[0].strip()
@@ -117,11 +118,38 @@ def find_place_id(location: str) -> str | None:
     r = requests.get(url, params={
         "input": city,
         "inputtype": "textquery",
-        "fields": "place_id",
+        "fields": "place_id,rating,user_ratings_total",
         "key": GOOGLE_KEY,
     })
     candidates = r.json().get("candidates", [])
-    return candidates[0]["place_id"] if candidates else None
+    if not candidates:
+        return None
+    c = candidates[0]
+    return {
+        "place_id": c.get("place_id"),
+        "rating": c.get("rating"),
+        "review_count": c.get("user_ratings_total"),
+    }
+
+
+def update_provider_place_id(provider_id: str, place_info: dict):
+    """Update providers table with place_id, rating, and review_count."""
+    if not place_info:
+        return
+    r = requests.patch(
+        f"{SUPABASE_URL}/rest/v1/providers",
+        headers=sb_headers(),
+        params={"id": f"eq.{provider_id}"},
+        json={
+            "google_place_id": place_info.get("place_id"),
+            "rating": place_info.get("rating"),
+            "review_count": place_info.get("review_count"),
+        },
+    )
+    r.raise_for_status()
+    log.info(f"Updated provider {provider_id} with place info")
+
+
 
 
 # ── Supabase helpers ──────────────────────────────────────────────────────────
@@ -422,10 +450,11 @@ def send_summary(total: int, upserted: int):
 def main():
     log.info(f"Starting scraper: {PROVIDER['name']}")
 
-    # Resolve Google Place ID
-    place_id = find_place_id(PROVIDER["location"])
-    if place_id:
-        log.info(f"Place ID found: {place_id}")
+    # Resolve Google Place ID and rating
+    place_info = find_place_id(PROVIDER["location"])
+    if place_info:
+        log.info(f"Place ID found: {place_info['place_id']}")
+        update_provider_place_id(PROVIDER["id"], place_info)
     else:
         log.warning("Place ID not found")
 
