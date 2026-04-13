@@ -9,6 +9,7 @@ Usage:
     python validate_provider.py <provider_id>
 """
 
+import re
 import sys
 import statistics
 from collections import defaultdict
@@ -24,11 +25,19 @@ ACTIVITY_CONTRADICTIONS = {
     "hiking":   ["ski", "climb", "splitboard"],
 }
 
+# Order matters — first match wins. More specific rules must come before generic ones.
 TITLE_ACTIVITY_RULES = [
-    (["rock climbing", "ice climbing"],         "climbing"),
-    (["ski", "splitboard", "backcountry ski"],   "skiing"),
-    (["hik"],                                    "hiking"),
-    (["alpine", "mountaineer"],                  "mountaineering"),
+    (["rock climbing", "ice climbing", "alpine climbing"],  "climbing"),
+    (["splitboard", "backcountry ski"],                      "skiing"),
+    (["hik"],                                                "hiking"),
+    (["mountaineer"],                                        "mountaineering"),
+]
+
+# These keywords use word-boundary matching (re.search with \b) to avoid false positives
+# e.g. "ski" must not match "Skills"
+TITLE_ACTIVITY_RULES_WORD_BOUNDARY = [
+    (r"\bski\b",     "skiing"),
+    (r"\balpine\b",  "mountaineering"),
 ]
 
 
@@ -113,12 +122,27 @@ def check_activities(courses: list, auto_hidden: list) -> list:
             continue
 
         # Title/activity mismatch → AUTO-HIDE
+        # Pass 1: substring rules (multi-word phrases, checked first)
+        matched = False
         for keywords, expected in TITLE_ACTIVITY_RULES:
             if any(kw in title_lower for kw in keywords):
                 if activity != expected:
                     reason = f"activity mismatch: title suggests {expected} but got {activity}"
                     flag_course(c["id"], reason, auto_hidden)
+                matched = True
                 break
+
+        # Pass 2: word-boundary rules (single words that need \b to avoid false positives)
+        if not matched:
+            for pattern, expected in TITLE_ACTIVITY_RULES_WORD_BOUNDARY:
+                if re.search(pattern, title_lower):
+                    # "Alpine Climbing:" titles already matched climbing above — skip alpine→mountaineering
+                    if expected == "mountaineering" and "alpine climbing" in title_lower:
+                        break
+                    if activity != expected:
+                        reason = f"activity mismatch: title suggests {expected} but got {activity}"
+                        flag_course(c["id"], reason, auto_hidden)
+                    break
 
     return email_only
 
@@ -145,8 +169,11 @@ def check_prices(courses: list, auto_hidden: list) -> list:
         # Zero or negative → AUTO-HIDE
         elif price is not None and price <= 0:
             flag_course(c["id"], f"invalid price: {price}", auto_hidden)
-        # Outlier → EMAIL ONLY
+        # Outlier → EMAIL ONLY (skip known expensive courses)
         elif price is not None and median_price > 0 and price > median_price * 5:
+            title_lower = c["title"].lower()
+            if any(kw in title_lower for kw in ("logan", "expedition", "traverse")):
+                continue  # known edge case — legitimately expensive
             email_only.append({
                 "check": "Price sanity",
                 "title": c["title"],
