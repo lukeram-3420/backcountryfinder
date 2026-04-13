@@ -30,7 +30,9 @@ PLACES_API_URL        = "https://maps.googleapis.com/maps/api/place"
 CLAUDE_MODEL          = "claude-haiku-4-5-20251001"
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5",
 }
 
 PROVIDER = {
@@ -569,14 +571,17 @@ def scrape_rezdy(provider: dict) -> list:
     catalogs = provider.get("catalogs", [])
     if catalogs:
         all_courses = []
-        seen_titles = set()
+        seen_keys = set()  # deduplicate by booking URL base (Rezdy product ID) or title
         for catalog in catalogs:
             url = f"{provider['storefront']}/{catalog}"
             log.info(f"Scraping catalog: {url}")
             courses = scrape_rezdy_page(provider, url)
             for c in courses:
-                if c["title"] not in seen_titles:
-                    seen_titles.add(c["title"])
+                # Use booking URL without UTM as dedup key (contains Rezdy product ID)
+                booking_base = (c.get("booking_url") or "").split("?")[0]
+                dedup_key = booking_base or c["title"]
+                if dedup_key not in seen_keys:
+                    seen_keys.add(dedup_key)
                     all_courses.append(c)
             time.sleep(1)
         log.info(f"Total unique courses from {provider['name']}: {len(all_courses)}")
