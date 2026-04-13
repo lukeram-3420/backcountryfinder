@@ -323,6 +323,12 @@ def scrape_course_page(url: str) -> list[dict]:
     if not soup:
         return []
 
+    # Extract og:image meta tag
+    image_url = None
+    og_image = soup.find("meta", property="og:image")
+    if og_image and og_image.get("content"):
+        image_url = og_image["content"]
+
     # Title
     title_el = soup.find("h1") or soup.find("h2")
     title = title_el.get_text(strip=True) if title_el else "Unknown Course"
@@ -354,6 +360,7 @@ def scrape_course_page(url: str) -> list[dict]:
     activity = resolve_activity(title)
     location = resolve_location(title, description)
     summary  = generate_summary(title, description)
+    log.info(f"Summary for '{title}': {'generated' if summary else 'empty'}")
     booking_url = f"{url}?{UTM}"
 
     rows = []
@@ -371,6 +378,7 @@ def scrape_course_page(url: str) -> list[dict]:
                 "date_sort":        d["date_sort"],
                 "avail":            d["avail"],
                 "price":            price,
+                "image_url":        image_url,
                 "summary":          summary,
                 "booking_url":      booking_url,
                 "active":           d["avail"] != "sold",
@@ -390,6 +398,7 @@ def scrape_course_page(url: str) -> list[dict]:
             "date_sort":        None,
             "avail":            "open",
             "price":            price,
+            "image_url":        image_url,
             "summary":          summary,
             "booking_url":      booking_url,
             "active":           True,
