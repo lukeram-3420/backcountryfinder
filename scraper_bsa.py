@@ -412,7 +412,7 @@ def collect_course_urls() -> list[str]:
             continue
         for a in soup.find_all("a", href=True):
             href = a["href"]
-            if re.search(r"blacksheepadventure\.ca/(course|trip)/[^/]+/?$", href):
+            if re.search(r"blacksheepadventure\.ca.*(course|trip)/", href):
                 if href not in seen:
                     seen.add(href)
                     urls.append(href)
