@@ -1523,6 +1523,8 @@ function showMicroToast() {
 
 // ── INIT ──
 loadActivityLabels().then(() => {
+  // Set default "from" date to today
+  document.getElementById('search-date').value = new Date().toISOString().split('T')[0];
   initProviderFilter();
   fetchCourses(0, false);
   loadActivitiesDropdown();
