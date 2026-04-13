@@ -1006,6 +1006,21 @@ def main():
             c.pop("description", None)
         sb_upsert("courses", deduped)
         log.info(f"Total courses upserted: {len(deduped)}")
+
+        # Clean up stale flexible-date rows where we now have dated rows
+        titles_with_dates = {c["title"] for c in deduped if c.get("date_sort")}
+        if titles_with_dates:
+            existing = sb_get("courses", {
+                "provider_id": f"eq.{provider['id']}",
+                "active": "eq.true",
+                "date_sort": "is.null",
+                "select": "id,title",
+            })
+            stale = [r for r in existing if r["title"] in titles_with_dates]
+            for r in stale:
+                sb_patch("courses", f"id=eq.{r['id']}", {"active": False})
+            if stale:
+                log.info(f"Deactivated {len(stale)} stale flexible-date rows now replaced by dated rows")
     else:
         log.warning("No courses scraped — keeping existing Supabase data")
 
