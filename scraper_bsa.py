@@ -91,11 +91,25 @@ LOCATION_MAP = {
 }
 
 
-def resolve_activity(title: str) -> str:
-    t = title.lower()
+def resolve_activity(title: str, url: str = "") -> str:
+    combined = (title + " " + url).lower()
+
+    # Check ACTIVITY_MAP first (highest priority)
     for kw, act in ACTIVITY_MAP.items():
-        if kw in t:
+        if kw in combined:
             return act
+
+    # URL path-based resolution for common activities
+    if "/trip/" in url:
+        if "ski" in combined:
+            return "skiing"
+    if "climb" in combined:
+        return "climbing"
+    if "mountaineer" in combined or "alpine" in combined:
+        return "mountaineering"
+    if "hike" in combined or "trek" in combined:
+        return "hiking"
+
     return "guided"
 
 
@@ -267,6 +281,8 @@ def generate_summary(title: str, description: str) -> str:
             timeout=20,
         )
         summary = r.json()["content"][0]["text"].strip()
+        # Strip leading markdown heading characters
+        summary = re.sub(r"^#+\s*", "", summary)
         _summary_cache[key] = summary
         return summary
     except Exception as e:
@@ -390,7 +406,7 @@ def scrape_course_page(url: str) -> list[dict]:
     # Dates — search full page text
     dates = parse_dates_from_text(full_text)
 
-    activity = resolve_activity(title)
+    activity = resolve_activity(title, url)
     location = resolve_location(title, description)
     summary  = generate_summary(title, description)
     log.info(f"Summary for '{title}': {'generated' if summary else 'empty'}")
