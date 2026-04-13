@@ -323,6 +323,24 @@ Never wait for manual confirmation to commit.
 | location_canonical | text | `City, Province` |
 | created_at | timestamptz | |
 
+### scraper_run_log
+| column | type | notes |
+|---|---|---|
+| id | bigint | auto-generated identity |
+| provider_id | text | not null |
+| run_at | timestamptz | default now() |
+| course_count | int | not null |
+
+One-time setup SQL:
+```sql
+CREATE TABLE IF NOT EXISTS scraper_run_log (
+  id bigint generated always as identity primary key,
+  provider_id text not null,
+  run_at timestamptz default now(),
+  course_count int not null
+);
+```
+
 ## Supabase Edge Function conventions
 
 ### Environment variable names — use these exactly
