@@ -409,7 +409,7 @@ Description: {desc}
 """
         prompt = f"""You are writing 2-sentence summaries for backcountry experience listings on a booking aggregator.
 
-For each course below, write exactly 2 sentences. Be specific and enticing. Use plain language, no marketing fluff. Do not start with the provider name or course title. Do not use the word "perfect". Write in third person.
+For each course, write a 2-sentence summary that MUST begin with the course name. The summary must be specific to that course only. Use plain language, no marketing fluff. Do not use the word "perfect". Write in third person.
 
 {items}
 
@@ -461,9 +461,9 @@ Respond with JSON only — an array of objects with "id" and "summary" keys. Exa
                 continue
             # Regenerate individually with a title-specific prompt
             regen_prompt = (
-                f"Write a unique 2-sentence summary for this specific course: '{c['title']}'. "
+                f"Write a 2-sentence summary for '{c['title']}'. "
+                f"The summary MUST start with '{c['title']}'. Be specific to this course only. "
                 f"Description: {c['description'][:400]}. "
-                f"The summary must be specific to this course and must not mention other courses or activities. "
                 f"Return only the summary text, no JSON."
             )
             try:
