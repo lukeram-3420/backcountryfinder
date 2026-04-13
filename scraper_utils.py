@@ -435,7 +435,6 @@ Respond with JSON only — an array of objects with "id" and "summary" keys. Exa
                     time.sleep(3)
                 else:
                     log.warning(f"Batch {batch_num} retry also failed: {e}")
-        time.sleep(0.5)
 
     # ── Post-processing: detect and fix duplicate summary bleed ──
     # Bleed = same summary text for courses with DIFFERENT descriptions.
@@ -495,7 +494,6 @@ Respond with JSON only — an array of objects with "id" and "summary" keys. Exa
             except Exception as e:
                 log.warning(f"Failed to regenerate summary for '{c['title']}': {e}")
                 results[cid] = ""
-            time.sleep(0.5)
 
     # Expand results: copy summaries to all IDs that share the same description
     expanded = dict(results)
