@@ -684,6 +684,10 @@
 </div>
 
 <script>
+document.addEventListener('click', e => {
+  console.log('clicked:', e.target, 'class:', e.target.className, 'pointer-events:', getComputedStyle(e.target).pointerEvents);
+}, true);
+
 const ADS_ENABLED = false;
 
 // ── CLICK TRACKING ──
@@ -1042,15 +1046,15 @@ function buildCard(c) {
     <div class="report-strip" onclick="openReport(this)" data-course-id="${c.id}" style="border-top:0.5px solid var(--color-border-tertiary);padding:7px 14px;display:flex;align-items:center;justify-content:center;cursor:pointer;background:none;width:100%;font-size:11px;color:var(--color-text-tertiary);opacity:0.35;font-family:inherit;">
       Something not right?
     </div>
-    <div class="report-panel" style="display:none;border-top:0.5px solid var(--color-border-tertiary);background:var(--color-background-secondary);padding:12px 14px;">
+    <div class="report-panel" style="display:none;border-top:0.5px solid var(--color-border-tertiary);background:var(--color-background-secondary);padding:12px 14px;pointer-events:auto;">
       <div style="font-size:11px;color:var(--color-text-tertiary);margin-bottom:9px;">What's wrong?</div>
-      <div class="report-chips" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px;">
-        <button class="chip" data-reason="button_broken">Book button didn't work</button>
-        <button class="chip" data-reason="wrong_date">Wrong date</button>
-        <button class="chip" data-reason="wrong_price">Wrong price</button>
-        <button class="chip" data-reason="sold_out">Shows open but sold out</button>
-        <button class="chip" data-reason="bad_description">Bad description</button>
-        <button class="chip" data-reason="other">Other</button>
+      <div class="report-chips" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px;pointer-events:auto;">
+        <button class="chip" data-reason="button_broken" style="pointer-events:auto;cursor:pointer;">Book button didn't work</button>
+        <button class="chip" data-reason="wrong_date" style="pointer-events:auto;cursor:pointer;">Wrong date</button>
+        <button class="chip" data-reason="wrong_price" style="pointer-events:auto;cursor:pointer;">Wrong price</button>
+        <button class="chip" data-reason="sold_out" style="pointer-events:auto;cursor:pointer;">Shows open but sold out</button>
+        <button class="chip" data-reason="bad_description" style="pointer-events:auto;cursor:pointer;">Bad description</button>
+        <button class="chip" data-reason="other" style="pointer-events:auto;cursor:pointer;">Other</button>
       </div>
       <textarea class="report-note" placeholder="Any extra detail (optional)…" style="display:none;width:100%;font-size:11px;padding:6px 8px;border-radius:6px;border:0.5px solid var(--color-border-secondary);background:var(--color-background-primary);color:var(--color-text-primary);resize:none;min-height:48px;margin-bottom:8px;font-family:inherit;"></textarea>
       <div style="display:flex;align-items:center;gap:8px;">
