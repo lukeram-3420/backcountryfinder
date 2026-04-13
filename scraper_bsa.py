@@ -124,29 +124,15 @@ def resolve_location(title: str, description: str = "") -> str:
 # ── Google Places ─────────────────────────────────────────────────────────────
 
 def find_place_id(location: str) -> dict | None:
-    """Find place info from Google Places API using two-step approach. Returns dict with place_id, rating, review_count."""
+    """Get place info from Google Places API. Returns dict with place_id, rating, review_count."""
     if not GOOGLE_KEY:
         return None
-    city = location.split(",")[0].strip()
 
-    # Step 1: Find place_id via findplacefromtext
-    url = "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
-    r = requests.get(url, params={
-        "input": city,
-        "inputtype": "textquery",
-        "fields": "place_id",
-        "key": GOOGLE_KEY,
-    })
-    response = r.json()
-    log.info(f"Google Places findplacefromtext response: {response}")
-    candidates = response.get("candidates", [])
-    if not candidates:
-        return None
-    place_id = candidates[0].get("place_id")
-    if not place_id:
-        return None
+    # Use hardcoded place_id for Black Sheep Adventure (Squamish, BC)
+    place_id = "ChIJMW6e0Ub4hlQRvCYfsv0sFgk"
+    log.info(f"Using hardcoded place_id: {place_id}")
 
-    # Step 2: Get rating and review_count via place details (old API with fallback to new API)
+    # Get rating and review_count via place details (old API with fallback to new API)
     rating = None
     review_count = None
 
