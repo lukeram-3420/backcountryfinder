@@ -194,6 +194,8 @@ def update_provider_reviews():
 
 # Map Checkfront title prefixes to WordPress category URL slugs
 CF_PREFIX_TO_CATEGORY = {
+    "rock climbing masters": "rock-climbing",
+    "rock climbing progression": "rock-climbing",
     "rock climbing":       "rock-climbing",
     "ice climbing":        "ice-climbing",
     "alpine climbing":     "alpine-climbing",
@@ -372,17 +374,18 @@ def main():
         updated += 1
         time.sleep(0.1)
 
-    # 7. Fix specific data issues — clear wrong summaries and regenerate
+    # 7. Fix specific data issues — re-scrape product pages and regenerate summaries/prices
     print("\n  Fixing specific data issues...")
     DATA_FIXES = [
-        # (cf_title, fixes_dict, needs_regeneration)
-        ("Rock Climbing: Beginner", {}, True),
-        ("Rock Climbing: Private", {}, True),
-        ("Rock Climbing Masters: Advanced", {"activity": "climbing", "activity_canonical": "climbing"}, True),
-        ("Ice Climbing: Beginner", {}, True),
-        ("Hiking & Trekking: Hiking week in the Canadian Rockies' with Lake O'Hara", {}, True),
+        # (cf_title, extra_field_patches)
+        ("Rock Climbing: Beginner", {}),
+        ("Rock Climbing: Private", {}),
+        ("Rock Climbing Progression: Intermediate", {}),
+        ("Rock Climbing Masters: Advanced", {"activity": "climbing", "activity_canonical": "climbing"}),
+        ("Ice Climbing: Beginner", {}),
+        ("Hiking & Trekking: Hiking week in the Canadian Rockies with Lake O'Hara", {}),
     ]
-    for fix_title, fix_payload, regenerate in DATA_FIXES:
+    for fix_title, fix_payload in DATA_FIXES:
         print(f"    Fixing: {fix_title}")
         # Apply explicit field fixes (e.g. activity correction)
         if fix_payload:
@@ -393,29 +396,50 @@ def main():
             )
             print(f"      Patched fields: {list(fix_payload.keys())}")
 
-        if regenerate:
-            # Try to find a matching WP product to regenerate from
-            match = best_match(fix_title, products)
-            new_summary = ""
-            if match and products[match].get("description"):
-                items = [{"title": fix_title, "description": products[match]["description"][:200]}]
-                result = generate_summaries(items)
-                new_summary = result.get(fix_title, "")
+        # Find the correct WP product match and re-scrape its page
+        match = best_match(fix_title, products)
+        if not match:
+            # Clear the wrong summary if no match found
+            sb_patch(
+                "courses",
+                f"provider_id=eq.{PROVIDER_ID}&title=eq.{requests.utils.quote(fix_title)}",
+                {"summary": ""},
+            )
+            print(f"      No WP match — summary cleared")
+            continue
+
+        wp_data = products[match]
+        # Re-scrape the product page for fresh description
+        description = scrape_product_page(wp_data["url"])
+        patch = {}
+
+        # Regenerate summary from fresh description
+        if description:
+            items = [{"title": fix_title, "description": description[:200]}]
+            result = generate_summaries(items)
+            new_summary = result.get(fix_title, "")
             if new_summary:
-                sb_patch(
-                    "courses",
-                    f"provider_id=eq.{PROVIDER_ID}&title=eq.{requests.utils.quote(fix_title)}",
-                    {"summary": new_summary},
-                )
-                print(f"      Summary regenerated: {new_summary[:60]}")
+                patch["summary"] = new_summary
+                print(f"      Summary: {new_summary[:60]}")
             else:
-                # Clear the wrong summary if we can't regenerate
-                sb_patch(
-                    "courses",
-                    f"provider_id=eq.{PROVIDER_ID}&title=eq.{requests.utils.quote(fix_title)}",
-                    {"summary": ""},
-                )
-                print(f"      Summary cleared (no match found to regenerate)")
+                patch["summary"] = ""
+                print(f"      Summary generation failed — cleared")
+        else:
+            patch["summary"] = ""
+            print(f"      No description found — summary cleared")
+
+        # Patch price from the WP product page
+        if wp_data.get("price") is not None:
+            patch["price"] = wp_data["price"]
+            print(f"      Price: ${wp_data['price']}")
+
+        if patch:
+            sb_patch(
+                "courses",
+                f"provider_id=eq.{PROVIDER_ID}&title=eq.{requests.utils.quote(fix_title)}",
+                patch,
+            )
+        time.sleep(0.3)
 
     print(f"\n  Done — updated: {updated} · overridden: {overridden} · no match: {no_match} · no price: {no_price}")
     send_summary(updated, overridden, no_match, no_price)
