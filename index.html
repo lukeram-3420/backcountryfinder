@@ -368,6 +368,36 @@
 </style>
 </head>
 <body>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  console.log('DOM ready');
+
+  // log every single click on the page with full path
+  document.addEventListener('click', e => {
+    const path = e.composedPath().map(el => {
+      if (el.tagName) return el.tagName.toLowerCase() + (el.className ? '.' + [...el.classList].join('.') : '') + (el.id ? '#' + el.id : '');
+      return '';
+    }).filter(Boolean).join(' > ');
+    console.log('CLICK TARGET:', e.target.tagName, e.target.className);
+    console.log('CLICK PATH:', path);
+    console.log('pointer-events on target:', getComputedStyle(e.target).pointerEvents);
+    console.log('---');
+  }, true); // capture phase — fires before anything else
+
+  // confirm report functions exist
+  console.log('openReport:', typeof openReport);
+  console.log('selectChip:', typeof selectChip);
+  console.log('submitReport:', typeof submitReport);
+
+  // confirm chips exist in DOM
+  const chips = document.querySelectorAll('.chip');
+  console.log('chips found on load:', chips.length);
+
+  // confirm report strips exist
+  const strips = document.querySelectorAll('.report-strip');
+  console.log('report strips found on load:', strips.length);
+});
+</script>
 
 <nav class="topnav">
   <div class="logo" id="logo-btn" onclick="showPage('search')">
