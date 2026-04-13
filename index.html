@@ -1565,7 +1565,7 @@ const reportObserver = new IntersectionObserver((entries) => {
 }, { threshold: 0.5 });
 
 function openReport(strip) {
-  const card = strip.closest('.card');
+  const card = strip.closest('.course-card');
   if (activeReportCard && activeReportCard !== card) {
     resetReport(activeReportCard);
     reportObserver.unobserve(activeReportCard);
@@ -1577,7 +1577,7 @@ function openReport(strip) {
 }
 
 function closeReport(btn) {
-  const card = btn.closest('.card');
+  const card = btn.closest('.course-card');
   resetReport(card);
   if (activeReportCard === card) {
     reportObserver.unobserve(card);
@@ -1614,7 +1614,7 @@ document.addEventListener('click', e => {
 });
 
 async function submitReport(btn) {
-  const card      = btn.closest('.card');
+  const card      = btn.closest('.course-card');
   const panel     = card.querySelector('.report-panel');
   const strip     = card.querySelector('.report-strip');
   const courseId  = strip.dataset.courseId;
