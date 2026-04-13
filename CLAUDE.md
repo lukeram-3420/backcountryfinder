@@ -46,7 +46,7 @@ In production, scrapers run via GitHub Actions with `workflow_dispatch` (manual 
 - **Booking URLs** must always append `utm_source=backcountryfinder&utm_medium=referral`
 - **Stable ID format:** `{provider_id}-{activity}-{date_sort}`
 - **Availability (`avail`) values:** `open`, `low`, `critical`, `sold` — sold courses set `active=false`
-- **Activity canonical values** (use exactly these): `skiing`, `climbing`, `mountaineering`, `hiking`, `biking`, `fishing`, `heli`, `cat`, `huts`, `guided`, `glissading`, `rappelling`, `snowshoeing`, `via_ferrata`
+- **Activity canonical values** (use exactly these): `skiing`, `climbing`, `mountaineering`, `hiking`, `biking`, `fishing`, `heli`, `cat`, `huts`, `guided`, `glissading`, `rappelling`, `snowshoeing`, `via_ferrata`, `avalanche_safety`
 - **Location canonical format:** `"City, Province"` e.g. `"Canmore, AB"` — for ranges use `"Area Name, BC"` e.g. `"Rogers Pass, BC"`
 - **Playwright scrapers** get their own standalone file (e.g. `scraper_yamnuska.py`), never added to `scraper.py`
 - **GitHub Actions workflows:** `.github/workflows/scraper-{id}.yml`
