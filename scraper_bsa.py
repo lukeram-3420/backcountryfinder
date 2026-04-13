@@ -110,27 +110,43 @@ def resolve_location(title: str, description: str = "") -> str:
 # ── Google Places ─────────────────────────────────────────────────────────────
 
 def find_place_id(location: str) -> dict | None:
-    """Find place info from Google Places API. Returns dict with place_id, rating, review_count."""
+    """Find place info from Google Places API using two-step approach. Returns dict with place_id, rating, review_count."""
     if not GOOGLE_KEY:
         return None
     city = location.split(",")[0].strip()
+
+    # Step 1: Find place_id via findplacefromtext
     url = "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
     r = requests.get(url, params={
         "input": city,
         "inputtype": "textquery",
-        "fields": "place_id,rating,user_ratings_total",
+        "fields": "place_id",
         "key": GOOGLE_KEY,
     })
     response = r.json()
-    log.info(f"Google Places API response: {response}")
+    log.info(f"Google Places findplacefromtext response: {response}")
     candidates = response.get("candidates", [])
     if not candidates:
         return None
-    c = candidates[0]
+    place_id = candidates[0].get("place_id")
+    if not place_id:
+        return None
+
+    # Step 2: Get rating and review_count via place details
+    details_url = "https://maps.googleapis.com/maps/api/place/details/json"
+    r = requests.get(details_url, params={
+        "place_id": place_id,
+        "fields": "rating,user_ratings_total",
+        "key": GOOGLE_KEY,
+    })
+    details = r.json()
+    log.info(f"Google Places details response: {details}")
+    result = details.get("result", {})
+
     return {
-        "place_id": c.get("place_id"),
-        "rating": c.get("rating"),
-        "review_count": c.get("user_ratings_total"),
+        "place_id": place_id,
+        "rating": result.get("rating"),
+        "review_count": result.get("user_ratings_total"),
     }
 
 
