@@ -434,7 +434,7 @@
       </div>
       <div class="search-field" style="flex:1;" >
         <label>From when</label>
-        <input type="date" id="search-date" value="2026-04-13" onchange="this.classList.toggle('has-value', !!this.value); debouncedSearch()">
+        <input type="date" id="search-date" onchange="this.classList.toggle('has-value', !!this.value); debouncedSearch()">
       </div>
       <button class="search-go" onclick="runSearch()">Search →</button>
     </div>
@@ -1523,6 +1523,8 @@ function showMicroToast() {
 
 // ── INIT ──
 loadActivityLabels().then(() => {
+  // Set default "from" date to today
+  document.getElementById('search-date').value = new Date().toISOString().split('T')[0];
   initProviderFilter();
   fetchCourses(0, false);
   loadActivitiesDropdown();
