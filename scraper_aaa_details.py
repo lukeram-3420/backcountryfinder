@@ -15,21 +15,16 @@ import anthropic
 import requests
 from bs4 import BeautifulSoup
 
+from scraper_utils import (
+    sb_get, sb_patch, sb_upsert,
+    find_place_id, get_place_details, send_email,
+    SUPABASE_URL, SUPABASE_KEY, RESEND_API_KEY,
+    GOOGLE_PLACES_API_KEY, ANTHROPIC_API_KEY,
+)
+
 # ── Config ────────────────────────────────────────────────────────────────────
 PROVIDER_ID   = "aaa"
-SUPABASE_URL  = os.environ["SUPABASE_URL"]
-SUPABASE_KEY  = os.environ["SUPABASE_SERVICE_KEY"]
-RESEND_KEY    = os.environ["RESEND_API_KEY"]
-GOOGLE_KEY    = os.environ.get("GOOGLE_PLACES_API_KEY", "")
-ANTHROPIC_KEY = os.environ["ANTHROPIC_API_KEY"]
 NOTIFY_EMAIL  = "luke@backcountryfinder.com"
-
-SUPABASE_HEADERS = {
-    "apikey":        SUPABASE_KEY,
-    "Authorization": f"Bearer {SUPABASE_KEY}",
-    "Content-Type":  "application/json",
-    "Prefer":        "resolution=merge-duplicates",
-}
 
 CATEGORY_PAGES = [
     "https://alpineairadventures.com/backcountry-skiing/",
@@ -49,7 +44,6 @@ HEADERS = {
 }
 
 # ── Manual fuzzy match overrides ──────────────────────────────────────────────
-# Checkfront title → WordPress title (None = no WP page, use MANUAL_OVERRIDES)
 MANUAL_MATCHES = {
     "Backcountry Skiing: Ski Touring & Splitboarding (Private)": "Ski Touring & Splitboarding: Private",
     "Backcountry Skiing: Ski Touring & Splitboarding (Spring)":  "Ski Touring & Splitboarding: Spring Rockies",
@@ -63,7 +57,6 @@ MANUAL_MATCHES = {
     "Rock Climbing: Rappelling":                                None,
 }
 
-# ── Manual overrides for courses with no WordPress product page ───────────────
 MANUAL_OVERRIDES = {
     "Backcountry Riding: Intro Backcountry Riding": {
         "price":   130,
@@ -74,25 +67,6 @@ MANUAL_OVERRIDES = {
         "summary": "Learn fundamental rappelling techniques on Banff's stunning rock faces.",
     },
 }
-
-# ── Supabase helpers ──────────────────────────────────────────────────────────
-def sb_get(path, params=""):
-    r = requests.get(
-        f"{SUPABASE_URL}/rest/v1/{path}?{params}",
-        headers=SUPABASE_HEADERS
-    )
-    r.raise_for_status()
-    return r.json()
-
-def sb_patch(path, params, payload):
-    r = requests.patch(
-        f"{SUPABASE_URL}/rest/v1/{path}?{params}",
-        headers=SUPABASE_HEADERS,
-        json=payload
-    )
-    if not r.ok:
-        print(f"  ⚠ Supabase PATCH error {r.status_code}: {r.text[:200]}")
-    r.raise_for_status()
 
 # ── Fetch category pages → {wp_title: {price, url}} ──────────────────────────
 def scrape_category_pages() -> dict:
@@ -162,7 +136,7 @@ def scrape_product_page(url: str) -> str:
 
 # ── Haiku summaries ───────────────────────────────────────────────────────────
 def generate_summaries(items: list) -> dict:
-    client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     prompt = (
         "For each course below, write a single punchy 1-sentence description "
         "(≤18 words) for a backcountry adventure aggregator. "
@@ -189,7 +163,7 @@ def generate_summaries(items: list) -> dict:
 # ── Google Places ─────────────────────────────────────────────────────────────
 def update_provider_reviews():
     print("  Fetching google_place_id from providers table...")
-    rows = sb_get("providers", f"id=eq.{PROVIDER_ID}&select=google_place_id")
+    rows = sb_get("providers", {"id": f"eq.{PROVIDER_ID}", "select": "google_place_id"})
     if not rows or not rows[0].get("google_place_id"):
         print("  ⚠ No google_place_id found — skipping reviews")
         return
@@ -197,17 +171,9 @@ def update_provider_reviews():
     place_id = rows[0]["google_place_id"]
     print(f"  Place ID: {place_id}")
 
-    r = requests.get(
-        "https://maps.googleapis.com/maps/api/place/details/json",
-        params={
-            "place_id": place_id,
-            "fields":   "rating,user_ratings_total",
-            "key":      GOOGLE_KEY
-        }
-    )
-    result = r.json().get("result", {})
-    rating       = result.get("rating")
-    review_count = result.get("user_ratings_total")
+    details = get_place_details(place_id)
+    rating       = details.get("rating")
+    review_count = details.get("review_count")
 
     if rating is None:
         print("  ⚠ No rating returned from Google Places")
@@ -262,14 +228,10 @@ def send_summary(updated: int, overridden: int, no_match: int, no_price: int):
         f"no price <strong>{no_price}</strong>.</p>"
         f"<p>{datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC</p>"
     )
-    requests.post(
-        "https://api.resend.com/emails",
-        headers={"Authorization": f"Bearer {RESEND_KEY}",
-                 "Content-Type": "application/json"},
-        json={"from":    "scraper@backcountryfinder.com",
-              "to":      NOTIFY_EMAIL,
-              "subject": "✅ Scraper — Alpine Air Adventures Details",
-              "html":    body}
+    send_email(
+        "✅ Scraper — Alpine Air Adventures Details",
+        body,
+        to=NOTIFY_EMAIL,
     )
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -277,7 +239,7 @@ def main():
     print("🏔 Alpine Air Adventures — details scraper")
 
     # 1. Update Google reviews
-    if GOOGLE_KEY:
+    if GOOGLE_PLACES_API_KEY:
         update_provider_reviews()
     else:
         print("  ⚠ No GOOGLE_PLACES_API_KEY — skipping reviews")
@@ -306,7 +268,7 @@ def main():
     print("\n  Fetching existing aaa courses from Supabase...")
     cf_courses = sb_get(
         "courses",
-        f"provider_id=eq.{PROVIDER_ID}&select=title&active=eq.true"
+        {"provider_id": f"eq.{PROVIDER_ID}", "select": "title", "active": "eq.true"}
     )
     cf_titles = list({c["title"] for c in cf_courses})
     print(f"  Found {len(cf_titles)} unique course titles in Supabase")
@@ -319,7 +281,6 @@ def main():
     no_price   = 0
 
     for cf_title in cf_titles:
-        # Apply manual overrides first
         if cf_title in MANUAL_OVERRIDES:
             override = MANUAL_OVERRIDES[cf_title]
             payload  = {k: v for k, v in override.items() if v is not None}
@@ -333,7 +294,6 @@ def main():
             overridden += 1
             continue
 
-        # Fuzzy match to WordPress
         match = best_match(cf_title, list(products.keys()))
 
         if match is None and cf_title in MANUAL_MATCHES:

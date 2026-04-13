@@ -1,4 +1,4 @@
-name: Scraper — Summit Mountain Guides
+name: Scraper — Skaha Rock Adventures
 
 on:
   workflow_dispatch:
@@ -12,9 +12,9 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install dependencies
-        run: pip install requests beautifulsoup4
+        run: pip install requests beautifulsoup4 anthropic
       - name: Run scraper
-        run: python scraper.py --provider summit
+        run: python scraper_skaha_rock_adventures.py
         env:
           SUPABASE_URL:          ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY:  ${{ secrets.SUPABASE_SERVICE_KEY }}

@@ -12,9 +12,9 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install dependencies
-        run: pip install requests beautifulsoup4
+        run: pip install requests beautifulsoup4 anthropic
       - name: Run scraper
-        run: python scraper.py --provider cwms
+        run: python scraper_cwms.py
         env:
           SUPABASE_URL:          ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY:  ${{ secrets.SUPABASE_SERVICE_KEY }}

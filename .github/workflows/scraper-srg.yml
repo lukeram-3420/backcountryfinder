@@ -1,4 +1,4 @@
-name: Scraper — Skaha Rock Adventures
+name: Scraper — Squamish Rock Guides
 
 on:
   workflow_dispatch:
@@ -8,16 +8,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-
       - uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-
       - name: Install dependencies
-        run: pip install requests beautifulsoup4
-
+        run: pip install requests beautifulsoup4 anthropic
       - name: Run scraper
-        run: python scraper.py --provider skaha-rock-adventures
+        run: python scraper_srg.py
         env:
           SUPABASE_URL:          ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY:  ${{ secrets.SUPABASE_SERVICE_KEY }}

@@ -15,6 +15,13 @@ import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, date
 
+from scraper_utils import (
+    sb_upsert, sb_patch, sb_get,
+    send_email, append_utm,
+    SUPABASE_URL, SUPABASE_KEY, RESEND_API_KEY, ANTHROPIC_API_KEY,
+    GOOGLE_PLACES_API_KEY, UTM,
+)
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
@@ -26,14 +33,6 @@ PROVIDER = {
     "website":  "https://blacksheepadventure.ca",
     "location": "Squamish, BC",
 }
-
-SUPABASE_URL = os.environ["SUPABASE_URL"]
-SUPABASE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
-RESEND_KEY   = os.environ.get("RESEND_API_KEY", "")
-ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-GOOGLE_KEY   = os.environ.get("GOOGLE_PLACES_API_KEY", "")
-
-UTM = "utm_source=backcountryfinder&utm_medium=referral"
 
 # Course listing pages to crawl
 LISTING_PAGES = [
@@ -93,13 +92,9 @@ LOCATION_MAP = {
 
 def resolve_activity(title: str, url: str = "") -> str:
     combined = (title + " " + url).lower()
-
-    # Check ACTIVITY_MAP first (highest priority)
     for kw, act in ACTIVITY_MAP.items():
         if kw in combined:
             return act
-
-    # URL path-based resolution for common activities
     if "/trip/" in url:
         if "ski" in combined:
             return "skiing"
@@ -109,7 +104,6 @@ def resolve_activity(title: str, url: str = "") -> str:
         return "mountaineering"
     if "hike" in combined or "trek" in combined:
         return "hiking"
-
     return "guided"
 
 
@@ -123,25 +117,22 @@ def resolve_location(title: str, description: str = "") -> str:
 
 # ── Google Places ─────────────────────────────────────────────────────────────
 
-def find_place_id(location: str) -> dict | None:
+def find_place_id_bsa(location: str) -> dict | None:
     """Get place info from Google Places API. Returns dict with place_id, rating, review_count."""
-    if not GOOGLE_KEY:
+    if not GOOGLE_PLACES_API_KEY:
         return None
 
-    # Use hardcoded place_id for Black Sheep Adventure (Squamish, BC)
     place_id = "ChIJMW6e0Ub4hlQRvCYfsv0sFgk"
     log.info(f"Using hardcoded place_id: {place_id}")
 
-    # Get rating and review_count via place details (old API with fallback to new API)
     rating = None
     review_count = None
 
-    # Try old Places Details API first
     details_url = "https://maps.googleapis.com/maps/api/place/details/json"
     r = requests.get(details_url, params={
         "place_id": place_id,
         "fields": "rating,user_ratings_total",
-        "key": GOOGLE_KEY,
+        "key": GOOGLE_PLACES_API_KEY,
     })
     details = r.json()
     log.info(f"Google Places old API details response: {details}")
@@ -149,12 +140,11 @@ def find_place_id(location: str) -> dict | None:
     rating = result.get("rating")
     review_count = result.get("user_ratings_total")
 
-    # If old API didn't return rating, try new API v1
     if not rating:
         log.info(f"Old API returned no rating, trying new API v1")
         new_api_url = f"https://places.googleapis.com/v1/places/{place_id}"
         r = requests.get(new_api_url, headers={
-            "X-Goog-Api-Key": GOOGLE_KEY,
+            "X-Goog-Api-Key": GOOGLE_PLACES_API_KEY,
             "X-Goog-FieldMask": "rating,userRatingCount",
         })
         new_details = r.json()
@@ -173,63 +163,33 @@ def update_provider_place_id(provider_id: str, place_info: dict):
     """Update providers table with place_id, rating, and review_count."""
     if not place_info:
         return
-    r = requests.patch(
-        f"{SUPABASE_URL}/rest/v1/providers",
-        headers=sb_headers(),
-        params={"id": f"eq.{provider_id}"},
-        json={
+    sb_patch(
+        "providers",
+        f"id=eq.{provider_id}",
+        {
             "google_place_id": place_info.get("place_id"),
             "rating": place_info.get("rating"),
             "review_count": place_info.get("review_count"),
         },
     )
-    r.raise_for_status()
     log.info(f"Updated provider {provider_id} with place info")
-
-
 
 
 # ── Supabase helpers ──────────────────────────────────────────────────────────
 
-def sb_headers():
-    return {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates",
-    }
-
-
 def upsert_courses(rows: list[dict]):
     if not rows:
         return
-    r = requests.post(
-        f"{SUPABASE_URL}/rest/v1/courses",
-        headers=sb_headers(),
-        json=rows,
-    )
-    print(r.text)
-    r.raise_for_status()
-    log.info(f"Upserted {len(rows)} courses")
+    sb_upsert("courses", rows)
 
 
 def deactivate_missing(seen_ids: set[str]):
     """Set active=false for courses not seen this run."""
-    r = requests.get(
-        f"{SUPABASE_URL}/rest/v1/courses",
-        headers=sb_headers(),
-        params={"provider_id": f"eq.{PROVIDER['id']}", "select": "id"},
-    )
-    r.raise_for_status()
-    existing = {row["id"] for row in r.json()}
+    existing_rows = sb_get("courses", {"provider_id": f"eq.{PROVIDER['id']}", "select": "id"})
+    existing = {row["id"] for row in existing_rows}
     to_deactivate = existing - seen_ids
     for cid in to_deactivate:
-        requests.patch(
-            f"{SUPABASE_URL}/rest/v1/courses",
-            headers=sb_headers(),
-            params={"id": f"eq.{cid}"},
-            json={"active": False},
-        ).raise_for_status()
+        sb_patch("courses", f"id=eq.{cid}", {"active": False})
     if to_deactivate:
         log.info(f"Deactivated {len(to_deactivate)} stale courses")
 
@@ -243,13 +203,13 @@ def generate_summary(title: str, description: str) -> str:
     key = title.strip().lower()
     if key in _summary_cache:
         return _summary_cache[key]
-    if not ANTHROPIC_KEY or not description:
+    if not ANTHROPIC_API_KEY or not description:
         return ""
     try:
         r = requests.post(
             "https://api.anthropic.com/v1/messages",
             headers={
-                "x-api-key": ANTHROPIC_KEY,
+                "x-api-key": ANTHROPIC_API_KEY,
                 "anthropic-version": "2023-06-01",
                 "content-type": "application/json",
             },
@@ -267,7 +227,6 @@ def generate_summary(title: str, description: str) -> str:
             timeout=20,
         )
         summary = r.json()["content"][0]["text"].strip()
-        # Strip leading markdown heading characters
         summary = re.sub(r"^#+\s*", "", summary)
         _summary_cache[key] = summary
         return summary
@@ -290,8 +249,6 @@ def fetch(url: str) -> BeautifulSoup | None:
 
 # ── Date / availability parsing ───────────────────────────────────────────────
 
-# Matches patterns like: "✓ March 3rd (4 Days)" or "March 3rd (4 Days)" or
-# "February 14-15" or "January 20 (2 Days)"
 DATE_PATTERN = re.compile(
     r"(✓|✗|•)?\s*"
     r"(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
@@ -307,10 +264,6 @@ MONTH_MAP = {
 
 
 def parse_dates_from_text(text: str) -> list[dict]:
-    """
-    Returns list of dicts with keys: date_str, date_sort, avail, duration_days
-    Checkmark prefix (✓) = open, ✗ = sold out, no prefix = open.
-    """
     results = []
     current_year = date.today().year
     for m in DATE_PATTERN.finditer(text):
@@ -319,7 +272,6 @@ def parse_dates_from_text(text: str) -> list[dict]:
         month_num = MONTH_MAP.get(month_key, 1)
         day = int(day_str)
 
-        # Guess year — if month already passed this year assume next year
         yr = current_year
         if month_num < date.today().month:
             yr = current_year + 1
@@ -348,61 +300,50 @@ def parse_dates_from_text(text: str) -> list[dict]:
 
 # ── Course page scraping ──────────────────────────────────────────────────────
 
-def stable_id(provider_id: str, activity: str, date_sort: str, title: str) -> str:
-    """Generate stable ID with format: {provider_id}-{activity}-{date_sort}-{hash}"""
+def stable_id_bsa(provider_id: str, activity: str, date_sort: str, title: str) -> str:
     h = hashlib.md5(title.encode()).hexdigest()[:6]
     return f"{provider_id}-{activity}-{date_sort}-{h}"
 
 
 def scrape_course_page(url: str) -> list[dict]:
-    """Scrape a single course/trip detail page and return course rows."""
     soup = fetch(url)
     if not soup:
         return []
 
-    # Extract og:image meta tag
     image_url = None
     og_image = soup.find("meta", property="og:image")
     if og_image and og_image.get("content"):
         image_url = og_image["content"]
 
-    # Title
     title_el = soup.find("h1") or soup.find("h2")
     title = title_el.get_text(strip=True) if title_el else "Unknown Course"
 
-    # Description — grab first substantial paragraph
     paras = soup.find_all("p")
     chunks = [p.get_text(strip=True) for p in paras if len(p.get_text(strip=True)) > 60]
     description = " ".join(chunks[:3])
     log.info(f"Description length for '{title}': {len(description)} chars")
 
-    # Price — look for "$" pattern
     price = None
     price_pattern = re.compile(r"\$\s?(\d[\d,]+)")
     full_text = soup.get_text()
     price_matches = price_pattern.findall(full_text)
     if price_matches:
-        # Take the first reasonable price (> $50)
         for pm in price_matches:
             val = int(pm.replace(",", ""))
             if val > 50:
                 price = val
                 break
 
-    # Dates — search only in relevant text near booking keywords or in specific elements
     relevant_texts = []
-    # Find text containing booking keywords
     booking_keywords = re.compile(r"(BOOK NOW|Book Now)", re.IGNORECASE)
     for element in soup.find_all(string=booking_keywords):
         parent = element.parent
         if parent:
             relevant_texts.append(parent.get_text())
-    # Also, find elements with relevant class names
     class_keywords = ["book", "date", "schedule", "availability"]
     for kw in class_keywords:
         for el in soup.find_all(class_=re.compile(kw, re.IGNORECASE)):
             relevant_texts.append(el.get_text())
-    # Remove duplicates and join
     unique_texts = list(set(relevant_texts))
     combined_text = " ".join(unique_texts)
     dates = parse_dates_from_text(combined_text) if combined_text else []
@@ -411,16 +352,12 @@ def scrape_course_page(url: str) -> list[dict]:
     location = resolve_location(title, description)
     summary  = generate_summary(title, description)
     log.info(f"Summary for '{title}': {'generated' if summary else 'empty'}")
-    # Booking URL — append UTM only if not already present
-    booking_url = url
-    if "utm_source" not in url:
-        sep = "&" if "?" in url else "?"
-        booking_url = f"{url}{sep}{UTM}"
+    booking_url = append_utm(url)
 
     rows = []
     if dates:
         for d in dates:
-            cid = stable_id(PROVIDER["id"], activity, d["date_sort"], title)
+            cid = stable_id_bsa(PROVIDER["id"], activity, d["date_sort"], title)
             rows.append({
                 "id":               cid,
                 "provider_id":      PROVIDER["id"],
@@ -440,8 +377,7 @@ def scrape_course_page(url: str) -> list[dict]:
                 "spots_remaining":  None,
             })
     else:
-        # No specific dates found — create a single evergreen row with null date
-        cid = stable_id(PROVIDER["id"], activity, "evergreen", title)
+        cid = stable_id_bsa(PROVIDER["id"], activity, "evergreen", title)
         rows.append({
             "id":               cid,
             "provider_id":      PROVIDER["id"],
@@ -467,10 +403,6 @@ def scrape_course_page(url: str) -> list[dict]:
 # ── Listing page crawl ────────────────────────────────────────────────────────
 
 def collect_course_urls() -> list[str]:
-    """
-    Crawl listing pages and collect individual course/trip page URLs.
-    URLs follow patterns: /course/{slug}/ or /trip/{slug}/
-    """
     seen = set()
     urls = []
     for listing in LISTING_PAGES:
@@ -496,26 +428,15 @@ def collect_course_urls() -> list[str]:
 # ── Email summary ─────────────────────────────────────────────────────────────
 
 def send_summary(total: int, upserted: int):
-    if not RESEND_KEY:
+    if not RESEND_API_KEY:
         return
-    try:
-        requests.post(
-            "https://api.resend.com/emails",
-            headers={"Authorization": f"Bearer {RESEND_KEY}", "Content-Type": "application/json"},
-            json={
-                "from":    "scraper@backcountryfinder.com",
-                "to":      ["luke@backcountryfinder.com"],
-                "subject": f"[BSA scraper] {upserted} courses upserted",
-                "html": (
-                    f"<p><b>Black Sheep Adventure</b> scrape complete.</p>"
-                    f"<p>Course pages scraped: {total}<br>"
-                    f"Rows upserted: {upserted}</p>"
-                ),
-            },
-            timeout=10,
-        )
-    except Exception as e:
-        log.warning(f"Email send failed: {e}")
+    send_email(
+        f"[BSA scraper] {upserted} courses upserted",
+        f"<p><b>Black Sheep Adventure</b> scrape complete.</p>"
+        f"<p>Course pages scraped: {total}<br>"
+        f"Rows upserted: {upserted}</p>",
+        to="luke@backcountryfinder.com",
+    )
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -523,15 +444,13 @@ def send_summary(total: int, upserted: int):
 def main():
     log.info(f"Starting scraper: {PROVIDER['name']}")
 
-    # Resolve Google Place ID and rating
-    place_info = find_place_id(PROVIDER["location"])
+    place_info = find_place_id_bsa(PROVIDER["location"])
     if place_info:
         log.info(f"Place ID found: {place_info['place_id']}")
         update_provider_place_id(PROVIDER["id"], place_info)
     else:
         log.warning("Place ID not found")
 
-    # Crawl listing pages → collect individual URLs
     course_urls = collect_course_urls()
 
     all_rows = []
@@ -540,10 +459,8 @@ def main():
         all_rows.extend(rows)
         log.info(f"  {url} → {len(rows)} row(s)")
 
-    # Filter out international trips (location_raw=None)
     all_rows = [r for r in all_rows if r["location_raw"] is not None]
 
-    # Deduplicate by id, keeping first occurrence
     seen_ids = set()
     deduplicated_rows = []
     for row in all_rows:

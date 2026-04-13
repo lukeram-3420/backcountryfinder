@@ -2,8 +2,6 @@ name: Scraper — Black Sheep Adventure
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 8 * * *'   # daily at 08:00 UTC (midnight PT) — dates change infrequently
 
 jobs:
   scrape:
@@ -16,7 +14,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4
+        run: pip install requests beautifulsoup4 anthropic
 
       - name: Run scraper
         run: python scraper_bsa.py

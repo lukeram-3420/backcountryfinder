@@ -8,6 +8,12 @@ from bs4 import BeautifulSoup
 from datetime import datetime
 from anthropic import Anthropic
 
+from scraper_utils import (
+    sb_upsert, sb_patch, send_email,
+    SUPABASE_URL, SUPABASE_KEY, RESEND_API_KEY, ANTHROPIC_API_KEY,
+    GOOGLE_PLACES_API_KEY,
+)
+
 # ── Config ────────────────────────────────────────────────────────────────────
 PROVIDER_ID   = "jht"
 PROVIDER_NAME = "Jasper Hikes & Tours"
@@ -27,11 +33,6 @@ PAGES = [
     ("/wildlife-tours",      "guided",         "Jasper, AB"),
 ]
 
-SUPABASE_URL = os.environ["SUPABASE_URL"]
-SUPABASE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
-RESEND_KEY   = os.environ.get("RESEND_API_KEY", "")
-ANTHROPIC_KEY = os.environ["ANTHROPIC_API_KEY"]
-
 HEADERS_SB = {
     "apikey": SUPABASE_KEY,
     "Authorization": f"Bearer {SUPABASE_KEY}",
@@ -46,29 +47,7 @@ MONTH_MAP = {
     "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
 }
 
-# ── Supabase helpers ──────────────────────────────────────────────────────────
-def sb_upsert(table, rows):
-    r = requests.post(
-        f"{SUPABASE_URL}/rest/v1/{table}",
-        headers={**HEADERS_SB, "Prefer": "resolution=merge-duplicates"},
-        json=rows,
-    )
-    if not r.ok:
-        print("ERROR upserting to Supabase:", r.status_code)
-        print(r.text)
-    r.raise_for_status()
-
-
-def sb_patch(table, col, val, data):
-    r = requests.patch(
-        f"{SUPABASE_URL}/rest/v1/{table}?{col}=eq.{val}",
-        headers=HEADERS_SB,
-        json=data,
-    )
-    print(f"PATCH response: {r.status_code} {r.text}")
-    r.raise_for_status()
-
-
+# ── Retry session ────────────────────────────────────────────────────────────
 def requests_retry_session(
     retries=3,
     backoff_factor=0.5,
@@ -91,7 +70,7 @@ def requests_retry_session(
 
 # ── Google Places ─────────────────────────────────────────────────────────────
 def find_place_details(location_str):
-    api_key = os.environ.get("GOOGLE_PLACES_API_KEY", "")
+    api_key = GOOGLE_PLACES_API_KEY
     if not api_key:
         return None, None, None
     city = location_str.split(",")[0].strip()
@@ -111,21 +90,13 @@ def find_place_details(location_str):
     return c.get("place_id"), c.get("rating"), c.get("user_ratings_total")
 
 
-def find_place_id(location_str):
+def find_place_id_jht(location_str):
     place_id, _, _ = find_place_details(location_str)
     return place_id
 
 # ── Date parsing ──────────────────────────────────────────────────────────────
 def parse_dates_from_text(text):
-    """
-    Extract date ranges from patterns like:
-      "Feb. 24-25th"  → ["2026-02-24", "2026-02-25"]
-      "Feb. 17-20th"  → ["2026-02-17", "2026-02-20"]  (start date used)
-      "Mar. 1-2"      → ["2026-03-01", "2026-03-02"]
-    Returns list of (start_date_str, end_date_str, display_str) tuples.
-    """
     results = []
-    # Pattern: Month. D-Dth or Month D-D
     pattern = re.compile(
         r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?' \
         r'\s+' \
@@ -139,7 +110,6 @@ def parse_dates_from_text(text):
             continue
         day_start = int(m.group(2))
         day_end   = int(m.group(3))
-        # Figure out year — if month already passed, use next year
         year = CURRENT_YEAR
         if month_num < datetime.today().month:
             year += 1
@@ -151,13 +121,11 @@ def parse_dates_from_text(text):
 
 
 def parse_spots(text):
-    """Extract spots remaining from text like '4 spots available' or '3 SPOTS LEFT'."""
     m = re.search(r'(\d+)\s+spots?\s+(available|left|remaining)', text, re.IGNORECASE)
     return int(m.group(1)) if m else None
 
 
 def parse_price(text):
-    """Extract the first dollar amount over $50, e.g. '$299' or '$349 + GST'."""
     m = re.search(r'\$(\d+)', text)
     return int(m.group(1)) if m and int(m.group(1)) >= 50 else None
 
@@ -165,7 +133,7 @@ def parse_price(text):
 def clean_title(title):
     title = title.strip()
     title = re.sub(
-        r'^(?:[A-Za-z]{3}\.\s*\d{1,2}(?:[-–]\d{1,2})(?:st|nd|rd|th)?(?:,\s*\d{4})?:\s*)',
+        r'^(?:[A-Za-z]{3}\.\s*\d{1,2}(?:[-–]\d{1,2})(?:st|nd|rd|th)?,?\s*\d{4})?:\s*',
         '',
         title,
         flags=re.IGNORECASE,
@@ -193,12 +161,10 @@ def is_body_heading(title):
 
 
 def is_full(text):
-    """Detect explicit full availability language in the course text."""
     return bool(re.search(r'\bfull\b|full!', text, re.IGNORECASE))
 
 
 def has_no_availability(text):
-    """Detect explicit 'no availability' language."""
     return bool(re.search(
         r'no availability|sold out|no dates|not available|cancelled',
         text, re.IGNORECASE,
@@ -206,7 +172,6 @@ def has_no_availability(text):
 
 
 def resolve_location_from_text(text, default_location):
-    """Override location if McBride/Robson mentioned near a date."""
     if re.search(r'mcbride|robson', text, re.IGNORECASE):
         return "McBride, BC"
     if re.search(r'jasper', text, re.IGNORECASE):
@@ -233,7 +198,7 @@ def avail_value(spots):
 
 # ── Summary generation ────────────────────────────────────────────────────────
 def generate_summary(title, description):
-    client = Anthropic(api_key=ANTHROPIC_KEY)
+    client = Anthropic(api_key=ANTHROPIC_API_KEY)
     try:
         msg = client.messages.create(
             model="claude-haiku-4-5-20251001",
@@ -257,12 +222,9 @@ def scrape_page(path, default_activity, default_location):
     r.raise_for_status()
     soup = BeautifulSoup(r.text, "html.parser")
 
-    # Get all text blocks — Squarespace puts content in <p>, <h2>, <h3>, <strong>
-    # We walk section by section using headings as course delimiters
     courses = []
     full_text = soup.get_text(separator="\n")
 
-    # Split on h1/h2/h3 headings to get course sections
     headings = soup.find_all(["h1", "h2", "h3"])
     sections = []
     for heading in headings:
@@ -291,13 +253,11 @@ def scrape_page(path, default_activity, default_location):
         if len(title) < 8 or title.lower().startswith("this is a") or title.lower() in ("rates:", "how to sign up:", "what's next?"):
             continue
 
-        # Skip if no dates found and explicit no-availability
         dates = parse_dates_from_text(section_text)
         if not dates and has_no_availability(section_text):
             print(f"  ✗ {title} — no availability, skipping")
             continue
         if not dates:
-            # No dates means on-request only — skip (no concrete upcoming date to show)
             continue
 
         price  = parse_price(section_text)
@@ -305,7 +265,6 @@ def scrape_page(path, default_activity, default_location):
         location = resolve_location_from_text(section_text, default_location)
         sold   = is_full(title) or is_full(section_text)
 
-        # Determine activity from title
         activity = default_activity
         t = title.lower()
         if "ast 1" in t or "ast1" in t:
@@ -372,26 +331,20 @@ def scrape_page(path, default_activity, default_location):
 
 # ── Email summary ─────────────────────────────────────────────────────────────
 def send_summary(upserted, skipped, errors):
-    if not RESEND_KEY:
+    if not RESEND_API_KEY:
         return
-    requests.post(
-        "https://api.resend.com/emails",
-        headers={"Authorization": f"Bearer {RESEND_KEY}", "Content-Type": "application/json"},
-        json={
-            "from": "scraper@backcountryfinder.com",
-            "to": ["luke@backcountryfinder.com"],
-            "subject": f"JHT scraper — {upserted} courses upserted",
-            "html": f"<h2>JHT Scraper Complete</h2><p>Upserted: {upserted} | Skipped: {skipped} | Errors: {errors}</p>",
-        },
+    send_email(
+        f"JHT scraper — {upserted} courses upserted",
+        f"<h2>JHT Scraper Complete</h2><p>Upserted: {upserted} | Skipped: {skipped} | Errors: {errors}</p>",
+        to="luke@backcountryfinder.com",
     )
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     print(f"── {PROVIDER_NAME} scraper starting ──")
 
-    # Upsert provider row
     place_id_jasper, rating, review_count = find_place_details("Jasper, AB")
-    place_id_mcbride = find_place_id("McBride, BC")
+    place_id_mcbride = find_place_id_jht("McBride, BC")
     print(f"Place IDs — Jasper: {place_id_jasper} | McBride: {place_id_mcbride}")
 
     sb_upsert("providers", [{
@@ -403,7 +356,7 @@ def main():
     }])
 
     if rating:
-        sb_patch("providers", "id", PROVIDER_ID, {
+        sb_patch("providers", f"id=eq.{PROVIDER_ID}", {
             "google_place_id": place_id_jasper,
             "rating": rating,
             "review_count": review_count,

@@ -2,8 +2,6 @@ name: Scraper — Jasper Hikes & Tours
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 8 * * *'   # daily at 8am UTC — dates change infrequently
 
 jobs:
   scrape:

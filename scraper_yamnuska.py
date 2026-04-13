@@ -23,16 +23,16 @@ import requests
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
-# ── CONFIG ──
-SUPABASE_URL          = os.environ["SUPABASE_URL"]
-SUPABASE_KEY          = os.environ["SUPABASE_SERVICE_KEY"]
-RESEND_API_KEY        = os.environ.get("RESEND_API_KEY", "")
-GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "")
-ANTHROPIC_API_KEY     = os.environ.get("ANTHROPIC_API_KEY", "")
-NOTIFY_EMAIL          = "hello@backcountryfinder.com"
-FROM_EMAIL            = "hello@backcountryfinder.com"
-PLACES_API_URL        = "https://maps.googleapis.com/maps/api/place"
-CLAUDE_MODEL          = "claude-haiku-4-5-20251001"
+from scraper_utils import (
+    sb_get, sb_upsert, sb_insert,
+    load_location_mappings, normalise_location,
+    load_activity_mappings, load_activity_labels, resolve_activity, build_badge,
+    claude_classify, generate_summaries_batch,
+    parse_date_sort, is_future, stable_id,
+    update_provider_ratings, send_email,
+    SUPABASE_URL, SUPABASE_KEY, ANTHROPIC_API_KEY, GOOGLE_PLACES_API_KEY,
+    RESEND_API_KEY, UTM,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -42,7 +42,7 @@ PROVIDER = {
     "id":       "yamnuska",
     "name":     "Yamnuska Mountain Adventures",
     "base_url": "https://yamnuska.com",
-    "utm":      "utm_source=backcountryfinder&utm_medium=referral",
+    "utm":      UTM,
     "location": "Canmore, AB",
     "courses": [
         # ── Avalanche ──
@@ -119,8 +119,6 @@ PROVIDER = {
 }
 
 # iframe src param key → canonical location raw string
-# Each course page has one location; the param key identifies it.
-# Expand as new keys are discovered in logs.
 IFRAME_LOCATION_MAP = {
     "canmore": "Canmore, AB",
     "calgary": "Calgary, AB",
@@ -141,340 +139,6 @@ USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
 ]
-
-
-# ── SUPABASE HELPERS ──
-
-def sb_get(table: str, params: dict = {}) -> list:
-    url = f"{SUPABASE_URL}/rest/v1/{table}"
-    headers = {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-        "Content-Type": "application/json",
-    }
-    r = requests.get(url, headers=headers, params=params)
-    r.raise_for_status()
-    return r.json()
-
-
-def sb_upsert(table: str, data: list) -> None:
-    if not data:
-        return
-    url = f"{SUPABASE_URL}/rest/v1/{table}"
-    headers = {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates",
-    }
-    r = requests.post(url, headers=headers, json=data)
-    if not r.ok:
-        log.error(f"Supabase upsert error {r.status_code}: {r.text}")
-    else:
-        log.info(f"Upserted {len(data)} rows to {table}")
-
-
-def sb_insert(table: str, data: dict) -> None:
-    url = f"{SUPABASE_URL}/rest/v1/{table}"
-    headers = {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-        "Content-Type": "application/json",
-        "Prefer": "return=minimal",
-    }
-    r = requests.post(url, headers=headers, json=data)
-    if not r.ok:
-        log.error(f"Supabase insert error {r.status_code}: {r.text}")
-
-
-# ── LOCATION & ACTIVITY HELPERS ──
-
-def load_location_mappings() -> dict:
-    rows = sb_get("location_mappings", {"select": "location_raw,location_canonical"})
-    return {r["location_raw"].lower().strip(): r["location_canonical"] for r in rows}
-
-
-def load_activity_mappings() -> list:
-    try:
-        rows = sb_get("activity_mappings", {"select": "title_contains,activity"})
-        mappings = [(r["title_contains"].lower(), r["activity"]) for r in rows]
-        return sorted(mappings, key=lambda x: len(x[0]), reverse=True)
-    except Exception as e:
-        log.warning(f"Could not load activity mappings: {e}")
-        return []
-
-
-def load_activity_labels() -> dict:
-    try:
-        rows = sb_get("activity_labels", {"select": "activity,label"})
-        return {r["activity"]: r["label"] for r in rows}
-    except Exception as e:
-        log.warning(f"Could not load activity labels: {e}")
-        return {}
-
-
-def normalise_location(raw: str, mappings: dict) -> Optional[str]:
-    if not raw:
-        return None
-    key = raw.lower().strip()
-    if key in mappings:
-        return mappings[key]
-    for known_raw, canonical in mappings.items():
-        if known_raw in key or key in known_raw:
-            return canonical
-    if ANTHROPIC_API_KEY:
-        known = list(set(mappings.values()))
-        result = claude_classify(
-            f"""Normalise this location for a backcountry booking aggregator in western Canada.
-Known canonical locations: {", ".join(known)}
-Raw location: "{raw}"
-If it matches a known location, return that exact value. Otherwise suggest a clean canonical name.
-Respond with JSON only: {{"location_canonical": "value", "is_new": false}}"""
-        )
-        if result.get("location_canonical"):
-            canonical = result["location_canonical"]
-            log.info(f"Claude normalised '{raw}' → '{canonical}'")
-            sb_insert("location_mappings", {"location_raw": raw, "location_canonical": canonical})
-            mappings[key] = canonical
-            return canonical
-    return raw
-
-
-def resolve_activity(title: str, description: str, mappings: list) -> str:
-    text = (title + " " + description).lower()
-    for pattern, activity in mappings:
-        if pattern in text:
-            return activity
-    if ANTHROPIC_API_KEY:
-        known = list(set(a for _, a in mappings))
-        result = claude_classify(
-            f"""Classify this backcountry course activity type.
-Known types: {", ".join(known) if known else "skiing, climbing, mountaineering, hiking, guided"}
-Title: "{title}"
-Description: "{description}"
-Respond with JSON only: {{"activity": "value", "label": "Human Label", "is_new": false}}"""
-        )
-        if result.get("activity"):
-            activity = result["activity"]
-            label = result.get("label", activity.replace("_", " ").title())
-            sb_upsert("activity_labels", [{"activity": activity, "label": label}])
-            sb_insert("activity_mappings", {"title_contains": title.lower()[:100], "activity": activity})
-            mappings.append((title.lower()[:100], activity))
-            log.info(f"Claude classified '{title}' → '{activity}'")
-            return activity
-    # Keyword fallback
-    keywords = {
-        "skiing":         ["ast", "avalanche", "backcountry ski", "splitboard", "freerider", "ski tour"],
-        "climbing":       ["climb", "rock", "multi-pitch", "rappel", "trad", "sport lead", "via ferrata"],
-        "mountaineering": ["mountaineer", "alpine", "scramble", "glacier", "crevasse", "11,000", "alpinist"],
-        "hiking":         ["hik", "backpack", "navigation", "trek", "wapta"],
-    }
-    for activity, kws in keywords.items():
-        if any(kw in text for kw in kws):
-            return activity
-    return "guided"
-
-
-def build_badge(activity: str, duration_days, activity_labels: dict) -> str:
-    label = activity_labels.get(activity, activity.replace("_", " ").title())
-    if duration_days:
-        days = int(duration_days)
-        return f"{label} · {days} day{'s' if days > 1 else ''}"
-    return label
-
-
-# ── DATE HELPERS ──
-
-def parse_date_sort(text: str) -> Optional[str]:
-    if not text:
-        return None
-    if re.match(r"\d{4}-\d{2}-\d{2}", text):
-        return text[:10]
-    months = {
-        "jan": "01", "feb": "02", "mar": "03", "apr": "04",
-        "may": "05", "jun": "06", "jul": "07", "aug": "08",
-        "sep": "09", "oct": "10", "nov": "11", "dec": "12",
-    }
-    m = re.search(r"(\w+)\s+(\d+).*?(\d{4})", text, re.IGNORECASE)
-    if m:
-        month_str = m.group(1).lower()[:3]
-        day = m.group(2).zfill(2)
-        year = m.group(3)
-        if month_str in months:
-            return f"{year}-{months[month_str]}-{day}"
-    return None
-
-
-def is_future(date_sort: Optional[str]) -> bool:
-    if not date_sort:
-        return True
-    try:
-        return datetime.strptime(date_sort, "%Y-%m-%d").date() >= date.today()
-    except ValueError:
-        return True
-
-
-def stable_id(provider_id: str, activity: str, date_sort: Optional[str], title: str) -> str:
-    if date_sort:
-        return f"{provider_id}-{activity}-{date_sort}"
-    h = hashlib.md5(title.encode()).hexdigest()[:8]
-    return f"{provider_id}-{activity}-{h}"
-
-
-# ── CLAUDE HELPERS ──
-
-def claude_classify(prompt: str, max_tokens: int = 256) -> dict:
-    if not ANTHROPIC_API_KEY:
-        return {}
-    try:
-        r = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": ANTHROPIC_API_KEY,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": CLAUDE_MODEL,
-                "max_tokens": max_tokens,
-                "messages": [{"role": "user", "content": prompt}],
-            },
-            timeout=30,
-        )
-        text = r.json()["content"][0]["text"].strip()
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-        return json.loads(text.strip())
-    except Exception as e:
-        log.warning(f"Claude API call failed: {e}")
-        return {}
-
-
-def generate_summaries_batch(courses: list) -> dict:
-    if not ANTHROPIC_API_KEY:
-        return {}
-    to_summarise = [c for c in courses if c.get("description", "").strip()]
-    if not to_summarise:
-        return {}
-    results = {}
-    BATCH_SIZE = 12
-    for i in range(0, len(to_summarise), BATCH_SIZE):
-        batch = to_summarise[i:i + BATCH_SIZE]
-        items = ""
-        for c in batch:
-            desc = c["description"][:600].strip()
-            items += f"""---
-ID: {c["id"]}
-Provider: {c["provider"]}
-Activity: {c["activity"]}
-Title: {c["title"]}
-Description: {desc}
-"""
-        prompt = f"""You are writing 2-sentence summaries for backcountry experience listings on a booking aggregator.
-
-For each course below, write exactly 2 sentences. Be specific and enticing. Use plain language, no marketing fluff. Do not start with the provider name or course title. Do not use the word "perfect". Write in third person.
-
-{items}
-
-Respond with JSON only — an array of objects with "id" and "summary" keys. Example:
-[{{"id": "yamnuska-mountaineering-2026-05-16", "summary": "Two sentences here."}}]"""
-        try:
-            result = claude_classify(prompt, max_tokens=1500)
-            if isinstance(result, list):
-                for item in result:
-                    if item.get("id") and item.get("summary"):
-                        results[item["id"]] = item["summary"]
-                log.info(f"Batch summaries: {len(result)} generated (batch {i//BATCH_SIZE + 1})")
-        except Exception as e:
-            log.warning(f"Batch summary generation failed: {e}")
-        time.sleep(0.5)
-    return results
-
-
-# ── GOOGLE PLACES ──
-
-def update_provider_ratings():
-    if not GOOGLE_PLACES_API_KEY:
-        log.info("No Google Places API key — skipping ratings")
-        return
-    log.info("Updating provider ratings from Google Places...")
-    providers = sb_get("providers", {"select": "id,name,location,google_place_id", "id": f"eq.{PROVIDER['id']}"})
-    for p in providers:
-        pid = p.get("google_place_id")
-        if not pid:
-            try:
-                clean_loc = re.split(r"[/,]", p.get("location", ""))[0].strip()
-                r = requests.get(
-                    f"{PLACES_API_URL}/findplacefromtext/json",
-                    params={"input": f"{p['name']} {clean_loc}", "inputtype": "textquery",
-                            "fields": "place_id,name", "key": GOOGLE_PLACES_API_KEY},
-                    timeout=10,
-                )
-                candidates = r.json().get("candidates", [])
-                if candidates:
-                    pid = candidates[0]["place_id"]
-                    log.info(f"Found Place ID for {p['name']}: {pid}")
-                    sb_upsert("providers", [{"id": p["id"], "name": p["name"], "google_place_id": pid}])
-            except Exception as e:
-                log.warning(f"Place ID lookup failed: {e}")
-            time.sleep(0.5)
-        if not pid:
-            continue
-        try:
-            r = requests.get(
-                f"{PLACES_API_URL}/details/json",
-                params={"place_id": pid, "fields": "rating,user_ratings_total", "key": GOOGLE_PLACES_API_KEY},
-                timeout=10,
-            )
-            result = r.json().get("result", {})
-            if result.get("rating"):
-                sb_upsert("providers", [{"id": p["id"], "name": p["name"], "google_place_id": pid,
-                                         "rating": result["rating"],
-                                         "review_count": result.get("user_ratings_total")}])
-                log.info(f"{p['name']}: ★ {result['rating']} ({result.get('user_ratings_total', 0)} reviews)")
-        except Exception as e:
-            log.warning(f"Place details failed: {e}")
-        time.sleep(0.5)
-    log.info("Provider ratings update complete")
-
-
-# ── EMAIL ──
-
-def send_email(subject: str, html: str) -> None:
-    if not RESEND_API_KEY:
-        return
-    r = requests.post(
-        "https://api.resend.com/emails",
-        headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
-        json={"from": f"BackcountryFinder Scraper <{FROM_EMAIL}>",
-              "to": [NOTIFY_EMAIL], "subject": subject, "html": html},
-    )
-    if not r.ok:
-        log.error(f"Email failed: {r.status_code} {r.text}")
-    else:
-        log.info(f"Email sent to {NOTIFY_EMAIL}")
-
-
-def send_summary(count: int, ok: bool) -> None:
-    status = "✓ ok" if ok else "✗ failed"
-    color  = "#2d6a11" if ok else "#a32d2d"
-    html = f"""
-    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
-      <div style="background:#1a2e1a;padding:20px 28px;border-radius:10px 10px 0 0;">
-        <p style="margin:0;font-size:18px;color:#fff;font-family:Georgia,serif;">
-          backcountry<span style="color:#4ade80;font-style:italic;">finder</span>
-        </p>
-      </div>
-      <div style="background:#fff;padding:24px 28px;border-radius:0 0 10px 10px;border:1px solid #e8e8e8;border-top:none;">
-        <p style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:#4ade80;background:#1a2e1a;display:inline-block;padding:3px 10px;border-radius:20px;margin-bottom:14px;">yamnuska scraper</p>
-        <h2 style="font-size:18px;font-weight:700;color:#1a1a1a;margin:0 0 16px;">{count} courses upserted</h2>
-        <p style="font-size:13px;color:{color};background:#f8f8f8;padding:10px 14px;border-radius:6px;">{status} — Yamnuska Mountain Adventures</p>
-        <p style="font-size:11px;color:#aaa;margin-top:16px;">Run at {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}</p>
-      </div>
-    </div>"""
-    send_email(f"Yamnuska scraper — {count} courses updated", html)
 
 
 # ── REQUESTS SESSION (for iframe fetches only) ──
@@ -514,7 +178,6 @@ def get_iframe_src_playwright(browser, course_url: str) -> tuple:
         page.set_extra_http_headers({"Accept-Language": "en-CA,en;q=0.9"})
         page.goto(course_url, wait_until="domcontentloaded", timeout=30000)
 
-        # Wait for iframe to appear (up to 10s) — if not found, page has no dates
         try:
             page.wait_for_selector("iframe[data-for='tripDates']", timeout=10000)
             iframe_el  = page.query_selector("iframe[data-for='tripDates']")
@@ -522,9 +185,8 @@ def get_iframe_src_playwright(browser, course_url: str) -> tuple:
             if iframe_src and iframe_src.startswith("//"):
                 iframe_src = "https:" + iframe_src
         except PlaywrightTimeout:
-            pass  # No iframe — course has no dates yet
+            pass
 
-        # Extract title, description, image from rendered HTML
         html  = page.content()
         soup  = BeautifulSoup(html, "html.parser")
 
@@ -569,7 +231,6 @@ def scrape_course_page(session: requests.Session, browser, course_url: str, utm:
     """
     results = []
     try:
-        # Step 1: Playwright — get iframe src + page metadata
         title, description, image_url, iframe_src = get_iframe_src_playwright(browser, course_url)
 
         if not iframe_src:
@@ -588,11 +249,9 @@ def scrape_course_page(session: requests.Session, browser, course_url: str, utm:
                 "custom_dates":    True,
             }]
 
-        # Step 2: Parse iframe src params for location key and price
         parsed = urlparse(iframe_src)
         params = parse_qs(parsed.query)
 
-        # Find which location param has a real GUID (GUIDs are long; skip "1" placeholders)
         location_key = None
         for key in IFRAME_LOCATION_MAP:
             val = params.get(key, [""])[0]
@@ -620,7 +279,6 @@ def scrape_course_page(session: requests.Session, browser, course_url: str, utm:
         location_raw = IFRAME_LOCATION_MAP[location_key]
         log.info(f"  Location: {location_key} → {location_raw}")
 
-        # Price from iframe src params (e.g. priceCanmore=1598)
         price     = None
         price_key = f"price{location_key.title()}"
         raw_price = params.get(price_key, params.get("priceCanmore", [""]))[0]
@@ -631,7 +289,6 @@ def scrape_course_page(session: requests.Session, browser, course_url: str, utm:
                 pass
         log.info(f"  Price ({price_key}): ${price}")
 
-        # Step 3: requests — fetch the iframe (plain HTML, no JS needed)
         time.sleep(random.uniform(0.5, 1.0))
         iframe_resp = session.get(iframe_src, timeout=20)
         iframe_resp.raise_for_status()
@@ -671,7 +328,6 @@ def scrape_course_page(session: requests.Session, browser, course_url: str, utm:
             if not is_future(date_sort):
                 continue
 
-            # Spots remaining → availability (max 12)
             spaces = int(row.get("data-spaces", 12))
             if spaces == 0:
                 avail = "sold"
@@ -756,12 +412,34 @@ def scrape_yamnuska() -> list:
     return all_courses
 
 
+# ── EMAIL ──
+
+def send_summary(count: int, ok: bool) -> None:
+    status = "✓ ok" if ok else "✗ failed"
+    color  = "#2d6a11" if ok else "#a32d2d"
+    html = f"""
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+      <div style="background:#1a2e1a;padding:20px 28px;border-radius:10px 10px 0 0;">
+        <p style="margin:0;font-size:18px;color:#fff;font-family:Georgia,serif;">
+          backcountry<span style="color:#4ade80;font-style:italic;">finder</span>
+        </p>
+      </div>
+      <div style="background:#fff;padding:24px 28px;border-radius:0 0 10px 10px;border:1px solid #e8e8e8;border-top:none;">
+        <p style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:#4ade80;background:#1a2e1a;display:inline-block;padding:3px 10px;border-radius:20px;margin-bottom:14px;">yamnuska scraper</p>
+        <h2 style="font-size:18px;font-weight:700;color:#1a1a1a;margin:0 0 16px;">{count} courses upserted</h2>
+        <p style="font-size:13px;color:{color};background:#f8f8f8;padding:10px 14px;border-radius:6px;">{status} — Yamnuska Mountain Adventures</p>
+        <p style="font-size:11px;color:#aaa;margin-top:16px;">Run at {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}</p>
+      </div>
+    </div>"""
+    send_email(f"Yamnuska scraper — {count} courses updated", html)
+
+
 # ── MAIN ──
 
 def main():
     log.info("=== Yamnuska scraper starting ===")
 
-    update_provider_ratings()
+    update_provider_ratings(PROVIDER["id"])
 
     loc_mappings    = load_location_mappings()
     activity_maps   = load_activity_mappings()

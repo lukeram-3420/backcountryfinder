@@ -14,7 +14,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests anthropic
+        run: pip install requests beautifulsoup4 anthropic
 
       - name: Run scraper
         run: python scraper_aaa.py

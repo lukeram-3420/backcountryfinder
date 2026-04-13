@@ -1,4 +1,4 @@
-name: Scraper — Squamish Rock Guides
+name: Scraper — Hike Vancouver Island
 
 on:
   workflow_dispatch:
@@ -12,9 +12,9 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install dependencies
-        run: pip install requests beautifulsoup4
+        run: pip install requests beautifulsoup4 anthropic
       - name: Run scraper
-        run: python scraper.py --provider srg
+        run: python scraper_hvi.py
         env:
           SUPABASE_URL:          ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY:  ${{ secrets.SUPABASE_SERVICE_KEY }}

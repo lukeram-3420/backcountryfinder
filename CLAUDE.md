@@ -69,16 +69,21 @@ Key helper functions in `scraper.py`: `sb_get()`, `sb_upsert()`, `resolve_activi
 
 ### Provider-Specific Scrapers
 
-| Provider | Platform | Handler |
-|----------|----------|---------|
-| Altus, MSAA | Rezdy API | `scraper.py:scrape_rezdy()` |
-| Canada West Mountain School | WooCommerce | `scraper.py:scrape_cwms()` |
-| Summit Mountain Guides | The Events Calendar | `scraper.py:scrape_summit()` |
-| Island Alpine, Hike Vancouver Island | Custom Rails | `scraper.py:scrape_iag()`, `scrape_hvi()` |
-| Squamish Rock Guides | Custom WordPress | `scraper.py:scrape_srg()` |
-| Skaha Rock Adventures | Static HTML | `scraper.py:scrape_skaha()` |
-| Yamnuska | JS-rendered WordPress | `scraper_yamnuska.py` (Playwright) |
-| Alpine Air Adventures | Checkfront API v3.0 | `scraper_aaa.py` |
+| Provider | Platform | Standalone file | Legacy handler |
+|----------|----------|-----------------|----------------|
+| Altus | Rezdy API | `scraper_altus.py` | `scraper.py --provider altus` |
+| MSAA | Rezdy API | `scraper_msaa.py` | `scraper.py --provider msaa` |
+| Canada West Mountain School | WooCommerce | `scraper_cwms.py` | `scraper.py --provider cwms` |
+| Summit Mountain Guides | The Events Calendar | `scraper_summit.py` | `scraper.py --provider summit` |
+| Island Alpine Guides | Custom Rails | `scraper_iag.py` | `scraper.py --provider iag` |
+| Hike Vancouver Island | Custom Rails | `scraper_hvi.py` | `scraper.py --provider hvi` |
+| Squamish Rock Guides | Custom WordPress | `scraper_srg.py` | `scraper.py --provider srg` |
+| Skaha Rock Adventures | Static HTML | `scraper_skaha_rock_adventures.py` | `scraper.py --provider skaha-rock-adventures` |
+| Yamnuska | JS-rendered WordPress | `scraper_yamnuska.py` (Playwright) | — |
+| Alpine Air Adventures | Checkfront API v3.0 | `scraper_aaa.py` | — |
+| Alpine Air Adventures (details) | WordPress | `scraper_aaa_details.py` | — |
+| Black Sheep Adventure | Custom WordPress | `scraper_bsa.py` | — |
+| Jasper Hikes & Tours | Squarespace | `scraper_jht.py` | — |
 
 ### Supabase Edge Functions
 
@@ -99,6 +104,144 @@ Key Supabase tables: `courses` (listings), `activity_mappings` / `location_mappi
 ## Adding a New Provider
 
 Follow `add-provider-instructions.md` for the full onboarding process. Always reference that file when adding a provider.
+
+## Scraper architecture
+
+### Overview — two parallel systems
+
+Two scraper systems exist side by side:
+
+1. **`scraper.py`** — the original monolith. Contains all provider scraping functions inline. Supports `--provider <id>` to run a single provider. Left untouched as a working fallback.
+2. **`scraper_{id}.py`** — the new per-provider pattern. Each file imports shared utilities from `scraper_utils.py` and contains only provider-specific config + HTML parsing logic. All new providers going forward should use this pattern.
+
+Both systems produce identical output (rows upserted to the `courses` table with the same schema).
+
+### scraper_utils.py public API
+
+#### Supabase
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `sb_get` | `(table: str, params: dict = None) -> list` | GET rows from a Supabase table. `params` is a dict of query-string filters. |
+| `sb_upsert` | `(table: str, rows: list) -> None` | POST rows with `Prefer: resolution=merge-duplicates`. |
+| `sb_insert` | `(table: str, data: dict) -> None` | INSERT a single row (no upsert). Silently ignores conflicts. |
+| `sb_patch` | `(table: str, filter_params: str, payload: dict) -> None` | PATCH rows matching `filter_params` (e.g. `'id=eq.abc'`). |
+
+#### Google Places
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `find_place_id` | `(query: str) -> Optional[str]` | Find a Google Place ID by text query. Returns `place_id` or `None`. |
+| `get_place_details` | `(place_id: str) -> dict` | Get `rating` and `review_count` from Google Places. Returns `{}` on failure. |
+| `update_provider_ratings` | `(provider_id: str) -> None` | Look up / refresh Google Places rating for a single provider. |
+
+#### Location
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `load_location_mappings` | `() -> dict` | Load `location_mappings` table → `{raw_lower: canonical}`. |
+| `normalise_location` | `(raw: str, mappings: dict) -> Optional[str]` | Three-tier resolution: exact match → substring → Claude → return raw. Writes new mappings to Supabase. |
+
+#### Activity
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `load_activity_mappings` | `() -> list` | Load `activity_mappings` table → `[(title_contains_lower, activity)]`, sorted longest-first. |
+| `load_activity_labels` | `() -> dict` | Load `activity_labels` table → `{activity: label}`. |
+| `detect_activity` | `(title: str, description: str = "") -> str` | Keyword-based activity detection fallback. Returns canonical activity string. |
+| `resolve_activity` | `(title: str, description: str, mappings: list) -> str` | Three-tier: mapping table → Claude classification → keyword fallback. Writes new mappings to Supabase. |
+| `build_badge` | `(activity: str, duration_days, activity_labels: dict = None) -> str` | Build badge string like `"Mountaineering · 3 days"`. |
+
+#### Claude AI
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `claude_classify` | `(prompt: str, max_tokens: int = 256) -> dict` | Call Claude Haiku, return parsed JSON. Returns `{}` on failure. |
+| `generate_summaries_batch` | `(courses: list) -> dict` | Batch-generate 2-sentence summaries. Input: list of `{id, title, description, provider, activity}`. Returns `{course_id: summary_text}`. Processes in batches of 12. Deduplication by title is the caller's responsibility. |
+
+#### Dates & IDs
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `parse_date_sort` | `(date_str: str) -> Optional[str]` | Extract `YYYY-MM-DD` from various date string formats. |
+| `is_future` | `(date_sort: Optional[str]) -> bool` | Returns `True` if date is today or later (or unparseable). |
+| `stable_id` | `(provider_id: str, activity: str, date_sort: Optional[str], title: str) -> str` | Generate stable ID: `{provider}-{activity}-{date}` or hash fallback. |
+
+#### Availability & URLs
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `spots_to_avail` | `(spots: Optional[int]) -> str` | Convert spots_remaining → `open`/`low`/`critical`/`sold`. |
+| `append_utm` | `(url: str) -> str` | Append UTM tracking params if not already present. |
+
+#### Email
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `send_email` | `(subject: str, html: str, to: str = None) -> None` | Send email via Resend API. Defaults to `NOTIFY_EMAIL`. |
+| `send_scraper_summary` | `(provider_name: str, count: int, ok: bool = True) -> None` | Send a simple scraper run summary email. |
+
+#### Two-pass scraping
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `fetch_detail_pages` | `(urls: list, parse_fn: Callable, delay: float = 0.5, headers: dict = None) -> list` | Fetch each URL, call `parse_fn(url, html_text) -> list[dict]`, collect all rows. Handles errors per-page. |
+
+#### Important notes
+
+- **Playwright is never imported at the top level** of `scraper_utils.py`. Any scraper that needs Playwright (e.g. Yamnuska) imports it in its own file.
+- **Haiku batching**: `generate_summaries_batch` processes 12 courses per Claude call with 0.5s delay between batches.
+- **Environment variables**: `SUPABASE_URL`, `SUPABASE_KEY`, `RESEND_API_KEY`, `GOOGLE_PLACES_API_KEY`, `ANTHROPIC_API_KEY` are read from env at module load and available as module-level constants.
+
+### Two-pass scraping pattern
+
+Some providers show a listing page with course names/URLs but no date or price detail. These need a **two-pass** approach:
+
+1. **Listing pass**: Scrape listing page(s) to collect individual course/trip URLs.
+2. **Detail pass**: Fetch each course URL and parse dates, prices, availability.
+
+**Reference implementation**: `scraper_aaa.py` (listing) + `scraper_aaa_details.py` (detail enrichment).
+
+The `fetch_detail_pages(urls, parse_fn)` helper in `scraper_utils.py` handles the detail pass loop with error handling and rate limiting. Usage:
+
+```python
+from scraper_utils import fetch_detail_pages
+
+def parse_course_page(url, html):
+    soup = BeautifulSoup(html, "html.parser")
+    # ... parse title, dates, price ...
+    return [row_dict, ...]
+
+rows = fetch_detail_pages(course_urls, parse_course_page, delay=0.5)
+```
+
+### How to add a new provider — checklist
+
+1. **Create `scraper_{id}.py`** importing from `scraper_utils`:
+   - Provider config dict at the top (id, name, website, location)
+   - Provider-specific activity/location maps if needed
+   - HTML parsing functions specific to the provider's website
+   - `main()` function that: updates ratings → loads mappings → scrapes → resolves activities/locations → generates summaries → deduplicates → upserts
+   - `if __name__ == "__main__": main()`
+
+2. **Create `.github/workflows/scraper-{id}.yml`** with `workflow_dispatch` trigger only:
+   - Standard pip install (`requests beautifulsoup4 anthropic`)
+   - Add Playwright cache + install steps ONLY if the provider needs a headless browser
+   - Set all 5 secret env vars
+
+3. **Add a named step to `scraper-all.yml`**:
+   ```yaml
+   - name: Provider Name
+     run: python scraper_{id}.py
+     continue-on-error: true
+   ```
+
+4. **Run Supabase SQL**:
+   - INSERT provider row into `providers` table
+   - INSERT any known `location_mappings` for the provider's locations
+   - INSERT any known `activity_mappings` for the provider's course titles
+
+5. **Use two-pass pattern** if the listing page doesn't contain full detail data (dates, prices). See `scraper_aaa.py` + `scraper_aaa_details.py` as reference.
 
 ## Slash commands
 

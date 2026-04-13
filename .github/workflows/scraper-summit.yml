@@ -1,4 +1,4 @@
-name: Scraper — MSAA
+name: Scraper — Summit Mountain Guides
 
 on:
   workflow_dispatch:
@@ -14,7 +14,7 @@ jobs:
       - name: Install dependencies
         run: pip install requests beautifulsoup4 anthropic
       - name: Run scraper
-        run: python scraper_msaa.py
+        run: python scraper_summit.py
         env:
           SUPABASE_URL:          ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY:  ${{ secrets.SUPABASE_SERVICE_KEY }}

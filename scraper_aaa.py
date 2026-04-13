@@ -12,6 +12,11 @@ import re
 import datetime
 import requests
 
+from scraper_utils import (
+    sb_upsert, find_place_id, send_email,
+    SUPABASE_URL, SUPABASE_KEY, RESEND_API_KEY, UTM,
+)
+
 # ── Config ────────────────────────────────────────────────────────────────────
 PROVIDER = {
     "id":       "aaa",
@@ -22,20 +27,10 @@ PROVIDER = {
 
 CF_BASE        = "https://alpineair.checkfront.com/api/3.0"
 BOOKING_URL    = "https://alpineair.checkfront.com/reserve/"
-SUPABASE_URL   = os.environ["SUPABASE_URL"]
-SUPABASE_KEY   = os.environ["SUPABASE_SERVICE_KEY"]
-RESEND_KEY     = os.environ["RESEND_API_KEY"]
 GOOGLE_KEY     = os.environ.get("GOOGLE_PLACES_API_KEY", "")
 NOTIFY_EMAIL   = "luke@backcountryfinder.com"
 
 LOOKAHEAD_DAYS = 180
-
-SUPABASE_HEADERS = {
-    "apikey":        SUPABASE_KEY,
-    "Authorization": f"Bearer {SUPABASE_KEY}",
-    "Content-Type":  "application/json",
-    "Prefer":        "resolution=merge-duplicates",
-}
 
 CF_HEADERS = {
     "X-On-Behalf": "Off",
@@ -100,32 +95,6 @@ def resolve_location(title: str) -> str:
             return loc
     return PROVIDER["location"]
 
-# ── Supabase ──────────────────────────────────────────────────────────────────
-def sb_upsert(table, rows):
-    if not rows:
-        return
-    r = requests.post(
-        f"{SUPABASE_URL}/rest/v1/{table}",
-        headers=SUPABASE_HEADERS,
-        json=rows
-    )
-    if not r.ok:
-        print(f"  ⚠ Supabase error {r.status_code}: {r.text[:300]}")
-    r.raise_for_status()
-
-# ── Google Places ─────────────────────────────────────────────────────────────
-def find_place_id(location: str) -> str | None:
-    if not GOOGLE_KEY:
-        return None
-    city = re.split(r"[/,]", location)[0].strip()
-    r = requests.get(
-        "https://maps.googleapis.com/maps/api/place/findplacefromtext/json",
-        params={"input": city, "inputtype": "textquery",
-                "fields": "place_id", "key": GOOGLE_KEY}
-    )
-    candidates = r.json().get("candidates", [])
-    return candidates[0]["place_id"] if candidates else None
-
 # ── Checkfront API ────────────────────────────────────────────────────────────
 def cf_get(endpoint, params=None):
     r = requests.get(
@@ -166,14 +135,10 @@ def send_summary(upserted: int, skipped: int):
         f"skipped <strong>{skipped}</strong>.</p>"
         f"<p>{datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC</p>"
     )
-    requests.post(
-        "https://api.resend.com/emails",
-        headers={"Authorization": f"Bearer {RESEND_KEY}",
-                 "Content-Type": "application/json"},
-        json={"from":    "scraper@backcountryfinder.com",
-              "to":      NOTIFY_EMAIL,
-              "subject": "✅ Scraper — Alpine Air Adventures",
-              "html":    body}
+    send_email(
+        "✅ Scraper — Alpine Air Adventures",
+        body,
+        to=NOTIFY_EMAIL,
     )
 
 # ── Main ──────────────────────────────────────────────────────────────────────
