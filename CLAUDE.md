@@ -76,10 +76,11 @@ The validator clears user report flags (`flagged=false`) when:
 - `other` → **never auto-cleared**, manual resolution only
 
 ### Frontend filter rule
-All courses queries must include both filters:
+All 6 courses queries in `index.html` must include both filters:
 ```
 flagged=not.is.true&auto_flagged=not.is.true
 ```
+This applies to: main listing, activity dropdown, location dropdown, saved courses, shared courses (2 queries).
 
 ## Architecture
 
@@ -92,6 +93,7 @@ Each provider has a dedicated scraping function in `scraper.py` (or a standalone
 3. **Normalize** location via `location_mappings` table + Google Places API + Claude
 4. **Generate** stable IDs: `{provider_id}-{activity}-{date_sort}`
 5. **Upsert** to Supabase `courses` table
+6. **Validate** via `validate_provider.py` (auto-hide bad rows, auto-clear resolved user flags)
 
 Key helper functions in `scraper.py`: `sb_get()`, `sb_upsert()`, `resolve_activity()`, `normalise_location()`, `parse_date_sort()`, `spots_to_avail()`.
 
@@ -99,7 +101,7 @@ Key helper functions in `scraper.py`: `sb_get()`, `sb_upsert()`, `resolve_activi
 
 | Provider | Platform | Standalone file | Legacy handler |
 |----------|----------|-----------------|----------------|
-| Altus | Rezdy API | `scraper_altus.py` | `scraper.py --provider altus` |
+| Altus | Rezdy API + WordPress | `scraper_altus.py` | `scraper.py --provider altus` |
 | MSAA | Rezdy API | `scraper_msaa.py` | `scraper.py --provider msaa` |
 | Canada West Mountain School | WooCommerce | `scraper_cwms.py` | `scraper.py --provider cwms` |
 | Summit Mountain Guides | The Events Calendar | `scraper_summit.py` | `scraper.py --provider summit` |
@@ -115,11 +117,12 @@ Key helper functions in `scraper.py`: `sb_get()`, `sb_upsert()`, `resolve_activi
 
 ### Supabase Edge Functions
 
-Four Deno TypeScript handlers in `supabase/functions/`:
+Five Deno TypeScript handlers in `supabase/functions/`:
 - **send-saved-list** — emails a user's saved courses
 - **notify-submission** — handles "Get Listed" and "Suggest Provider" form submissions
 - **unsubscribe-notification** — one-click unsubscribe
 - **notify-signup-confirmation** — course watchlist signup confirmation
+- **notify-report** — user course report: inserts to `reports` table, sets `flagged=true` + `flagged_reason` + `flagged_note` on the course
 
 All functions use inline HTML email templates, CORS headers, and `verify_jwt = false`. Auto-deployed via `deploy-functions.yml` on push to `supabase/functions/**`.
 
@@ -127,7 +130,7 @@ All functions use inline HTML email templates, CORS headers, and `verify_jwt = f
 
 Availability: `open` (5+) → `low` (1-4) → `critical` (1-2) → `sold` (0, sets `active=false`).
 
-Key Supabase tables: `courses` (listings), `activity_mappings` / `location_mappings` (normalization rules), `activity_labels` (Claude-learned classifications), `location_flags` (unresolved locations for review), `notifications` (watchlist subscriptions).
+Key Supabase tables: `courses` (listings), `activity_mappings` / `location_mappings` (normalization rules), `activity_labels` (Claude-learned classifications), `location_flags` (unresolved locations for review), `notifications` (watchlist subscriptions), `reports` (user course reports), `scraper_run_log` (course count per provider per run).
 
 ## Adding a New Provider
 
@@ -185,7 +188,7 @@ Both systems produce identical output (rows upserted to the `courses` table with
 | Function | Signature | Description |
 |----------|-----------|-------------|
 | `claude_classify` | `(prompt: str, max_tokens: int = 256) -> dict` | Call Claude Haiku, return parsed JSON. Returns `{}` on failure. |
-| `generate_summaries_batch` | `(courses: list) -> dict` | Batch-generate 2-sentence summaries. Input: list of `{id, title, description, provider, activity}`. Returns `{course_id: summary_text}`. Processes in batches of 12. Deduplication by title is the caller's responsibility. |
+| `generate_summaries_batch` | `(courses: list) -> dict` | Batch-generate 2-sentence summaries. Input: list of `{id, title, description, provider, activity}`. Returns `{course_id: summary_text}`. Processes in batches of 12 with single retry on failure. Deduplication by title is the caller's responsibility. |
 
 #### Dates & IDs
 
@@ -207,7 +210,7 @@ Both systems produce identical output (rows upserted to the `courses` table with
 | Function | Signature | Description |
 |----------|-----------|-------------|
 | `send_email` | `(subject: str, html: str, to: str = None) -> None` | Send email via Resend API. Defaults to `NOTIFY_EMAIL`. |
-| `send_scraper_summary` | `(provider_name: str, count: int, ok: bool = True) -> None` | Send a simple scraper run summary email. |
+| `send_scraper_summary` | `(provider_name: str, count: int, ok: bool = True) -> None` | No-op (automated scraper emails are currently disabled). |
 
 #### Two-pass scraping
 
@@ -218,7 +221,7 @@ Both systems produce identical output (rows upserted to the `courses` table with
 #### Important notes
 
 - **Playwright is never imported at the top level** of `scraper_utils.py`. Any scraper that needs Playwright (e.g. Yamnuska) imports it in its own file.
-- **Haiku batching**: `generate_summaries_batch` processes 12 courses per Claude call with 0.5s delay between batches.
+- **Haiku batching**: `generate_summaries_batch` processes 12 courses per Claude call with 0.5s delay between batches. Failed batches retry once after 3s.
 - **Environment variables**: `SUPABASE_URL`, `SUPABASE_KEY`, `RESEND_API_KEY`, `GOOGLE_PLACES_API_KEY`, `ANTHROPIC_API_KEY` are read from env at module load and available as module-level constants.
 
 ### Two-pass scraping pattern
@@ -243,6 +246,33 @@ def parse_course_page(url, html):
 rows = fetch_detail_pages(course_urls, parse_course_page, delay=0.5)
 ```
 
+### validate_provider.py
+
+Post-scrape validation script. Runs after any provider scraper completes. Read-only except for flagging.
+
+**Usage:** `python validate_provider.py <provider_id>`
+
+**Behaviour:**
+1. Resets all `auto_flagged` rows for this provider (clean slate)
+2. Fetches all courses for the provider
+3. Runs 7 checks (see below)
+4. Auto-clears resolved user report flags
+5. Logs course count to `scraper_run_log`
+
+**7 checks — AUTO-HIDE vs EMAIL ONLY:**
+
+| Check | AUTO-HIDE (sets `auto_flagged=true`) | EMAIL ONLY |
+|-------|--------------------------------------|------------|
+| 1. Summary quality | Contradicts activity, duplicate summary bleed | Empty/null summary |
+| 2. Activity mapping | Null activity, title/activity mismatch | — |
+| 3. Price sanity | Zero or negative price | Null price (when peers have prices), >5x median outlier |
+| 4. Date sanity | Past date with `active=true` | >2 years in the future |
+| 5. Availability | — | Null avail, all-sold warning |
+| 6. Duplicates | All but first occurrence of same title+date | — |
+| 7. Course count | — | >30% drop vs last run |
+
+**Exceptions:** "Ski Mountaineering" titles accept either skiing or mountaineering. Price outliers skip courses with "Logan", "Expedition", or "Traverse" in the title.
+
 ### How to add a new provider — checklist
 
 1. **Create `scraper_{id}.py`** importing from `scraper_utils`:
@@ -256,11 +286,15 @@ rows = fetch_detail_pages(course_urls, parse_course_page, delay=0.5)
    - Standard pip install (`requests beautifulsoup4 anthropic`)
    - Add Playwright cache + install steps ONLY if the provider needs a headless browser
    - Set all 5 secret env vars
+   - Add a final `Validate` step: `python validate_provider.py {id}` with `continue-on-error: true`
 
 3. **Add a named step to `scraper-all.yml`**:
    ```yaml
    - name: Provider Name
      run: python scraper_{id}.py
+     continue-on-error: true
+   - name: Validate Provider Name
+     run: python validate_provider.py {id}
      continue-on-error: true
    ```
 
@@ -270,6 +304,28 @@ rows = fetch_detail_pages(course_urls, parse_course_page, delay=0.5)
    - INSERT any known `activity_mappings` for the provider's course titles
 
 5. **Use two-pass pattern** if the listing page doesn't contain full detail data (dates, prices). See `scraper_aaa.py` + `scraper_aaa_details.py` as reference.
+
+## GitHub Actions workflow structure
+
+### Individual provider workflows
+One file per provider at `.github/workflows/scraper-{id}.yml`. All use `workflow_dispatch` trigger only (manual). Each runs the standalone scraper then validate_provider.py.
+
+### Master workflow — scraper-all.yml
+- **Triggers:** `schedule` (cron `0 */6 * * *` — every 6 hours) + `workflow_dispatch`
+- Installs all dependencies including Playwright + Chromium
+- One named step per provider with `continue-on-error: true`
+- A `Validate {Provider}` step after each scraper step
+
+### Validate workflow — validate-provider.yml
+- **Trigger:** `workflow_dispatch` with required `provider_id` input
+- Runs: `python validate_provider.py ${{ github.event.inputs.provider_id }}`
+
+### Deploy workflow — deploy-functions.yml
+- **Trigger:** push to `supabase/functions/**`
+- Deploys all edge functions with `--no-verify-jwt`
+
+### Secrets used by all workflows
+`SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `RESEND_API_KEY`, `GOOGLE_PLACES_API_KEY`, `ANTHROPIC_API_KEY`
 
 ## Slash commands
 
@@ -301,7 +357,7 @@ Never wait for manual confirmation to commit.
 | title | text | |
 | provider_id | text | |
 | badge | text | |
-| activity | text | canonical: `skiing` `climbing` `mountaineering` `hiking` `biking` `fishing` `heli` `cat` `huts` `guided` `glissading` `rappelling` `snowshoeing` `via_ferrata` |
+| activity | text | canonical: `skiing` `climbing` `mountaineering` `hiking` `biking` `fishing` `heli` `cat` `huts` `guided` `glissading` `rappelling` `snowshoeing` `via_ferrata` `avalanche_safety` |
 | location_raw | text | raw string from site |
 | location_canonical | text | `City, Province` e.g. `Squamish, BC` |
 | date_display | text | human readable e.g. `March 3 (4 Days)` |
@@ -320,6 +376,11 @@ Never wait for manual confirmation to commit.
 | badge_canonical | text | |
 | custom_dates | boolean | |
 | summary | text | 1-2 sentences, generated by Claude Haiku |
+| flagged | boolean | user report flag — set by notify-report edge function |
+| flagged_reason | text | user report reason code |
+| flagged_note | text | user report free-text note |
+| auto_flagged | boolean | validator flag — set by validate_provider.py |
+| flag_reason | text | validator flag reason |
 
 ### providers
 | column | type | notes |
@@ -359,7 +420,12 @@ Never wait for manual confirmation to commit.
 | run_at | timestamptz | default now() |
 | course_count | int | not null |
 
-One-time setup SQL:
+Used by `validate_provider.py` to track course count per provider per run. A >30% drop between runs triggers a critical warning in the validation report.
+
+### One-time setup SQL
+
+Run these once in Supabase SQL editor for a fresh setup:
+
 ```sql
 CREATE TABLE IF NOT EXISTS scraper_run_log (
   id bigint generated always as identity primary key,
