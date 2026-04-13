@@ -353,6 +353,9 @@ def claude_classify(prompt: str, max_tokens: int = 256) -> dict:
             },
             timeout=30,
         )
+        if not r.ok:
+            log.warning(f"Claude API HTTP {r.status_code}: {r.text[:300]}")
+            return {}
         text = r.json()["content"][0]["text"].strip()
         if text.startswith("```"):
             text = text.split("```")[1]
