@@ -1,0 +1,36 @@
+name: Scrape All
+
+on:
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GOOGLE_PLACES_API_KEY: ${{ secrets.GOOGLE_PLACES_API_KEY }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          pip install requests beautifulsoup4 playwright
+          playwright install chromium
+      - name: Run scraper.py
+        run: python scraper.py
+      - name: Run scraper_aaa.py
+        run: python scraper_aaa.py
+      - name: Run scraper_aaa_details.py
+        run: python scraper_aaa_details.py
+      - name: Run scraper_bsa.py
+        run: python scraper_bsa.py
+      - name: Run scraper_jht.py
+        run: python scraper_jht.py
+      - name: Run scraper_yamnuska.py
+        run: python scraper_yamnuska.py
