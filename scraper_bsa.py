@@ -139,14 +139,6 @@ def find_place_id(location: str) -> dict | None:
         "fields": "rating,user_ratings_total",
         "key": GOOGLE_KEY,
     })
-    log.info(f"Place Details API status: {r.status_code}")
-    if r.status_code != 200:
-        log.warning(f"Place Details API error: {r.text}")
-        return {
-            "place_id": place_id,
-            "rating": None,
-            "review_count": None,
-        }
     details = r.json()
     log.info(f"Google Places details response: {details}")
     result = details.get("result", {})
@@ -364,6 +356,7 @@ def scrape_course_page(url: str) -> list[dict]:
         paras = entry.find_all("p")
         chunks = [p.get_text(strip=True) for p in paras if len(p.get_text(strip=True)) > 60]
         description = " ".join(chunks[:3])
+    log.info(f"Description length for '{title}': {len(description)} chars")
 
     # Price — look for "$" pattern
     price = None
