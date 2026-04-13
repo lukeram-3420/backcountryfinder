@@ -684,10 +684,6 @@
 </div>
 
 <script>
-document.addEventListener('click', e => {
-  console.log('clicked:', e.target, 'class:', e.target.className, 'pointer-events:', getComputedStyle(e.target).pointerEvents);
-}, true);
-
 const ADS_ENABLED = false;
 
 // ── CLICK TRACKING ──
@@ -1048,13 +1044,13 @@ function buildCard(c) {
     </div>
     <div class="report-panel" style="display:none;border-top:0.5px solid var(--color-border-tertiary);background:var(--color-background-secondary);padding:12px 14px;pointer-events:auto;">
       <div style="font-size:11px;color:var(--color-text-tertiary);margin-bottom:9px;">What's wrong?</div>
-      <div class="report-chips" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px;pointer-events:auto;">
-        <button class="chip" data-reason="button_broken" style="pointer-events:auto;cursor:pointer;">Book button didn't work</button>
-        <button class="chip" data-reason="wrong_date" style="pointer-events:auto;cursor:pointer;">Wrong date</button>
-        <button class="chip" data-reason="wrong_price" style="pointer-events:auto;cursor:pointer;">Wrong price</button>
-        <button class="chip" data-reason="sold_out" style="pointer-events:auto;cursor:pointer;">Shows open but sold out</button>
-        <button class="chip" data-reason="bad_description" style="pointer-events:auto;cursor:pointer;">Bad description</button>
-        <button class="chip" data-reason="other" style="pointer-events:auto;cursor:pointer;">Other</button>
+      <div class="report-chips" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px;">
+        <button class="chip" data-reason="button_broken" onclick="event.stopPropagation();selectChip(this)">Book button didn't work</button>
+        <button class="chip" data-reason="wrong_date" onclick="event.stopPropagation();selectChip(this)">Wrong date</button>
+        <button class="chip" data-reason="wrong_price" onclick="event.stopPropagation();selectChip(this)">Wrong price</button>
+        <button class="chip" data-reason="sold_out" onclick="event.stopPropagation();selectChip(this)">Shows open but sold out</button>
+        <button class="chip" data-reason="bad_description" onclick="event.stopPropagation();selectChip(this)">Bad description</button>
+        <button class="chip" data-reason="other" onclick="event.stopPropagation();selectChip(this)">Other</button>
       </div>
       <textarea class="report-note" placeholder="Any extra detail (optional)…" style="display:none;width:100%;font-size:11px;padding:6px 8px;border-radius:6px;border:0.5px solid var(--color-border-secondary);background:var(--color-background-primary);color:var(--color-text-primary);resize:none;min-height:48px;margin-bottom:8px;font-family:inherit;"></textarea>
       <div style="display:flex;align-items:center;gap:8px;">
@@ -1556,19 +1552,8 @@ loadActivityLabels().then(() => {
 });
 initSharedCourses();
 
-let activeReportCard = null;
-
-const reportObserver = new IntersectionObserver((entries) => {
-  entries.forEach(entry => {
-    if (!entry.isIntersecting && activeReportCard === entry.target) {
-      resetReport(activeReportCard);
-      reportObserver.unobserve(activeReportCard);
-      activeReportCard = null;
-    }
-  });
-}, { threshold: 0.5 });
-
 function openReport(strip) {
+  event.stopPropagation();
   const card = strip.closest('.course-card');
   if (activeReportCard && activeReportCard !== card) {
     resetReport(activeReportCard);
@@ -1580,7 +1565,22 @@ function openReport(strip) {
   reportObserver.observe(card);
 }
 
+function selectChip(btn) {
+  const panel = btn.closest('.report-panel');
+  const already = btn.classList.contains('sel');
+  panel.querySelectorAll('.chip').forEach(c => c.classList.remove('sel'));
+  if (!already) {
+    btn.classList.add('sel');
+    panel.querySelector('.btn-send').disabled = false;
+  } else {
+    panel.querySelector('.btn-send').disabled = true;
+  }
+  const note = panel.querySelector('.report-note');
+  note.style.display = (!already && btn.dataset.reason === 'other') ? 'block' : 'none';
+}
+
 function closeReport(btn) {
+  event.stopPropagation();
   const card = btn.closest('.course-card');
   resetReport(card);
   if (activeReportCard === card) {
@@ -1601,24 +1601,20 @@ function resetReport(card) {
   strip.style.display = 'flex';
 }
 
-document.addEventListener('click', e => {
-  if (!e.target.classList.contains('chip')) return;
-  e.stopPropagation();
-  const btn    = e.target;
-  const panel  = btn.closest('.report-panel');
-  const already = btn.classList.contains('sel');
-  panel.querySelectorAll('.chip').forEach(c => c.classList.remove('sel'));
-  if (!already) {
-    btn.classList.add('sel');
-    panel.querySelector('.btn-send').disabled = false;
-  } else {
-    panel.querySelector('.btn-send').disabled = true;
-  }
-  const note = panel.querySelector('.report-note');
-  note.style.display = (!already && btn.dataset.reason === 'other') ? 'block' : 'none';
-});
+let activeReportCard = null;
+
+const reportObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (!entry.isIntersecting && activeReportCard === entry.target) {
+      resetReport(activeReportCard);
+      reportObserver.unobserve(activeReportCard);
+      activeReportCard = null;
+    }
+  });
+}, { threshold: 0.5 });
 
 async function submitReport(btn) {
+  event.stopPropagation();
   const card      = btn.closest('.course-card');
   const panel     = card.querySelector('.report-panel');
   const strip     = card.querySelector('.report-strip');
@@ -1629,8 +1625,6 @@ async function submitReport(btn) {
   const reason = reasonBtn.dataset.reason;
   const note   = panel.querySelector('.report-note').value.trim();
 
-  console.log('submitReport', { courseId, reason, note });
-
   let sessionId = sessionStorage.getItem('bcf_session');
   if (!sessionId) {
     sessionId = crypto.randomUUID();
@@ -1640,14 +1634,19 @@ async function submitReport(btn) {
   btn.disabled = true;
   btn.textContent = '...';
 
-  await fetch('https://owzrztaguehebkatnatc.supabase.co/functions/v1/notify-report', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer sb_publishable_lqIyTGAgCn09Yfh1eacSPg_tcs9SJcB',
-    },
-    body: JSON.stringify({ course_id: courseId, reason, note, session_id: sessionId }),
-  });
+  try {
+    const res = await fetch('https://owzrztaguehebkatnatc.supabase.co/functions/v1/notify-report', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer sb_publishable_lqIyTGAgCn09Yfh1eacSPg_tcs9SJcB',
+      },
+      body: JSON.stringify({ course_id: courseId, reason, note, session_id: sessionId }),
+    });
+    console.log('report response:', res.status);
+  } catch(err) {
+    console.error('report error:', err);
+  }
 
   if (activeReportCard === card) {
     reportObserver.unobserve(card);
@@ -1659,7 +1658,7 @@ async function submitReport(btn) {
   strip.style.opacity   = '0.45';
   strip.style.fontStyle = 'italic';
   strip.style.cursor    = 'default';
-  strip.style.display   = '';
+  strip.style.display   = 'flex';
   strip.onclick         = null;
 }
 </script>
