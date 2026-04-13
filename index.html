@@ -869,7 +869,7 @@ async function fetchFromSupabase(page = 0, append = false, background = false) {
     const from = page * PAGE_SIZE;
     const today = new Date().toISOString().split('T')[0];
 
-    const filters = ['active=eq.true', 'or=(flagged.is.null,flagged.eq.false)'];
+    const filters = ['active=eq.true', 'flagged=not.is.true'];
     if (currentFilters.activity) filters.push(`activity_canonical=eq.${encodeURIComponent(currentFilters.activity)}`);
     if (currentFilters.provider) filters.push(`provider_id=eq.${encodeURIComponent(currentFilters.provider)}`);
     if (currentFilters.location) {
@@ -886,6 +886,8 @@ async function fetchFromSupabase(page = 0, append = false, background = false) {
 
     const queryString = filters.join('&');
     const url = `${SUPABASE_URL}/rest/v1/courses?select=*,providers(name,rating,review_count)&${queryString}&${order}&limit=${PAGE_SIZE}&offset=${from}`;
+
+    console.log('QUERY URL:', url);
 
     const res = await fetch(url, {
       headers: {
@@ -904,6 +906,7 @@ async function fetchFromSupabase(page = 0, append = false, background = false) {
     }
 
     const courses = await res.json();
+    console.log('COURSES returned:', courses.length, 'flagged:', courses.filter(c => c.flagged === true).length);
 
     if (append) {
       currentCourses = [...currentCourses, ...courses];
