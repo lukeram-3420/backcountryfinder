@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-scraper_altus.py — Standalone Rezdy scraper for Altus Mountain Guides.
+scraper_msaa.py — Standalone Rezdy scraper for Mountain Skills Academy (MSAA).
 
 Extracts the Rezdy scraping logic from scraper.py into a standalone file.
 Uses the same HTML selectors, price parsing, date parsing, etc.
@@ -34,13 +34,19 @@ HEADERS = {
 }
 
 PROVIDER = {
-    "id":       "altus",
-    "name":     "Altus Mountain Guides",
-    "storefront": "https://altusmountainguides.rezdy.com",
+    "id":       "msaa",
+    "name":     "Mountain Skills Academy",
+    "storefront": "https://mountainskillsacademy.rezdy.com",
     "catalogs": [
-        "catalog/540907/altus-ast-1",
-        "catalog/540908/altus-ast-1",
-        "catalog/628633/altus-ast-2",
+        "catalog/315469/luxury-experiences",
+        "catalog/517471/whistler-mountain-top",
+        "catalog/436573/squamish-via-ferrata",
+        "catalog/486576/hiking-tours",
+        "catalog/517472/climbing-adventures",
+        "catalog/517474/winter-tours",
+        "catalog/622663/via-ferrata-s-no-lift-ticket",
+        "catalog/628248/crevasse-rescue-refresher",
+        "catalog/633549/ast-1-online",
     ],
     "utm":      "utm_source=backcountryfinder&utm_medium=referral",
 }
