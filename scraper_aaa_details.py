@@ -78,6 +78,9 @@ def scrape_category_pages() -> dict:
             r.raise_for_status()
             soup = BeautifulSoup(r.text, "html.parser")
 
+            # Derive category from URL path segment
+            category = url.rstrip("/").split("/")[-1]  # e.g. "rock-climbing", "backcountry-skiing"
+
             for card in soup.select("li.product"):
                 link_el  = card.select_one("a.woocommerce-loop-product__link, a[href*='/product/']")
                 price_el = card.select_one(".price .amount, .woocommerce-Price-amount")
@@ -100,7 +103,7 @@ def scrape_category_pages() -> dict:
 
                 title = title_el.get_text(strip=True) if title_el else ""
                 if title:
-                    products[title] = {"price": price, "url": product_url}
+                    products[title] = {"price": price, "url": product_url, "category": category}
 
             time.sleep(0.5)
         except Exception as e:
@@ -187,24 +190,64 @@ def update_provider_reviews():
     )
     print("  ✅ Provider reviews updated")
 
+# ── Category extraction ───────────────────────────────────────────────────────
+
+# Map Checkfront title prefixes to WordPress category URL slugs
+CF_PREFIX_TO_CATEGORY = {
+    "rock climbing":       "rock-climbing",
+    "ice climbing":        "ice-climbing",
+    "alpine climbing":     "alpine-climbing",
+    "backcountry skiing":  "backcountry-skiing",
+    "backcountry ski":     "backcountry-skiing",
+    "backcountry riding":  "backcountry-skiing",
+    "hiking & trekking":   "hiking-trekking",
+    "hiking":              "hiking-trekking",
+    "avalanche":           "avalanche-training",
+    "mountaineering":      "alpine-climbing",
+}
+
+
+def extract_cf_category(cf_title: str) -> str | None:
+    """Extract the category from a Checkfront title prefix (everything before ':')."""
+    m = re.match(r"^([^:]+):", cf_title)
+    if not m:
+        return None
+    prefix = m.group(1).strip().lower()
+    for key, cat in CF_PREFIX_TO_CATEGORY.items():
+        if key in prefix:
+            return cat
+    return None
+
+
 # ── Fuzzy title match ─────────────────────────────────────────────────────────
 def normalize(s: str) -> str:
+    """Normalise title for comparison — keeps the FULL title including category prefix."""
     s = s.lower()
-    s = re.sub(r"^[^:]+:\s*", "", s)
     s = re.sub(r"[^a-z0-9\s]", "", s)
     s = re.sub(r"\s+", " ", s).strip()
     return s
 
-def best_match(cf_title: str, wp_titles: list) -> str | None:
+
+def best_match(cf_title: str, products: dict) -> str | None:
+    """
+    Match a Checkfront title to a WordPress product title.
+    Only matches within the same activity category to prevent cross-category confusion.
+    products: {wp_title: {price, url, category}}
+    """
     if cf_title in MANUAL_MATCHES:
         return MANUAL_MATCHES[cf_title]
 
+    cf_category = extract_cf_category(cf_title)
     cf_norm  = normalize(cf_title)
     cf_words = set(cf_norm.split())
     best_wp  = None
     best_score = 0
 
-    for wp_title in wp_titles:
+    for wp_title, wp_data in products.items():
+        # Only match within the same category
+        if cf_category and wp_data.get("category") and wp_data["category"] != cf_category:
+            continue
+
         wp_norm  = normalize(wp_title)
         wp_words = set(wp_norm.split())
         if not cf_words or not wp_words:
@@ -294,7 +337,7 @@ def main():
             overridden += 1
             continue
 
-        match = best_match(cf_title, list(products.keys()))
+        match = best_match(cf_title, products)
 
         if match is None and cf_title in MANUAL_MATCHES:
             print(f"    — Skipping (no WP page): {cf_title}")
@@ -328,6 +371,51 @@ def main():
         print(f"    ✅ {cf_title} → ${price} | {summary[:50] if summary else 'no summary'}")
         updated += 1
         time.sleep(0.1)
+
+    # 7. Fix specific data issues — clear wrong summaries and regenerate
+    print("\n  Fixing specific data issues...")
+    DATA_FIXES = [
+        # (cf_title, fixes_dict, needs_regeneration)
+        ("Rock Climbing: Beginner", {}, True),
+        ("Rock Climbing: Private", {}, True),
+        ("Rock Climbing Masters: Advanced", {"activity": "climbing", "activity_canonical": "climbing"}, True),
+        ("Ice Climbing: Beginner", {}, True),
+        ("Hiking & Trekking: Hiking week in the Canadian Rockies' with Lake O'Hara", {}, True),
+    ]
+    for fix_title, fix_payload, regenerate in DATA_FIXES:
+        print(f"    Fixing: {fix_title}")
+        # Apply explicit field fixes (e.g. activity correction)
+        if fix_payload:
+            sb_patch(
+                "courses",
+                f"provider_id=eq.{PROVIDER_ID}&title=eq.{requests.utils.quote(fix_title)}",
+                fix_payload,
+            )
+            print(f"      Patched fields: {list(fix_payload.keys())}")
+
+        if regenerate:
+            # Try to find a matching WP product to regenerate from
+            match = best_match(fix_title, products)
+            new_summary = ""
+            if match and products[match].get("description"):
+                items = [{"title": fix_title, "description": products[match]["description"][:200]}]
+                result = generate_summaries(items)
+                new_summary = result.get(fix_title, "")
+            if new_summary:
+                sb_patch(
+                    "courses",
+                    f"provider_id=eq.{PROVIDER_ID}&title=eq.{requests.utils.quote(fix_title)}",
+                    {"summary": new_summary},
+                )
+                print(f"      Summary regenerated: {new_summary[:60]}")
+            else:
+                # Clear the wrong summary if we can't regenerate
+                sb_patch(
+                    "courses",
+                    f"provider_id=eq.{PROVIDER_ID}&title=eq.{requests.utils.quote(fix_title)}",
+                    {"summary": ""},
+                )
+                print(f"      Summary cleared (no match found to regenerate)")
 
     print(f"\n  Done — updated: {updated} · overridden: {overridden} · no match: {no_match} · no price: {no_price}")
     send_summary(updated, overridden, no_match, no_price)
