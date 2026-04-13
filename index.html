@@ -1039,6 +1039,25 @@ function buildCard(c) {
         }
       </div>
     </div>
+    <div class="report-strip" onclick="openReport(this)" data-course-id="${c.id}" style="border-top:0.5px solid var(--color-border-tertiary);padding:7px 14px;display:flex;align-items:center;justify-content:center;cursor:pointer;background:none;width:100%;font-size:11px;color:var(--color-text-tertiary);opacity:0.35;font-family:inherit;">
+      Something not right?
+    </div>
+    <div class="report-panel" style="display:none;border-top:0.5px solid var(--color-border-tertiary);background:var(--color-background-secondary);padding:12px 14px;">
+      <div style="font-size:11px;color:var(--color-text-tertiary);margin-bottom:9px;">What's wrong?</div>
+      <div class="report-chips" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px;">
+        <button class="chip" data-reason="button_broken">Book button didn't work</button>
+        <button class="chip" data-reason="wrong_date">Wrong date</button>
+        <button class="chip" data-reason="wrong_price">Wrong price</button>
+        <button class="chip" data-reason="sold_out">Shows open but sold out</button>
+        <button class="chip" data-reason="bad_description">Bad description</button>
+        <button class="chip" data-reason="other">Other</button>
+      </div>
+      <textarea class="report-note" placeholder="Any extra detail (optional)…" style="display:none;width:100%;font-size:11px;padding:6px 8px;border-radius:6px;border:0.5px solid var(--color-border-secondary);background:var(--color-background-primary);color:var(--color-text-primary);resize:none;min-height:48px;margin-bottom:8px;font-family:inherit;"></textarea>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <button class="btn-send" onclick="submitReport(this)" disabled style="font-size:10px;font-family:inherit;font-weight:500;padding:4px 12px;border-radius:20px;border:none;background:#4ade80;color:#0a1a0a;cursor:pointer;">Send</button>
+        <button onclick="closeReport(this)" style="font-size:10px;font-family:inherit;background:none;border:none;color:var(--color-text-tertiary);cursor:pointer;">cancel</button>
+      </div>
+    </div>
   </div>`;
 }
 
@@ -1532,6 +1551,110 @@ loadActivityLabels().then(() => {
   loadLocationsDropdown();
 });
 initSharedCourses();
+
+let activeReportCard = null;
+
+const reportObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (!entry.isIntersecting && activeReportCard === entry.target) {
+      resetReport(activeReportCard);
+      reportObserver.unobserve(activeReportCard);
+      activeReportCard = null;
+    }
+  });
+}, { threshold: 0.5 });
+
+function openReport(strip) {
+  const card = strip.closest('.card');
+  if (activeReportCard && activeReportCard !== card) {
+    resetReport(activeReportCard);
+    reportObserver.unobserve(activeReportCard);
+  }
+  card.querySelector('.report-panel').style.display = 'block';
+  strip.style.display = 'none';
+  activeReportCard = card;
+  reportObserver.observe(card);
+}
+
+function closeReport(btn) {
+  const card = btn.closest('.card');
+  resetReport(card);
+  if (activeReportCard === card) {
+    reportObserver.unobserve(card);
+    activeReportCard = null;
+  }
+}
+
+function resetReport(card) {
+  const panel = card.querySelector('.report-panel');
+  const strip = card.querySelector('.report-strip');
+  if (!panel || !strip) return;
+  panel.style.display = 'none';
+  panel.querySelectorAll('.chip').forEach(c => c.classList.remove('sel'));
+  panel.querySelector('.btn-send').disabled = true;
+  panel.querySelector('.report-note').style.display = 'none';
+  panel.querySelector('.report-note').value = '';
+  strip.style.display = '';
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.classList.contains('chip')) return;
+  const btn    = e.target;
+  const panel  = btn.closest('.report-panel');
+  const already = btn.classList.contains('sel');
+  panel.querySelectorAll('.chip').forEach(c => c.classList.remove('sel'));
+  if (!already) {
+    btn.classList.add('sel');
+    panel.querySelector('.btn-send').disabled = false;
+  } else {
+    panel.querySelector('.btn-send').disabled = true;
+  }
+  const note = panel.querySelector('.report-note');
+  note.style.display = (!already && btn.dataset.reason === 'other') ? 'block' : 'none';
+});
+
+async function submitReport(btn) {
+  const card      = btn.closest('.card');
+  const panel     = card.querySelector('.report-panel');
+  const strip     = card.querySelector('.report-strip');
+  const courseId  = strip.dataset.courseId;
+  const reasonBtn = panel.querySelector('.chip.sel');
+  if (!reasonBtn) return;
+
+  const reason = reasonBtn.dataset.reason;
+  const note   = panel.querySelector('.report-note').value.trim();
+
+  let sessionId = sessionStorage.getItem('bcf_session');
+  if (!sessionId) {
+    sessionId = crypto.randomUUID();
+    sessionStorage.setItem('bcf_session', sessionId);
+  }
+
+  btn.disabled = true;
+  btn.textContent = '...';
+
+  await fetch('https://owzrztaguehebkatnatc.supabase.co/functions/v1/notify-report', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer sb_publishable_lqIyTGAgCn09Yfh1eacSPg_tcs9SJcB',
+    },
+    body: JSON.stringify({ course_id: courseId, reason, note, session_id: sessionId }),
+  });
+
+  if (activeReportCard === card) {
+    reportObserver.unobserve(card);
+    activeReportCard = null;
+  }
+
+  panel.style.display   = 'none';
+  strip.textContent     = 'Cheers — we\'ll sort that out, eh.';
+  strip.style.opacity   = '0.45';
+  strip.style.fontStyle = 'italic';
+  strip.style.cursor    = 'default';
+  strip.style.display   = '';
+  strip.onclick         = null;
+}
 </script>
 </body>
 </html>
