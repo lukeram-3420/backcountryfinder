@@ -51,7 +51,7 @@ The following columns on the courses table are never written by any scraper unde
 - flagged_reason  
 - flagged_note
 
-These are set exclusively by the notify-report edge function and cleared manually in Supabase. Never include them in any upsert payload in any scraper file.
+These are set by `validate_provider.py` (auto-hide bad rows) and the `notify-report` edge function (user reports). Scrapers must never include them in any upsert payload. `validate_provider.py` resets all flags for a provider at the start of each run, so fixed rows get automatically unflagged.
 
 ## Architecture
 
