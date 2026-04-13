@@ -31,26 +31,50 @@ jobs:
       - name: Altus
         run: python scraper_altus.py
         continue-on-error: true
+      - name: Validate Altus
+        run: python validate_provider.py altus
+        continue-on-error: true
       - name: MSAA
         run: python scraper_msaa.py
+        continue-on-error: true
+      - name: Validate MSAA
+        run: python validate_provider.py msaa
         continue-on-error: true
       - name: CWMS
         run: python scraper_cwms.py
         continue-on-error: true
+      - name: Validate CWMS
+        run: python validate_provider.py cwms
+        continue-on-error: true
       - name: Summit
         run: python scraper_summit.py
+        continue-on-error: true
+      - name: Validate Summit
+        run: python validate_provider.py summit
         continue-on-error: true
       - name: IAG
         run: python scraper_iag.py
         continue-on-error: true
+      - name: Validate IAG
+        run: python validate_provider.py iag
+        continue-on-error: true
       - name: HVI
         run: python scraper_hvi.py
+        continue-on-error: true
+      - name: Validate HVI
+        run: python validate_provider.py hvi
         continue-on-error: true
       - name: SRG
         run: python scraper_srg.py
         continue-on-error: true
+      - name: Validate SRG
+        run: python validate_provider.py srg
+        continue-on-error: true
       - name: Skaha Rock Adventures
         run: python scraper_skaha_rock_adventures.py
+        continue-on-error: true
+      - name: Validate Skaha Rock Adventures
+        run: python validate_provider.py skaha-rock-adventures
         continue-on-error: true
       - name: AAA
         run: python scraper_aaa.py
@@ -58,12 +82,24 @@ jobs:
       - name: AAA Details
         run: python scraper_aaa_details.py
         continue-on-error: true
+      - name: Validate AAA
+        run: python validate_provider.py aaa
+        continue-on-error: true
       - name: BSA
         run: python scraper_bsa.py
+        continue-on-error: true
+      - name: Validate BSA
+        run: python validate_provider.py bsa
         continue-on-error: true
       - name: JHT
         run: python scraper_jht.py
         continue-on-error: true
+      - name: Validate JHT
+        run: python validate_provider.py jht
+        continue-on-error: true
       - name: Yamnuska
         run: python scraper_yamnuska.py
+        continue-on-error: true
+      - name: Validate Yamnuska
+        run: python validate_provider.py yamnuska
         continue-on-error: true

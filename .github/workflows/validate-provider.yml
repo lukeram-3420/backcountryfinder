@@ -1,29 +1,28 @@
-name: Scraper — Skaha Rock Adventures
+name: Validate Provider
 
 on:
   workflow_dispatch:
+    inputs:
+      provider_id:
+        description: 'Provider ID to validate (e.g. aaa, altus, yamnuska)'
+        required: true
+        type: string
 
 jobs:
-  scrape:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+
       - uses: actions/setup-python@v4
         with:
           python-version: '3.11'
+
       - name: Install dependencies
         run: pip install requests beautifulsoup4 anthropic
-      - name: Run scraper
-        run: python scraper_skaha_rock_adventures.py
-        env:
-          SUPABASE_URL:          ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY:  ${{ secrets.SUPABASE_SERVICE_KEY }}
-          RESEND_API_KEY:        ${{ secrets.RESEND_API_KEY }}
-          GOOGLE_PLACES_API_KEY: ${{ secrets.GOOGLE_PLACES_API_KEY }}
-          ANTHROPIC_API_KEY:     ${{ secrets.ANTHROPIC_API_KEY }}
-      - name: Validate
-        run: python validate_provider.py skaha-rock-adventures
-        continue-on-error: true
+
+      - name: Validate provider
+        run: python validate_provider.py ${{ github.event.inputs.provider_id }}
         env:
           SUPABASE_URL:          ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY:  ${{ secrets.SUPABASE_SERVICE_KEY }}
