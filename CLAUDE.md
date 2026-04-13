@@ -43,6 +43,16 @@ In production, scrapers run via GitHub Actions with `workflow_dispatch` (manual 
 - **Playwright scrapers** get their own standalone file (e.g. `scraper_yamnuska.py`), never added to `scraper.py`
 - **GitHub Actions workflows:** `.github/workflows/scraper-{id}.yml`
 
+## Scraper conventions
+
+### Columns scrapers never touch
+The following columns on the courses table are never written by any scraper under any circumstances:
+- flagged
+- flagged_reason  
+- flagged_note
+
+These are set exclusively by the notify-report edge function and cleared manually in Supabase. Never include them in any upsert payload in any scraper file.
+
 ## Architecture
 
 ### Scraping Pipeline
