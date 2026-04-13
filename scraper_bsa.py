@@ -121,7 +121,9 @@ def find_place_id(location: str) -> dict | None:
         "fields": "place_id,rating,user_ratings_total",
         "key": GOOGLE_KEY,
     })
-    candidates = r.json().get("candidates", [])
+    response = r.json()
+    log.info(f"Google Places API response: {response}")
+    candidates = response.get("candidates", [])
     if not candidates:
         return None
     c = candidates[0]
