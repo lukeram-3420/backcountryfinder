@@ -400,15 +400,24 @@ For each course below, write exactly 2 sentences. Be specific and enticing. Use 
 Respond with JSON only — an array of objects with "id" and "summary" keys. Example:
 [{{"id": "provider-activity-2026-05-16", "summary": "Two sentences here."}}]"""
 
-        try:
-            result = claude_classify(prompt, max_tokens=1500)
-            if isinstance(result, list):
-                for item in result:
-                    if item.get("id") and item.get("summary"):
-                        results[item["id"]] = item["summary"]
-                log.info(f"Batch summaries: {len(result)} generated (batch {i // BATCH_SIZE + 1})")
-        except Exception as e:
-            log.warning(f"Batch summary generation failed: {e}")
+        batch_num = i // BATCH_SIZE + 1
+        for attempt in range(2):
+            try:
+                result = claude_classify(prompt, max_tokens=1500)
+                if isinstance(result, list) and result:
+                    for item in result:
+                        if item.get("id") and item.get("summary"):
+                            results[item["id"]] = item["summary"]
+                    log.info(f"Batch summaries: {len(result)} generated (batch {batch_num})")
+                    break
+                # Empty or non-list response — treat as failure
+                raise ValueError(f"unexpected response type: {type(result)}")
+            except Exception as e:
+                if attempt == 0:
+                    log.warning(f"Batch {batch_num} failed ({e}), retrying in 3s...")
+                    time.sleep(3)
+                else:
+                    log.warning(f"Batch {batch_num} retry also failed: {e}")
         time.sleep(0.5)
 
     return results
