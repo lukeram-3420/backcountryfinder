@@ -282,10 +282,9 @@ def parse_dates_from_text(text: str) -> list[dict]:
 # ── Course page scraping ──────────────────────────────────────────────────────
 
 def stable_id(provider_id: str, activity: str, date_sort: str, title: str) -> str:
-    base = f"{provider_id}-{activity}-{date_sort}"
-    # If date_sort is not unique enough, hash the title
+    """Generate stable ID with format: {provider_id}-{activity}-{date_sort}-{hash}"""
     h = hashlib.md5(title.encode()).hexdigest()[:6]
-    return f"{base}-{h}"
+    return f"{provider_id}-{activity}-{date_sort}-{h}"
 
 
 def scrape_course_page(url: str) -> list[dict]:
@@ -349,7 +348,7 @@ def scrape_course_page(url: str) -> list[dict]:
             })
     else:
         # No specific dates found — create a single evergreen row with null date
-        cid = f"{PROVIDER['id']}-{activity}-{hashlib.md5(title.encode()).hexdigest()[:8]}"
+        cid = stable_id(PROVIDER["id"], activity, "evergreen", title)
         rows.append({
             "id":               cid,
             "provider_id":      PROVIDER["id"],
@@ -442,12 +441,19 @@ def main():
     # Filter out international trips (location_raw=None)
     all_rows = [r for r in all_rows if r["location_raw"] is not None]
 
-    seen_ids = {r["id"] for r in all_rows}
-    upsert_courses(all_rows)
+    # Deduplicate by id, keeping first occurrence
+    seen_ids = set()
+    deduplicated_rows = []
+    for row in all_rows:
+        if row["id"] not in seen_ids:
+            seen_ids.add(row["id"])
+            deduplicated_rows.append(row)
+
+    upsert_courses(deduplicated_rows)
     deactivate_missing(seen_ids)
 
-    log.info(f"Done. {len(course_urls)} pages → {len(all_rows)} rows")
-    send_summary(len(course_urls), len(all_rows))
+    log.info(f"Done. {len(course_urls)} pages → {len(deduplicated_rows)} rows (after dedup)")
+    send_summary(len(course_urls), len(deduplicated_rows))
 
 
 if __name__ == "__main__":
