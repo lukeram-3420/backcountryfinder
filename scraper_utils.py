@@ -376,18 +376,19 @@ def generate_summaries_batch(courses: list) -> dict:
     if not to_summarise:
         return {}
 
-    # Deduplicate by title — same title gets one summary, reused for all IDs
-    seen_titles = {}       # title → first course's id
-    title_to_ids = {}      # title → [all ids with this title]
+    # Deduplicate by description — same description gets one summary, reused for all IDs
+    # This is semantically correct: the summary represents the description, not the title.
+    desc_to_ids = {}       # normalised_desc → [all ids with this description]
+    desc_to_course = {}    # normalised_desc → first course (used for batching)
     unique_courses = []
     for c in to_summarise:
-        t = c["title"].strip()
-        if t not in seen_titles:
-            seen_titles[t] = c["id"]
-            title_to_ids[t] = [c["id"]]
+        norm_desc = c["description"].strip().lower()
+        if norm_desc not in desc_to_course:
+            desc_to_course[norm_desc] = c
+            desc_to_ids[norm_desc] = [c["id"]]
             unique_courses.append(c)
         else:
-            title_to_ids[t].append(c["id"])
+            desc_to_ids[norm_desc].append(c["id"])
 
     # Build id→course lookup for post-processing
     id_to_course = {c["id"]: c for c in unique_courses}
@@ -437,7 +438,8 @@ Respond with JSON only — an array of objects with "id" and "summary" keys. Exa
         time.sleep(0.5)
 
     # ── Post-processing: detect and fix duplicate summary bleed ──
-    # Group summaries by text to find duplicates across different titles
+    # Bleed = same summary text for courses with DIFFERENT descriptions.
+    # Same description → same summary is intentional (handled by dedup above).
     summary_to_ids = {}
     for cid, summary in results.items():
         s = summary.strip()
@@ -447,19 +449,18 @@ Respond with JSON only — an array of objects with "id" and "summary" keys. Exa
     for summary_text, ids in summary_to_ids.items():
         if len(ids) <= 1:
             continue
-        # Check if these are actually different titles
+        # These are unique-description courses (deduped above) — if they share a summary, it's bleed
         titles = set(id_to_course[cid]["title"] for cid in ids if cid in id_to_course)
         if len(titles) <= 1:
-            continue  # same title — intentional reuse, not bleed
+            continue  # same title — not bleed
 
         # Keep summary for first course, regenerate for the rest
-        log.warning(f"Duplicate summary bleed detected across {len(titles)} titles — regenerating")
+        log.warning(f"Duplicate summary bleed across {len(titles)} titles with different descriptions — regenerating")
         all_summaries = set(results.values())
         for cid in ids[1:]:
             c = id_to_course.get(cid)
             if not c:
                 continue
-            # Regenerate individually with a title-specific prompt
             regen_prompt = (
                 f"Write a 2-sentence summary for '{c['title']}'. "
                 f"The summary MUST start with '{c['title']}'. Be specific to this course only. "
@@ -482,7 +483,6 @@ Respond with JSON only — an array of objects with "id" and "summary" keys. Exa
                     timeout=30,
                 )
                 new_summary = r.json()["content"][0]["text"].strip()
-                # Strip markdown heading if present
                 new_summary = re.sub(r"^#+\s*", "", new_summary).strip()
 
                 if new_summary in all_summaries:
@@ -497,10 +497,10 @@ Respond with JSON only — an array of objects with "id" and "summary" keys. Exa
                 results[cid] = ""
             time.sleep(0.5)
 
-    # Expand results: copy summaries to all IDs that share the same title
+    # Expand results: copy summaries to all IDs that share the same description
     expanded = dict(results)
-    for title, ids in title_to_ids.items():
-        first_id = seen_titles[title]
+    for norm_desc, ids in desc_to_ids.items():
+        first_id = desc_to_course[norm_desc]["id"]
         if first_id in results and results[first_id]:
             for cid in ids:
                 if cid != first_id:
