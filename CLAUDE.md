@@ -327,6 +327,11 @@ One file per provider at `.github/workflows/scraper-{id}.yml`. All use `workflow
 ### Secrets used by all workflows
 `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `RESEND_API_KEY`, `GOOGLE_PLACES_API_KEY`, `ANTHROPIC_API_KEY`
 
+## Filter behaviour
+
+### Activity → location dependency
+When the activity filter changes, the location dropdown is rebuilt to only show locations where that activity has active unflagged courses. This is handled by `updateLocationsForActivity(activity)` in `index.html`. When activity is reset to all, `loadLocationsDropdown()` is called to restore all locations. If the previously selected location is not available in the new activity's locations, the location filter is reset to all.
+
 ## Slash commands
 
 ### /add-scraper
