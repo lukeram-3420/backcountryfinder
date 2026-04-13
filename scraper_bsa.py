@@ -439,8 +439,8 @@ def main():
         all_rows.extend(rows)
         log.info(f"  {url} → {len(rows)} row(s)")
 
-    # Filter out international trips (location=None)
-    all_rows = [r for r in all_rows if r["location"] is not None]
+    # Filter out international trips (location_raw=None)
+    all_rows = [r for r in all_rows if r["location_raw"] is not None]
 
     seen_ids = {r["id"] for r in all_rows}
     upsert_courses(all_rows)
