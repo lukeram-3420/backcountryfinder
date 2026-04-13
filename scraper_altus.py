@@ -1219,14 +1219,28 @@ def main():
                     c["summary"] = summaries[c["id"]]
             log.info(f"Summaries generated: {len(summaries)}")
 
-    # Deduplicate by ID — last one wins if duplicates exist
+    # Deduplicate by title + date_sort — keep first occurrence (Pass 1 / Rezdy)
+    # since it has better availability data than the website scrape
     if processed:
-        seen = {}
+        seen_td = {}
+        deduped = []
         for c in processed:
-            seen[c["id"]] = c
-        deduped = list(seen.values())
+            key = (c["title"], c.get("date_sort"))
+            if key not in seen_td:
+                seen_td[key] = True
+                deduped.append(c)
         if len(deduped) < len(processed):
-            log.warning(f"Deduplicated {len(processed) - len(deduped)} duplicate course IDs before upsert")
+            log.info(f"Deduplicated {len(processed) - len(deduped)} duplicate title+date courses (Pass 1 kept over Pass 2)")
+        # Also deduplicate by stable ID as a safety net
+        seen_id = {}
+        final = []
+        for c in deduped:
+            if c["id"] not in seen_id:
+                seen_id[c["id"]] = True
+                final.append(c)
+        if len(final) < len(deduped):
+            log.warning(f"Deduplicated {len(deduped) - len(final)} duplicate stable IDs")
+        deduped = final
 
         # Strip description — it's a scrape-time field, not stored in Supabase
         for c in deduped:
