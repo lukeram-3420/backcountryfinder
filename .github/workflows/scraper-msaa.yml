@@ -8,11 +8,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      - name: Cache Playwright browsers
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}
       - uses: actions/setup-python@v4
         with:
           python-version: '3.11'
       - name: Install dependencies
-        run: pip install requests beautifulsoup4 anthropic
+        run: |
+          pip install requests beautifulsoup4 playwright anthropic
+          playwright install chromium
       - name: Run scraper
         run: python scraper_msaa.py
         env:

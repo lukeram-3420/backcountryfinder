@@ -17,6 +17,7 @@ from typing import Optional
 
 import requests
 from bs4 import BeautifulSoup
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 # ── CONFIG ──
 SUPABASE_URL          = os.environ["SUPABASE_URL"]
@@ -754,52 +755,92 @@ def scrape_rezdy_api(provider: dict) -> list:
     return courses
 
 
-def check_course_page(booking_url: str) -> dict:
+def check_course_page_playwright(browser, booking_url: str) -> dict:
     """
-    Visit a course page and determine:
-    - is it available?
-    - are there static dates we can scrape?
-    - is it a custom date picker?
-    Returns dict: {available, custom_dates, dates}
+    Use Playwright to render a Rezdy product page and extract:
+    - description (JS-rendered content)
+    - price (from rendered HTML)
+    - availability signals
+    - any visible date information
+    Returns dict: {available, custom_dates, dates, description, price}
     """
-    result = {"available": True, "custom_dates": False, "dates": []}
+    result = {"available": True, "custom_dates": True, "dates": [], "description": "", "price": None}
 
     try:
         clean_url = booking_url.split("?")[0]
-        r = requests.get(clean_url, headers=HEADERS, timeout=20)
-        r.raise_for_status()
-        text = r.text.lower()
-        soup = BeautifulSoup(r.text, "html.parser")
+        page = browser.new_page()
+        page.set_extra_http_headers({"Accept-Language": "en-CA,en;q=0.9"})
+        page.goto(clean_url, wait_until="networkidle", timeout=30000)
 
+        # Wait a moment for any remaining JS to settle
+        page.wait_for_timeout(2000)
+
+        html = page.content()
+        soup = BeautifulSoup(html, "html.parser")
+        page_text = soup.get_text()
+        text_lower = page_text.lower()
+
+        # Check no-availability signals
         for signal in NO_AVAILABILITY_SIGNALS:
-            if signal in text:
+            if signal in text_lower:
                 log.info(f"No availability found at {clean_url}")
                 result["available"] = False
+                page.close()
                 return result
 
-        page_text = soup.get_text()
+        # Extract description from rendered HTML
+        # Rezdy product pages put description in various containers
+        desc_el = (
+            soup.find("div", class_=re.compile(r"product-description|description|overview", re.I)) or
+            soup.find("div", {"itemprop": "description"}) or
+            soup.find("div", class_="products-list-item-overview")
+        )
+        if desc_el:
+            result["description"] = desc_el.get_text(separator=" ", strip=True)[:800]
+        if not result["description"]:
+            # Fallback: grab first substantial paragraphs
+            paras = []
+            for p in soup.find_all("p"):
+                t = p.get_text(strip=True)
+                if len(t) > 60 and len(paras) < 3:
+                    paras.append(t)
+            if paras:
+                result["description"] = " ".join(paras)[:800]
+
+        # Extract price from rendered HTML
+        price_match = re.search(r"(?:CAD\s*)?\$\s?([\d,]+(?:\.\d{2})?)", page_text)
+        if price_match:
+            try:
+                val = int(float(price_match.group(1).replace(",", "")))
+                if val >= 10:
+                    result["price"] = val
+            except ValueError:
+                pass
+
+        # Check for any visible date text in the rendered page
         found_dates = []
         for pattern in STATIC_DATE_PATTERNS:
             matches = re.findall(pattern, page_text)
             found_dates.extend(matches)
-
         if found_dates:
-            log.info(f"Found {len(found_dates)} static dates at {clean_url}")
+            log.info(f"Found {len(found_dates)} dates at {clean_url}")
             result["dates"] = list(set(found_dates))
-        else:
-            log.info(f"No static dates found at {clean_url} — marking as custom dates")
-            result["custom_dates"] = True
+            result["custom_dates"] = False
 
-        desc_el = soup.find("div", class_=lambda c: c and any(x in c for x in ["product-description", "description", "course-description", "entry-content"]))
-        if not desc_el:
-            desc_el = soup.find("div", {"itemprop": "description"})
-        if desc_el:
-            result["description"] = desc_el.get_text(separator=" ", strip=True)[:800]
+        page.close()
 
+    except PlaywrightTimeout:
+        log.warning(f"Timeout loading {booking_url}")
+        try:
+            page.close()
+        except Exception:
+            pass
     except Exception as e:
         log.warning(f"Could not check course page {booking_url}: {e}")
-        result["available"] = True
-        result["custom_dates"] = True
+        try:
+            page.close()
+        except Exception:
+            pass
 
     return result
 
@@ -826,97 +867,110 @@ def main():
 
     location_flags = []
 
-    # Scrape Rezdy
+    # Scrape Rezdy catalog pages (static HTML — no Playwright needed)
     raw_courses = scrape_rezdy(provider)
     processed = []
 
-    for c in raw_courses:
-        # Skip past courses
-        if not is_future(c.get("date_sort")):
-            log.info(f"Skipping past course: {c['title']}")
-            continue
+    # Launch Playwright for product detail page rendering
+    log.info("Launching Playwright browser for product page rendering...")
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        log.info("Playwright browser launched")
 
-        # Normalise location
-        loc_raw = c.get("location_raw") or ""
-        if loc_raw:
-            loc_canonical, loc_is_new, loc_add_mapping = normalise_location(loc_raw, mappings)
-            if loc_add_mapping:
-                sb_insert("location_mappings", {"location_raw": loc_raw, "location_canonical": loc_canonical})
-                mappings[loc_raw.lower().strip()] = loc_canonical
-                if loc_is_new:
-                    log.info(f"New canonical location added: '{loc_raw}' -> '{loc_canonical}'")
-            if not loc_canonical:
-                log.warning(f"Unmatched location: '{loc_raw}' for '{c['title']}'")
-                location_flags.append({"location_raw": loc_raw, "provider_id": provider["id"], "course_title": c["title"]})
-        else:
-            loc_canonical = None
+        for c in raw_courses:
+            # Skip past courses
+            if not is_future(c.get("date_sort")):
+                log.info(f"Skipping past course: {c['title']}")
+                continue
 
-        # Build stable ID
-        course_id = stable_id(provider["id"], c["activity"], c.get("date_sort"), c["title"])
-
-        # Resolve canonical activity
-        activity_raw = c.get("activity_raw") or c.get("activity") or "guided"
-        desc = ""
-        activity_canonical, act_is_new, act_add_mapping = resolve_activity(c["title"], desc, activity_maps, provider["name"])
-        if act_add_mapping:
-            sb_insert("activity_mappings", {"title_contains": c["title"].lower()[:100], "activity": activity_canonical})
-            activity_maps.append((c["title"].lower()[:100], activity_canonical))
-            if act_is_new:
-                log.info(f"New canonical activity added: '{activity_canonical}' for '{c['title']}'")
-        badge_canonical = build_badge(activity_canonical, c.get("duration_days"))
-
-        # Check individual course page for availability and dates
-        booking_url = c.get("booking_url")
-        active = True
-        custom_dates = False
-        date_display = c.get("date_display")
-        date_sort = c.get("date_sort")
-
-        page_description = ""
-        if booking_url:
-            page_check = check_course_page(booking_url)
-            page_description = page_check.get("description", "")
-            if not page_check["available"]:
-                log.info(f"No availability — showing as flexible dates: {c['title']}")
-                custom_dates = True
-                date_display = "Flexible dates"
-                date_sort = None
-                active = True
+            # Normalise location
+            loc_raw = c.get("location_raw") or ""
+            if loc_raw:
+                loc_canonical, loc_is_new, loc_add_mapping = normalise_location(loc_raw, mappings)
+                if loc_add_mapping:
+                    sb_insert("location_mappings", {"location_raw": loc_raw, "location_canonical": loc_canonical})
+                    mappings[loc_raw.lower().strip()] = loc_canonical
+                    if loc_is_new:
+                        log.info(f"New canonical location added: '{loc_raw}' -> '{loc_canonical}'")
+                if not loc_canonical:
+                    log.warning(f"Unmatched location: '{loc_raw}' for '{c['title']}'")
+                    location_flags.append({"location_raw": loc_raw, "provider_id": provider["id"], "course_title": c["title"]})
             else:
-                custom_dates = page_check["custom_dates"]
-                if custom_dates:
+                loc_canonical = None
+
+            # Resolve canonical activity
+            activity_raw = c.get("activity_raw") or c.get("activity") or "guided"
+            desc = ""
+            activity_canonical, act_is_new, act_add_mapping = resolve_activity(c["title"], desc, activity_maps, provider["name"])
+            if act_add_mapping:
+                sb_insert("activity_mappings", {"title_contains": c["title"].lower()[:100], "activity": activity_canonical})
+                activity_maps.append((c["title"].lower()[:100], activity_canonical))
+                if act_is_new:
+                    log.info(f"New canonical activity added: '{activity_canonical}' for '{c['title']}'")
+            badge_canonical = build_badge(activity_canonical, c.get("duration_days"))
+
+            # Render product page with Playwright for description + dates
+            booking_url = c.get("booking_url")
+            active = True
+            custom_dates = False
+            date_display = c.get("date_display")
+            date_sort = c.get("date_sort")
+
+            page_description = ""
+            page_price = c.get("price")
+            if booking_url:
+                log.info(f"  Rendering: {c['title']}")
+                page_check = check_course_page_playwright(browser, booking_url)
+                page_description = page_check.get("description", "")
+                # Use Playwright-extracted price if catalog didn't have one
+                if page_price is None and page_check.get("price"):
+                    page_price = page_check["price"]
+                if not page_check["available"]:
+                    log.info(f"  No availability — flexible dates: {c['title']}")
+                    custom_dates = True
                     date_display = "Flexible dates"
                     date_sort = None
-                elif page_check["dates"] and not date_display:
-                    date_display = page_check["dates"][0]
-                    date_sort = parse_date_sort(date_display)
-            time.sleep(0.5)
+                    active = True
+                else:
+                    custom_dates = page_check["custom_dates"]
+                    if custom_dates:
+                        date_display = "Flexible dates"
+                        date_sort = None
+                    elif page_check["dates"] and not date_display:
+                        date_display = page_check["dates"][0]
+                        date_sort = parse_date_sort(date_display)
+                time.sleep(1)  # brief pause between Playwright page loads
 
-        processed.append({
-            "id":                 course_id,
-            "title":              c["title"],
-            "provider_id":        provider["id"],
-            "badge":              badge_canonical,
-            "activity":           activity_canonical,
-            "activity_raw":       activity_raw,
-            "activity_canonical": activity_canonical,
-            "badge_canonical":    badge_canonical,
-            "location_raw":       loc_raw or None,
-            "location_canonical": loc_canonical,
-            "date_display":       date_display,
-            "date_sort":          date_sort,
-            "duration_days":      c.get("duration_days"),
-            "price":              c.get("price"),
-            "spots_remaining":    c.get("spots_remaining"),
-            "avail":              c.get("avail", "open"),
-            "image_url":          c.get("image_url"),
-            "booking_url":        booking_url,
-            "active":             active,
-            "custom_dates":       custom_dates,
-            "summary":            c.get("summary", ""),
-            "description":        page_description or c.get("description", ""),
-            "scraped_at":         c["scraped_at"],
-        })
+            course_id = stable_id(provider["id"], activity_canonical, date_sort, c["title"])
+
+            processed.append({
+                "id":                 course_id,
+                "title":              c["title"],
+                "provider_id":        provider["id"],
+                "badge":              badge_canonical,
+                "activity":           activity_canonical,
+                "activity_raw":       activity_raw,
+                "activity_canonical": activity_canonical,
+                "badge_canonical":    badge_canonical,
+                "location_raw":       loc_raw or None,
+                "location_canonical": loc_canonical,
+                "date_display":       date_display,
+                "date_sort":          date_sort,
+                "duration_days":      c.get("duration_days"),
+                "price":              page_price,
+                "spots_remaining":    c.get("spots_remaining"),
+                "avail":              c.get("avail", "open"),
+                "image_url":          c.get("image_url"),
+                "booking_url":        booking_url,
+                "active":             active,
+                "custom_dates":       custom_dates,
+                "summary":            c.get("summary", ""),
+                "description":        page_description or c.get("description", ""),
+                "scraped_at":         c["scraped_at"],
+            })
+
+        browser.close()
+        log.info("Playwright browser closed")
 
     # Batch generate summaries for Rezdy courses
     if processed:
