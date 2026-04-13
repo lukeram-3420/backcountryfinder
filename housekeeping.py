@@ -87,6 +87,7 @@ At the end, provide a SHORT SUMMARY of the most important actions to take."""
     log.info("Asking Claude to review mapping tables...")
     review = claude_review(prompt)
     log.info("Claude review complete")
+    print(review)
 
     # Build email
     html = f"""
