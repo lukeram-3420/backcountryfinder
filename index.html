@@ -1525,8 +1525,9 @@ function showMicroToast() {
 loadActivityLabels().then(() => {
   // Set default "from" date to today
   document.getElementById('search-date').value = new Date().toISOString().split('T')[0];
+  document.getElementById('search-date').classList.add('has-value');
+  debouncedSearch();
   initProviderFilter();
-  fetchCourses(0, false);
   loadActivitiesDropdown();
   loadLocationsDropdown();
 });
