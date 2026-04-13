@@ -871,7 +871,9 @@ async function fetchCourses(page = 0, append = false) {
 async function fetchFromSupabase(page = 0, append = false, background = false) {
   try {
     const from = page * PAGE_SIZE;
-    const today = new Date().toISOString().split('T')[0];
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const defaultDate = tomorrow.toISOString().split('T')[0];
 
     const filters = ['active=eq.true', 'flagged=not.is.true'];
     if (currentFilters.activity) filters.push(`activity_canonical=eq.${encodeURIComponent(currentFilters.activity)}`);
@@ -1577,8 +1579,10 @@ function showMicroToast() {
 
 // ── INIT ──
 loadActivityLabels().then(() => {
-  // Set default "from" date to today
-  document.getElementById('search-date').value = new Date().toISOString().split('T')[0];
+  // Set default "from" date to tomorrow
+  const tmrw = new Date();
+  tmrw.setDate(tmrw.getDate() + 1);
+  document.getElementById('search-date').value = tmrw.toISOString().split('T')[0];
   document.getElementById('search-date').classList.add('has-value');
   debouncedSearch();
   initProviderFilter();
