@@ -290,10 +290,13 @@ def scrape_course_page(session: requests.Session, browser, course_url: str, utm:
         location_raw = IFRAME_LOCATION_MAP[location_key]
         log.info(f"  Location: {location_key} → {location_raw}")
 
-        price     = None
+        # ── Price extraction: 4-level fallback chain ──
+        price      = None
+        price_src  = "null — no source found"
+
+        # Level 1: iframe URL params (e.g. priceCanmore=598)
         price_key = f"price{location_key.title()}"
         raw_price = params.get(price_key, [""])[0]
-        # Fallback: try priceCanmore, then any param starting with "price"
         if not raw_price:
             raw_price = params.get("priceCanmore", [""])[0]
         if not raw_price:
@@ -305,18 +308,35 @@ def scrape_course_page(session: requests.Session, browser, course_url: str, utm:
         if raw_price:
             try:
                 price = int(float(raw_price))
+                price_src = f"URL param ({price_key})"
             except (ValueError, TypeError):
                 pass
-        # Final fallback: use price extracted from the page HTML
-        if price is None and page_price is not None:
-            price = page_price
-            price_key = "page_html"
-        log.info(f"  Price ({price_key}): ${price}")
 
+        # Fetch iframe HTML (needed for dates AND level-2 price fallback)
         time.sleep(random.uniform(0.5, 1.0))
         iframe_resp = session.get(iframe_src, timeout=20)
         iframe_resp.raise_for_status()
         iframe_soup = BeautifulSoup(iframe_resp.text, "html.parser")
+
+        # Level 2: iframe HTML body (price embedded in rendered iframe content)
+        if price is None:
+            iframe_text = iframe_soup.get_text()
+            pm = re.search(r"\$\s?([\d,]+)", iframe_text)
+            if pm:
+                try:
+                    val = int(pm.group(1).replace(",", ""))
+                    if val >= 50:
+                        price = val
+                        price_src = "iframe HTML"
+                except ValueError:
+                    pass
+
+        # Level 3: page HTML (price from Playwright-rendered main page)
+        if price is None and page_price is not None:
+            price = page_price
+            price_src = "page HTML"
+
+        log.info(f"  Price: ${price} ({price_src})")
 
         date_rows = iframe_soup.find_all("div", class_="row", attrs={"data-spaces": True})
 
