@@ -139,6 +139,14 @@ def find_place_id(location: str) -> dict | None:
         "fields": "rating,user_ratings_total",
         "key": GOOGLE_KEY,
     })
+    log.info(f"Place Details API status: {r.status_code}")
+    if r.status_code != 200:
+        log.warning(f"Place Details API error: {r.text}")
+        return {
+            "place_id": place_id,
+            "rating": None,
+            "review_count": None,
+        }
     details = r.json()
     log.info(f"Google Places details response: {details}")
     result = details.get("result", {})
@@ -436,14 +444,20 @@ def collect_course_urls() -> list[str]:
     for listing in LISTING_PAGES:
         soup = fetch(listing)
         if not soup:
+            log.warning(f"Failed to fetch listing page: {listing}")
             continue
-        for a in soup.find_all("a", href=True):
+        links = soup.find_all("a", href=True)
+        log.info(f"Listing page {listing}: found {len(links)} total links")
+        matched = 0
+        for a in links:
             href = a["href"]
             if re.search(r"blacksheepadventure\.ca.*(course|trip)/", href):
                 if href not in seen:
                     seen.add(href)
                     urls.append(href)
-    log.info(f"Found {len(urls)} course/trip URLs")
+                    matched += 1
+        log.info(f"  → {matched} course/trip URLs matched on this page")
+    log.info(f"Found {len(urls)} course/trip URLs total")
     return urls
 
 
