@@ -661,9 +661,11 @@ def scrape_rezdy_page(provider: dict, url: str) -> list:
                     if image_url and image_url.startswith("//"):
                         image_url = "https:" + image_url
 
-                # Description — p tag in overview
+                # Description — p.products-list-item-overview (class is on the p itself)
                 desc_text = ""
-                desc_el = item.select_one("div.products-list-item-overview p")
+                desc_el = item.select_one("p.products-list-item-overview")
+                if not desc_el:
+                    desc_el = item.select_one("div.products-list-item-overview p")
                 if desc_el:
                     desc_text = desc_el.get_text(strip=True)
 
@@ -698,6 +700,7 @@ def scrape_rezdy_page(provider: dict, url: str) -> list:
                     "avail":         "open",
                     "image_url":     image_url,
                     "booking_url":   booking_url,
+                    "description":   desc_text,
                     "scraped_at":    datetime.utcnow().isoformat(),
                 })
 
@@ -965,7 +968,7 @@ def main():
                 "active":             active,
                 "custom_dates":       custom_dates,
                 "summary":            c.get("summary", ""),
-                "description":        page_description or c.get("description", ""),
+                "description":        c.get("description", "") or page_description,
                 "scraped_at":         c["scraped_at"],
             })
 
