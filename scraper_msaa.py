@@ -133,6 +133,21 @@ def sb_upsert(table: str, data: list) -> None:
         log.info(f"Upserted {len(data)} rows to {table}")
 
 
+def sb_patch(table: str, filter_params: str, payload: dict) -> None:
+    r = requests.patch(
+        f"{SUPABASE_URL}/rest/v1/{table}?{filter_params}",
+        headers={
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+            "Content-Type": "application/json",
+            "Prefer": "resolution=merge-duplicates",
+        },
+        json=payload,
+    )
+    if not r.ok:
+        log.error(f"Supabase PATCH error {r.status_code}: {r.text[:200]}")
+
+
 def sb_insert(table: str, data: dict) -> None:
     url = f"{SUPABASE_URL}/rest/v1/{table}"
     headers = {
