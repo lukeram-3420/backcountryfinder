@@ -307,8 +307,10 @@ def scrape_course_page(session: requests.Session, browser, course_url: str, utm:
                     break
         if raw_price:
             try:
-                price = int(float(raw_price))
-                price_src = f"URL param ({price_key})"
+                val = int(float(raw_price))
+                if val >= 10:  # ignore placeholder prices (e.g. priceCanmore=1)
+                    price = val
+                    price_src = f"URL param ({price_key})"
             except (ValueError, TypeError):
                 pass
 
