@@ -132,7 +132,11 @@ def find_place_id(location: str) -> dict | None:
     if not place_id:
         return None
 
-    # Step 2: Get rating and review_count via place details
+    # Step 2: Get rating and review_count via place details (old API with fallback to new API)
+    rating = None
+    review_count = None
+
+    # Try old Places Details API first
     details_url = "https://maps.googleapis.com/maps/api/place/details/json"
     r = requests.get(details_url, params={
         "place_id": place_id,
@@ -140,13 +144,28 @@ def find_place_id(location: str) -> dict | None:
         "key": GOOGLE_KEY,
     })
     details = r.json()
-    log.info(f"Google Places details response: {details}")
+    log.info(f"Google Places old API details response: {details}")
     result = details.get("result", {})
+    rating = result.get("rating")
+    review_count = result.get("user_ratings_total")
+
+    # If old API didn't return rating, try new API v1
+    if not rating:
+        log.info(f"Old API returned no rating, trying new API v1")
+        new_api_url = f"https://places.googleapis.com/v1/places/{place_id}"
+        r = requests.get(new_api_url, headers={
+            "X-Goog-Api-Key": GOOGLE_KEY,
+            "X-Goog-FieldMask": "rating,userRatingCount",
+        })
+        new_details = r.json()
+        log.info(f"Google Places new API v1 response: {new_details}")
+        rating = new_details.get("rating")
+        review_count = new_details.get("userRatingCount")
 
     return {
         "place_id": place_id,
-        "rating": result.get("rating"),
-        "review_count": result.get("user_ratings_total"),
+        "rating": rating,
+        "review_count": review_count,
     }
 
 
@@ -350,12 +369,9 @@ def scrape_course_page(url: str) -> list[dict]:
     title = title_el.get_text(strip=True) if title_el else "Unknown Course"
 
     # Description — grab first substantial paragraph
-    entry = soup.find("div", class_=re.compile(r"entry-content|page-content|post-content"))
-    description = ""
-    if entry:
-        paras = entry.find_all("p")
-        chunks = [p.get_text(strip=True) for p in paras if len(p.get_text(strip=True)) > 60]
-        description = " ".join(chunks[:3])
+    paras = soup.find_all("p")
+    chunks = [p.get_text(strip=True) for p in paras if len(p.get_text(strip=True)) > 60]
+    description = " ".join(chunks[:3])
     log.info(f"Description length for '{title}': {len(description)} chars")
 
     # Price — look for "$" pattern
