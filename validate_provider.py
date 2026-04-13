@@ -178,11 +178,9 @@ def check_summaries(courses: list, auto_hidden: list) -> list:
                 flag_course(c["id"], reason, auto_hidden)
                 break
 
-    # Duplicate summaries across different titles → AUTO-HIDE only if different descriptions
-    # Same summary + same description = intentional (generator deduplicates by description).
-    # Since description is not stored in Supabase, we use a proxy: if two courses share
-    # an identical summary AND have different titles, it's only bleed if the summary
-    # doesn't start with either course's title (the generator enforces title prefixes).
+    # Duplicate summaries across different titles → EMAIL ONLY
+    # Without the source description stored in Supabase, the validator cannot
+    # reliably distinguish intentional shared summaries from genuine bleed.
     summary_to_courses = defaultdict(list)
     for c in courses:
         s = (c.get("summary") or "").strip()
@@ -192,17 +190,15 @@ def check_summaries(courses: list, auto_hidden: list) -> list:
         titles = set(c["title"] for c in group)
         if len(titles) <= 1:
             continue  # same title — intentional reuse
-        # Check if summary starts with any of the course titles — if so, it's
-        # intentionally shared (same description produced same summary)
-        summary_lower = summary_text.lower()
-        starts_with_a_title = any(summary_lower.startswith(t.lower()) for t in titles)
-        if starts_with_a_title:
-            continue  # summary is title-prefixed — likely intentional
-        # Genuine bleed: same summary, different titles, no title prefix
         for c in group:
             other_titles = [t for t in titles if t != c["title"]]
-            reason = f"duplicate summary bleed: shared with {other_titles[0][:60]}"
-            flag_course(c["id"], reason, auto_hidden)
+            email_only.append({
+                "check": "Summary quality",
+                "title": c["title"],
+                "issue": f"Possible summary bleed: shared with {other_titles[0][:60]}",
+                "value": summary_text[:80],
+                "id": c["id"],
+            })
 
     return email_only
 
