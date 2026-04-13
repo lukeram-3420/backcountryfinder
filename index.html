@@ -40,7 +40,7 @@
     --font: 'Plus Jakarta Sans', sans-serif;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: var(--font); background: var(--bg); color: var(--text-primary); min-height: 100vh; -webkit-font-smoothing: antialiased; }
+  body { font-family: var(--font); background: var(--bg); color: var(--text-primary); min-height: 100vh; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
 
   /* NAV */
   .topnav { background: var(--green-dark); display: flex; align-items: center; justify-content: space-between; padding: 0 36px; height: 60px; position: sticky; top: 0; z-index: 100; }
@@ -440,8 +440,8 @@ document.addEventListener('DOMContentLoaded', () => {
   <div class="hero">
     <div class="hero-inner">
     <div class="hero-tagline">
-      Find your <span class="word-slot" id="slot1" style="min-width:100px;"><div class="word-inner" id="track1"><span class="word-item">course</span><span class="word-item">line</span><span class="word-item">summit</span><span class="word-item">trip</span><span class="word-item">route</span><span class="word-item">powder</span><span class="word-item">hut</span><span class="word-item">guide</span><span class="word-item">drift</span><span class="word-item">run</span><span class="word-item">cast</span><span class="word-item">secret</span><span class="word-item">stash</span><span class="word-item">beta</span><span class="word-item">zone</span><span class="word-item">course</span></div></span><br>
-      Find your <span class="word-slot" id="slot2" style="min-width:140px;"><div class="word-inner" id="track2"><span class="word-item">adventure</span><span class="word-item">peak</span><span class="word-item">people</span><span class="word-item">escape</span><span class="word-item">wild</span><span class="word-item">silence</span><span class="word-item">horizon</span><span class="word-item">freedom</span><span class="word-item">solitude</span><span class="word-item">calling</span><span class="word-item">tracks</span><span class="word-item">flow</span><span class="word-item">crew</span><span class="word-item">way out</span><span class="word-item">next chapter</span><span class="word-item">adventure</span></div></span>
+      Find your <span class="word-slot" id="slot1" style="min-width:min(100px,30vw);"><div class="word-inner" id="track1"><span class="word-item">course</span><span class="word-item">line</span><span class="word-item">summit</span><span class="word-item">trip</span><span class="word-item">route</span><span class="word-item">powder</span><span class="word-item">hut</span><span class="word-item">guide</span><span class="word-item">drift</span><span class="word-item">run</span><span class="word-item">cast</span><span class="word-item">secret</span><span class="word-item">stash</span><span class="word-item">beta</span><span class="word-item">zone</span><span class="word-item">course</span></div></span><br>
+      Find your <span class="word-slot" id="slot2" style="min-width:min(140px,42vw);"><div class="word-inner" id="track2"><span class="word-item">adventure</span><span class="word-item">peak</span><span class="word-item">people</span><span class="word-item">escape</span><span class="word-item">wild</span><span class="word-item">silence</span><span class="word-item">horizon</span><span class="word-item">freedom</span><span class="word-item">solitude</span><span class="word-item">calling</span><span class="word-item">tracks</span><span class="word-item">flow</span><span class="word-item">crew</span><span class="word-item">way out</span><span class="word-item">next chapter</span><span class="word-item">adventure</span></div></span>
     </div>
     <div class="hero-sub">Without the 20 open tabs.</div>
     <div class="search-bar">
