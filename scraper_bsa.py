@@ -389,14 +389,33 @@ def scrape_course_page(url: str) -> list[dict]:
                 price = val
                 break
 
-    # Dates — search full page text
-    dates = parse_dates_from_text(full_text)
+    # Dates — search only in relevant text near booking keywords or in specific elements
+    relevant_texts = []
+    # Find text containing booking keywords
+    booking_keywords = re.compile(r"(BOOK NOW|Book Now)", re.IGNORECASE)
+    for element in soup.find_all(string=booking_keywords):
+        parent = element.parent
+        if parent:
+            relevant_texts.append(parent.get_text())
+    # Also, find elements with relevant class names
+    class_keywords = ["book", "date", "schedule", "availability"]
+    for kw in class_keywords:
+        for el in soup.find_all(class_=re.compile(kw, re.IGNORECASE)):
+            relevant_texts.append(el.get_text())
+    # Remove duplicates and join
+    unique_texts = list(set(relevant_texts))
+    combined_text = " ".join(unique_texts)
+    dates = parse_dates_from_text(combined_text) if combined_text else []
 
     activity = resolve_activity(title, url)
     location = resolve_location(title, description)
     summary  = generate_summary(title, description)
     log.info(f"Summary for '{title}': {'generated' if summary else 'empty'}")
-    booking_url = f"{url}?{UTM}"
+    # Booking URL — append UTM only if not already present
+    booking_url = url
+    if "utm_source" not in url:
+        sep = "&" if "?" in url else "?"
+        booking_url = f"{url}{sep}{UTM}"
 
     rows = []
     if dates:
