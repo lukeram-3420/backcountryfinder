@@ -376,11 +376,27 @@ def generate_summaries_batch(courses: list) -> dict:
     if not to_summarise:
         return {}
 
+    # Deduplicate by title — same title gets one summary, reused for all IDs
+    seen_titles = {}       # title → first course's id
+    title_to_ids = {}      # title → [all ids with this title]
+    unique_courses = []
+    for c in to_summarise:
+        t = c["title"].strip()
+        if t not in seen_titles:
+            seen_titles[t] = c["id"]
+            title_to_ids[t] = [c["id"]]
+            unique_courses.append(c)
+        else:
+            title_to_ids[t].append(c["id"])
+
+    # Build id→course lookup for post-processing
+    id_to_course = {c["id"]: c for c in unique_courses}
+
     results = {}
     BATCH_SIZE = 12
 
-    for i in range(0, len(to_summarise), BATCH_SIZE):
-        batch = to_summarise[i:i + BATCH_SIZE]
+    for i in range(0, len(unique_courses), BATCH_SIZE):
+        batch = unique_courses[i:i + BATCH_SIZE]
         items = ""
         for c in batch:
             desc = c["description"][:600].strip()
@@ -420,7 +436,77 @@ Respond with JSON only — an array of objects with "id" and "summary" keys. Exa
                     log.warning(f"Batch {batch_num} retry also failed: {e}")
         time.sleep(0.5)
 
-    return results
+    # ── Post-processing: detect and fix duplicate summary bleed ──
+    # Group summaries by text to find duplicates across different titles
+    summary_to_ids = {}
+    for cid, summary in results.items():
+        s = summary.strip()
+        if s:
+            summary_to_ids.setdefault(s, []).append(cid)
+
+    for summary_text, ids in summary_to_ids.items():
+        if len(ids) <= 1:
+            continue
+        # Check if these are actually different titles
+        titles = set(id_to_course[cid]["title"] for cid in ids if cid in id_to_course)
+        if len(titles) <= 1:
+            continue  # same title — intentional reuse, not bleed
+
+        # Keep summary for first course, regenerate for the rest
+        log.warning(f"Duplicate summary bleed detected across {len(titles)} titles — regenerating")
+        all_summaries = set(results.values())
+        for cid in ids[1:]:
+            c = id_to_course.get(cid)
+            if not c:
+                continue
+            # Regenerate individually with a title-specific prompt
+            regen_prompt = (
+                f"Write a unique 2-sentence summary for this specific course: '{c['title']}'. "
+                f"Description: {c['description'][:400]}. "
+                f"The summary must be specific to this course and must not mention other courses or activities. "
+                f"Return only the summary text, no JSON."
+            )
+            try:
+                r = requests.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": ANTHROPIC_API_KEY,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                    },
+                    json={
+                        "model": CLAUDE_MODEL,
+                        "max_tokens": 150,
+                        "messages": [{"role": "user", "content": regen_prompt}],
+                    },
+                    timeout=30,
+                )
+                new_summary = r.json()["content"][0]["text"].strip()
+                # Strip markdown heading if present
+                new_summary = re.sub(r"^#+\s*", "", new_summary).strip()
+
+                if new_summary in all_summaries:
+                    log.warning(f"Regenerated summary for '{c['title']}' is still a duplicate — clearing")
+                    results[cid] = ""
+                else:
+                    results[cid] = new_summary
+                    all_summaries.add(new_summary)
+                    log.info(f"Regenerated unique summary for '{c['title']}'")
+            except Exception as e:
+                log.warning(f"Failed to regenerate summary for '{c['title']}': {e}")
+                results[cid] = ""
+            time.sleep(0.5)
+
+    # Expand results: copy summaries to all IDs that share the same title
+    expanded = dict(results)
+    for title, ids in title_to_ids.items():
+        first_id = seen_titles[title]
+        if first_id in results and results[first_id]:
+            for cid in ids:
+                if cid != first_id:
+                    expanded[cid] = results[first_id]
+
+    return expanded
 
 
 # ── Date helpers ─────────────────────────────────────────────────────────────
