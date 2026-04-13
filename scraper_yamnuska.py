@@ -172,6 +172,7 @@ def get_iframe_src_playwright(browser, course_url: str) -> tuple:
     description = ""
     image_url   = None
     iframe_src  = None
+    page_price  = None
 
     try:
         page = browser.new_page()
@@ -209,6 +210,16 @@ def get_iframe_src_playwright(browser, course_url: str) -> tuple:
         if og:
             image_url = og.get("content")
 
+        # Try to extract price from page HTML (fallback for when iframe has no price param)
+        price_match = re.search(r"\$\s?([\d,]+)", soup.get_text())
+        if price_match:
+            try:
+                val = int(price_match.group(1).replace(",", ""))
+                if val >= 50:  # ignore tiny numbers
+                    page_price = val
+            except ValueError:
+                pass
+
         page.close()
 
     except Exception as e:
@@ -218,7 +229,7 @@ def get_iframe_src_playwright(browser, course_url: str) -> tuple:
         except Exception:
             pass
 
-    return title, description, image_url, iframe_src
+    return title, description, image_url, iframe_src, page_price
 
 
 # ── SCRAPER ──
@@ -231,14 +242,14 @@ def scrape_course_page(session: requests.Session, browser, course_url: str, utm:
     """
     results = []
     try:
-        title, description, image_url, iframe_src = get_iframe_src_playwright(browser, course_url)
+        title, description, image_url, iframe_src, page_price = get_iframe_src_playwright(browser, course_url)
 
         if not iframe_src:
             log.info(f"  No tripDates iframe — flexible dates card")
             return [{
                 "title":           title,
                 "location_raw":    PROVIDER["location"],
-                "price":           None,
+                "price":           page_price,
                 "date_display":    "Flexible dates",
                 "date_sort":       None,
                 "spots_remaining": None,
@@ -265,7 +276,7 @@ def scrape_course_page(session: requests.Session, browser, course_url: str, utm:
             return [{
                 "title":           title,
                 "location_raw":    PROVIDER["location"],
-                "price":           None,
+                "price":           page_price,
                 "date_display":    "Flexible dates",
                 "date_sort":       None,
                 "spots_remaining": None,
@@ -281,12 +292,25 @@ def scrape_course_page(session: requests.Session, browser, course_url: str, utm:
 
         price     = None
         price_key = f"price{location_key.title()}"
-        raw_price = params.get(price_key, params.get("priceCanmore", [""]))[0]
+        raw_price = params.get(price_key, [""])[0]
+        # Fallback: try priceCanmore, then any param starting with "price"
+        if not raw_price:
+            raw_price = params.get("priceCanmore", [""])[0]
+        if not raw_price:
+            for k, v in params.items():
+                if k.lower().startswith("price") and v and v[0]:
+                    raw_price = v[0]
+                    price_key = k
+                    break
         if raw_price:
             try:
                 price = int(float(raw_price))
             except (ValueError, TypeError):
                 pass
+        # Final fallback: use price extracted from the page HTML
+        if price is None and page_price is not None:
+            price = page_price
+            price_key = "page_html"
         log.info(f"  Price ({price_key}): ${price}")
 
         time.sleep(random.uniform(0.5, 1.0))

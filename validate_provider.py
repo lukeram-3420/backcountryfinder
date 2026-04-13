@@ -20,9 +20,9 @@ from scraper_utils import sb_get, sb_upsert, sb_patch, send_email
 # ── Constants ────────────────────────────────────────────────────────────────
 
 ACTIVITY_CONTRADICTIONS = {
-    "climbing": ["ski", "splitboard", "powder", "backcountry ski", "ski tour"],
-    "skiing":   ["climb", "rock climb", "belay", "rappel", "multi-pitch"],
-    "hiking":   ["ski", "climb", "splitboard"],
+    "climbing": ["splitboard", "ski touring", "ski resort", "ski lift", "backcountry skiing", "downhill ski"],
+    "skiing":   ["rock climbing", "ice climbing", "trad climbing", "sport climbing"],
+    "hiking":   ["splitboard", "ski touring", "rock climbing", "ice climbing"],
 }
 
 # Order matters — first match wins. More specific rules must come before generic ones.
