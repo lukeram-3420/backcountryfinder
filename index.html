@@ -1054,8 +1054,8 @@ function buildCard(c) {
       </div>
       <textarea class="report-note" placeholder="Any extra detail (optional)…" style="display:none;width:100%;font-size:11px;padding:6px 8px;border-radius:6px;border:0.5px solid var(--color-border-secondary);background:var(--color-background-primary);color:var(--color-text-primary);resize:none;min-height:48px;margin-bottom:8px;font-family:inherit;"></textarea>
       <div style="display:flex;align-items:center;gap:8px;">
-        <button class="btn-send" onclick="submitReport(this)" disabled style="font-size:10px;font-family:inherit;font-weight:500;padding:4px 12px;border-radius:20px;border:none;background:#4ade80;color:#0a1a0a;cursor:pointer;">Send</button>
-        <button onclick="closeReport(this)" style="font-size:10px;font-family:inherit;background:none;border:none;color:var(--color-text-tertiary);cursor:pointer;">cancel</button>
+        <button class="btn-send" onclick="event.stopPropagation(); submitReport(this)" disabled style="font-size:10px;font-family:inherit;font-weight:500;padding:4px 12px;border-radius:20px;border:none;background:#4ade80;color:#0a1a0a;cursor:pointer;">Send</button>
+        <button onclick="event.stopPropagation(); closeReport(this)" style="font-size:10px;font-family:inherit;background:none;border:none;color:var(--color-text-tertiary);cursor:pointer;">cancel</button>
       </div>
     </div>
   </div>`;
@@ -1599,6 +1599,7 @@ function resetReport(card) {
 
 document.addEventListener('click', e => {
   if (!e.target.classList.contains('chip')) return;
+  e.stopPropagation();
   const btn    = e.target;
   const panel  = btn.closest('.report-panel');
   const already = btn.classList.contains('sel');
@@ -1623,6 +1624,8 @@ async function submitReport(btn) {
 
   const reason = reasonBtn.dataset.reason;
   const note   = panel.querySelector('.report-note').value.trim();
+
+  console.log('submitReport', { courseId, reason, note });
 
   let sessionId = sessionStorage.getItem('bcf_session');
   if (!sessionId) {
