@@ -32,9 +32,13 @@ ACTIVITY_CONTRADICTIONS = {
 }
 
 # Order matters — first match wins. More specific rules must come before generic ones.
+# Titles containing these phrases accept EITHER activity without flagging:
+TITLE_ACTIVITY_EXCEPTIONS = ["ski mountaineering"]
+
 TITLE_ACTIVITY_RULES = [
-    (["rock climbing", "ice climbing", "alpine climbing"],  "climbing"),
-    (["splitboard", "backcountry ski"],                      "skiing"),
+    (["alpine climbing", "alpine rock"],                     "mountaineering"),
+    (["rock climbing", "ice climbing"],                      "climbing"),
+    (["ski traverse", "ski touring", "splitboard", "backcountry ski"], "skiing"),
     (["hik"],                                                "hiking"),
     (["mountaineer"],                                        "mountaineering"),
 ]
@@ -204,6 +208,10 @@ def check_activities(courses: list, auto_hidden: list) -> list:
             flag_course(c["id"], "null activity", auto_hidden)
             continue
 
+        # Skip titles that legitimately span two activity types
+        if any(exc in title_lower for exc in TITLE_ACTIVITY_EXCEPTIONS):
+            continue
+
         # Title/activity mismatch → AUTO-HIDE
         matched = False
         for keywords, expected in TITLE_ACTIVITY_RULES:
@@ -217,8 +225,6 @@ def check_activities(courses: list, auto_hidden: list) -> list:
         if not matched:
             for pattern, expected in TITLE_ACTIVITY_RULES_WORD_BOUNDARY:
                 if re.search(pattern, title_lower):
-                    if expected == "mountaineering" and "alpine climbing" in title_lower:
-                        break
                     if activity != expected:
                         reason = f"activity mismatch: title suggests {expected} but got {activity}"
                         flag_course(c["id"], reason, auto_hidden)
