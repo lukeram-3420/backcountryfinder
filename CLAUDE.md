@@ -169,3 +169,53 @@ Never wait for manual confirmation to commit.
 | location_raw | text | |
 | location_canonical | text | `City, Province` |
 | created_at | timestamptz | |
+
+## Supabase Edge Function conventions
+
+### Environment variable names — use these exactly
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`  ← not SUPABASE_SERVICE_KEY
+- `SUPABASE_ANON_KEY`
+- `SUPABASE_DB_URL`
+- `RESEND_API_KEY`
+- `ANTHROPIC_API_KEY`
+
+### Every edge function must handle CORS
+All functions are called from the browser and require CORS headers. Always include this at the top of serve():
+
+```ts
+if (req.method === 'OPTIONS') {
+  return new Response('ok', {
+    status: 200,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    },
+  });
+}
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+```
+
+All return statements must include ...corsHeaders in their headers.
+
+### Deployment
+- All functions deployed via `.github/workflows/deploy-functions.yml`
+- Workflow triggers on push to `supabase/functions/**`
+- All functions use `--no-verify-jwt` flag
+- New functions must be added as a step in deploy-functions.yml
+- Secrets are set in Supabase dashboard → Edge Functions → Settings (not in GitHub secrets)
+- GitHub secrets are write-only and cannot be read outside of Actions workflows
+
+### Testing a new function
+After deployment check in this order:
+1. Supabase → Edge Functions — confirm function appears in list
+2. Trigger from live site
+3. Supabase → Edge Functions → notify-report → Logs — check for errors
+4. Check target table for new row
+5. Check email inbox

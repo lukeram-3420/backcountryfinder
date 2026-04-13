@@ -869,7 +869,7 @@ async function fetchFromSupabase(page = 0, append = false, background = false) {
     const from = page * PAGE_SIZE;
     const today = new Date().toISOString().split('T')[0];
 
-    const filters = ['active=eq.true'];
+    const filters = ['active=eq.true', 'or=(flagged.is.null,flagged.eq.false)'];
     if (currentFilters.activity) filters.push(`activity_canonical=eq.${encodeURIComponent(currentFilters.activity)}`);
     if (currentFilters.provider) filters.push(`provider_id=eq.${encodeURIComponent(currentFilters.provider)}`);
     if (currentFilters.location) {
