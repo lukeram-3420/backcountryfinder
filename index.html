@@ -993,7 +993,6 @@ async function loadLocationsDropdown() {
     const locations = new Set();
     rows.forEach(r => {
       if (r.location_canonical) locations.add(r.location_canonical);
-      else if (r.location_raw) locations.add(r.location_raw);
     });
     const select = document.getElementById('search-location');
     const currentVal = select.value || currentFilters.location;
