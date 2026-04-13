@@ -597,7 +597,8 @@ def main():
         current_count, last_count,
         user_cleared, user_open,
     )
-    send_email(subject, html)
+    # EMAILS OFF
+    # send_email(subject, html)
 
     print(f"── Validation complete: {len(auto_hidden)} hidden, {len(email_only)} email-only, {len(user_cleared)} user-cleared, {len(user_open)} user-open ──")
 

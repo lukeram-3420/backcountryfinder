@@ -442,7 +442,8 @@ def main():
         time.sleep(0.3)
 
     print(f"\n  Done — updated: {updated} · overridden: {overridden} · no match: {no_match} · no price: {no_price}")
-    send_summary(updated, overridden, no_match, no_price)
+    # EMAILS OFF
+    # send_summary(updated, overridden, no_match, no_price)
 
 
 if __name__ == "__main__":

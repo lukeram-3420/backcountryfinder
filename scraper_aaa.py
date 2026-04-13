@@ -253,7 +253,8 @@ def main():
         sb_upsert("courses", rows[i:i+50])
 
     print(f"  ✅ Upserted {len(rows)} rows")
-    send_summary(len(rows), skipped)
+    # EMAILS OFF
+    # send_summary(len(rows), skipped)
 
 
 if __name__ == "__main__":

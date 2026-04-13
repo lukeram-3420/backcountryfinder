@@ -472,7 +472,8 @@ def main():
     deactivate_missing(seen_ids)
 
     log.info(f"Done. {len(course_urls)} pages → {len(deduplicated_rows)} rows (after dedup)")
-    send_summary(len(course_urls), len(deduplicated_rows))
+    # EMAILS OFF
+    # send_summary(len(course_urls), len(deduplicated_rows))
 
 
 if __name__ == "__main__":

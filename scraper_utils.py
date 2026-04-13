@@ -508,23 +508,8 @@ def send_email(subject: str, html: str, to: str = None) -> None:
 
 
 def send_scraper_summary(provider_name: str, count: int, ok: bool = True) -> None:
-    """Send a simple scraper run summary email."""
-    status = "✓ ok" if ok else "✗ failed"
-    color = "#2d6a11" if ok else "#a32d2d"
-    html = f"""
-    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
-      <div style="background:#1a2e1a;padding:20px 28px;border-radius:10px 10px 0 0;">
-        <p style="margin:0;font-size:18px;color:#fff;font-family:Georgia,serif;">
-          backcountry<span style="color:#4ade80;font-style:italic;">finder</span>
-        </p>
-      </div>
-      <div style="background:#fff;padding:24px 28px;border-radius:0 0 10px 10px;border:1px solid #e8e8e8;border-top:none;">
-        <h2 style="font-size:18px;font-weight:700;color:#1a1a1a;margin:0 0 16px;">{count} courses upserted</h2>
-        <p style="font-size:13px;color:{color};background:#f8f8f8;padding:10px 14px;border-radius:6px;">{status} — {provider_name}</p>
-        <p style="font-size:11px;color:#aaa;margin-top:16px;">Run at {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}</p>
-      </div>
-    </div>"""
-    send_email(f"{provider_name} scraper — {count} courses updated", html)
+    """Send a simple scraper run summary email. EMAILS OFF."""
+    return
 
 
 # ── Two-pass scraping helper ─────────────────────────────────────────────────

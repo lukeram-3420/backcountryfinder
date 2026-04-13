@@ -2893,10 +2893,12 @@ def main():
     if location_flags:
         for flag in location_flags:
             sb_insert("location_flags", flag)
-        send_flag_email(location_flags)
+        # EMAILS OFF
+        # send_flag_email(location_flags)
 
     # Send summary email
-    send_scrape_summary(len(all_courses), provider_summary, len(location_flags))
+    # EMAILS OFF
+    # send_scrape_summary(len(all_courses), provider_summary, len(location_flags))
 
     check_and_notify()
     log.info("=== Scraper complete ===")

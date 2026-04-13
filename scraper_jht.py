@@ -388,7 +388,8 @@ def main():
     else:
         print("\n⚠ No courses found")
 
-    send_summary(len(all_courses), 0, errors)
+    # EMAILS OFF
+    # send_summary(len(all_courses), 0, errors)
     print("── Done ──")
 
 if __name__ == "__main__":

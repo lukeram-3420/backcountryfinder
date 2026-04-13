@@ -494,7 +494,8 @@ def main():
 
     if not raw_courses:
         log.warning("No courses scraped — keeping existing Supabase data")
-        send_summary(0, ok=False)
+        # EMAILS OFF
+        # send_summary(0, ok=False)
         return
 
     processed = []
@@ -569,7 +570,8 @@ def main():
     sb_upsert("courses", deduped)
     log.info(f"Total courses upserted: {len(deduped)}")
 
-    send_summary(len(deduped), ok=True)
+    # EMAILS OFF
+    # send_summary(len(deduped), ok=True)
     log.info("=== Yamnuska scraper complete ===")
 
 

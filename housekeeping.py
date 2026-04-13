@@ -113,7 +113,8 @@ At the end, provide a SHORT SUMMARY of the most important actions to take."""
       </div>
     </div>"""
 
-    send_email(f"Housekeeping report — {datetime.utcnow().strftime('%b %d, %Y')}", html)
+    # EMAILS OFF
+    # send_email(f"Housekeeping report — {datetime.utcnow().strftime('%b %d, %Y')}", html)
     log.info("=== Housekeeping complete ===")
 
 
