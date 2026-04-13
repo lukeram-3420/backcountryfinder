@@ -879,8 +879,7 @@ async function fetchFromSupabase(page = 0, append = false, background = false) {
     if (currentFilters.activity) filters.push(`activity_canonical=eq.${encodeURIComponent(currentFilters.activity)}`);
     if (currentFilters.provider) filters.push(`provider_id=eq.${encodeURIComponent(currentFilters.provider)}`);
     if (currentFilters.location) {
-      const loc = encodeURIComponent(currentFilters.location);
-      filters.push(`or=(location_canonical.eq.${loc},location_raw.eq.${loc})`);
+      filters.push(`location_canonical=eq.${encodeURIComponent(currentFilters.location)}`);
     }
     if (currentFilters.date) {
       filters.push(`or=(date_sort.gte.${currentFilters.date},custom_dates.eq.true)`);
