@@ -175,7 +175,7 @@
   <nav class="topnav">
     <div class="topnav-logo">backcountry<em>finder</em> · admin</div>
     <div class="topnav-right">
-      <span id="next-scrape-countdown" title="Next scheduled cron scrape (00:00 / 06:00 / 12:00 / 18:00 UTC)"></span>
+      <span id="next-scrape-countdown"></span>
       <span id="user-email-display"></span>
       <button class="signout-btn" onclick="signOut()">Sign out</button>
     </div>
@@ -2077,6 +2077,13 @@ function updateNextScrapeCountdown() {
   const h = Math.floor(totalMin / 60);
   const m = totalMin % 60;
   el.textContent = `Next scrape: ${h}h ${m}m`;
+  const vancouverFmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Vancouver',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  }).format(next);
+  el.title = `Next run: ${vancouverFmt}`;
 }
 updateNextScrapeCountdown();
 setInterval(updateNextScrapeCountdown, 60000);
