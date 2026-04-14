@@ -195,6 +195,10 @@ def main():
         location = resolve_location(title)
         category = item.get("category", "")
 
+        # Description from Checkfront summary HTML (strip tags)
+        description_html = item.get("summary") or ""
+        description = re.sub(r"<[^>]+>", "", description_html).strip()
+
         item_cal = cal.get(str(item_id), {})
         if not item_cal:
             skipped += 1
@@ -238,6 +242,7 @@ def main():
                 "avail":              "open",
                 "active":             True,
                 "booking_url":        booking_url,
+                "description":        description if description else None,
                 "summary":            "",
                 "image_url":          None,
                 "badge":              None,
