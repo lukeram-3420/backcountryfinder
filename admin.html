@@ -2133,8 +2133,17 @@ function renderPipelineTable() {
   const statusBadge = (s) => `<span class="badge ${PIPELINE_STATUS_BADGES[s] || 'badge-grey'}">${esc(s || '—')}</span>`;
   const truncate = (s, n) => !s ? '' : (s.length > n ? s.slice(0, n) + '…' : s);
 
+  const ratingCell = (r) => {
+    if (!r.google_place_id) return '<span style="font-size:12px;color:var(--text-tertiary);">—</span>';
+    if (r.rating == null) return '<span style="font-size:12px;color:var(--text-secondary);">★ —</span>';
+    const cnt = r.review_count != null
+      ? ` <span style="color:var(--text-tertiary);">(${r.review_count})</span>`
+      : '';
+    return `<span style="font-size:12px;">★ ${Number(r.rating).toFixed(1)}${cnt}</span>`;
+  };
+
   document.getElementById('pipeline-table-wrap').innerHTML = `
-    <table><thead><tr>${h('name','Name')}<th>Location</th>${h('platform','Platform')}<th>Complexity</th>${h('status','Status')}${h('priority','Priority')}<th>Notes</th><th></th></tr></thead><tbody>${
+    <table><thead><tr>${h('name','Name')}<th>Location</th><th>Rating</th>${h('platform','Platform')}<th>Complexity</th>${h('status','Status')}${h('priority','Priority')}<th>Notes</th><th></th></tr></thead><tbody>${
       visible.map(r => {
         if (editingPipelineId === r.id) {
           const statusOpts = PIPELINE_STATUSES.map(s => `<option value="${s}" ${r.status===s?'selected':''}>${s}</option>`).join('');
@@ -2142,6 +2151,7 @@ function renderPipelineTable() {
           return `<tr>
             <td><strong>${esc(r.name)}</strong></td>
             <td>${esc(r.location || '')}</td>
+            <td>${ratingCell(r)}</td>
             <td><input type="text" id="pp-platform-${r.id}" value="${esc(r.platform || '')}"></td>
             <td>${esc(r.complexity || '')}</td>
             <td><select id="pp-status-${r.id}">${statusOpts}</select></td>
@@ -2163,6 +2173,7 @@ function renderPipelineTable() {
         return `<tr>
           <td>${nameCell}</td>
           <td>${esc(r.location || '')}</td>
+          <td>${ratingCell(r)}</td>
           <td>${esc(r.platform || '') || '—'}</td>
           <td>${esc(r.complexity || '') || '—'}</td>
           <td>${statusBadge(r.status)}</td>
