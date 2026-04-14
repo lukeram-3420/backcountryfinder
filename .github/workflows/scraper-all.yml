@@ -103,3 +103,9 @@ jobs:
       - name: Validate Yamnuska
         run: python validate_provider.py yamnuska
         continue-on-error: true
+      - name: Hangfire Training
+        run: python scraper_hangfire.py
+        continue-on-error: true
+      - name: Validate Hangfire Training
+        run: python validate_provider.py hangfire
+        continue-on-error: true
