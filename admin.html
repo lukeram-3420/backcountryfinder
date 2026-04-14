@@ -1453,7 +1453,7 @@ window.whitelistGroup = (sk) => {
         method: 'POST',
         headers: {
           'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'Authorization': `Bearer ${session.access_token}`,
           'Content-Type': 'application/json',
           'Prefer': 'return=minimal',
         },
@@ -1613,7 +1613,7 @@ async function deleteWarningRows(warningIds) {
     method: 'DELETE',
     headers: {
       'apikey': SUPABASE_KEY,
-      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Authorization': `Bearer ${session.access_token}`,
       'Content-Type': 'application/json',
       'Prefer': 'return=minimal',
     },
@@ -1641,7 +1641,7 @@ window.savePriceException = async (sk) => {
       method: 'POST',
       headers: {
         'apikey': SUPABASE_KEY,
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Authorization': `Bearer ${session.access_token}`,
         'Content-Type': 'application/json',
         'Prefer': 'return=minimal',
       },
