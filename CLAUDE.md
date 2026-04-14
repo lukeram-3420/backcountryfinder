@@ -10,6 +10,12 @@ Every Claude Code prompt should begin by reading CLAUDE.md in full before making
 ### Keeping project knowledge in sync
 Whenever CLAUDE.md is updated, output the full contents of the updated CLAUDE.md at the end of your response so it can be copied directly into the claude.ai project knowledge base.
 
+### Claude Code behaviour
+- Never ask for confirmation before making changes when following a prompt
+- Never pause mid-task to check in — complete the full prompt end to end
+- Only ask questions if something is genuinely ambiguous and cannot be inferred from CLAUDE.md or the existing code
+- If in doubt, make the most conservative safe change and note it in the commit message
+
 ## Project Overview
 
 BackcountryFinder is a backcountry experience aggregator that scrapes outdoor activity listings (skiing, climbing, hiking, etc.) from multiple Canadian guide companies and booking platforms, storing them in Supabase and displaying them on a static frontend. Live at backcountryfinder.com.
