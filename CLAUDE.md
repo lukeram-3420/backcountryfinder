@@ -348,7 +348,8 @@ Three tables (Providers, Activity Mappings, Location Mappings) use a shared sort
 4. **Summary Review** — all `course_summaries` rows where `approved=false`. Approve / Reject / Regenerate buttons per row.
 5. **Flags** — "Copy fixable flags prompt" button (bundles wrong_price, wrong_date, bad_description, sold_out flags for Claude Code). User reports section (only `button_broken` and `other` get a Mark resolved button). Validator auto-flags section with Clear flag button.
 6. **Audit Log** — last 100 rows of `admin_log` with search filter.
-7. **Settings** — CRUD for `activity_labels` (canonical activity slugs + display labels), used as the source of truth for the dropdowns in Activity Mappings. Also a static reference for the canonical location format (`City, Province`).
+7. **Pipeline** — Provider onboarding tracker backed by `provider_pipeline` table. Excludes `status='skip'`. Stats row counts candidate/scouted/scraper_built/live. Columns: Name (linked to website), Location, Platform, Complexity, Status (coloured badge: candidate=grey, scouted=blue, scraper_built=yellow, live=green, skip=faded), Priority (1/2/3), Notes (truncated to ~60 chars with full-text tooltip), Edit. Inline edit lets you change status/platform/priority/notes. Name/Platform/Status/Priority headers are sortable. Writes use the anon key directly (no RLS on `provider_pipeline`). **Auto-sync on every tab load:** any row whose `name` or website domain matches a `providers` row with `active=true` is PATCHed to `status='live'`.
+8. **Settings** — CRUD for `activity_labels` (canonical activity slugs + display labels), used as the source of truth for the dropdowns in Activity Mappings. Also a static reference for the canonical location format (`City, Province`).
 
 ### Admin-facing tables (create in Supabase if not already)
 - `admin_log` — `id bigserial, user_email text, action text, detail jsonb, created_at timestamptz default now()`

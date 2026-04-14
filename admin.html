@@ -67,6 +67,9 @@
   .badge-amber { background: var(--amber-light); color: var(--amber); }
   .badge-red { background: var(--red-light); color: var(--red); }
   .badge-grey { background: #f0efeb; color: var(--text-tertiary); }
+  .badge-blue { background: #dceaf7; color: #1e4a7a; }
+  .badge-yellow { background: #fbefc6; color: #7a5a09; }
+  .badge-faded { background: #f0efeb; color: #bcb8ae; }
 
   /* Buttons */
   .btn { font-family: var(--font); font-size: 12px; font-weight: 600; padding: 6px 14px; border-radius: var(--radius-pill); border: 1px solid var(--border-mid); background: #fff; color: var(--text-primary); cursor: pointer; white-space: nowrap; }
@@ -184,6 +187,7 @@
     <div class="tab" data-tab="summaries">Summary Review</div>
     <div class="tab" data-tab="flags">Flags</div>
     <div class="tab" data-tab="audit">Audit Log</div>
+    <div class="tab" data-tab="pipeline">Pipeline</div>
     <div class="tab" data-tab="settings">Settings</div>
   </div>
 
@@ -272,6 +276,21 @@
         <h2>Audit log</h2>
         <div class="search-row"><input type="text" id="audit-search" placeholder="Search actions or detail…" oninput="renderAuditLog()"></div>
         <div id="audit-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
+      </div>
+    </div>
+
+    <!-- TAB: PIPELINE -->
+    <div class="tab-panel hidden" id="panel-pipeline">
+      <details class="instructions"><summary>How to use this tab</summary><p>Track provider onboarding from candidate → scouted → scraper_built → live. Skipped providers are hidden. Column headers for Name, Platform, Status, Priority are clickable to sort. Click Edit to change status/platform/priority/notes inline. Pipeline rows auto-sync to 'live' whenever the matching provider is active in the Providers tab.</p></details>
+      <div class="stats-row" id="pipeline-stats-row">
+        <div class="stat-card"><div class="stat-label">Candidates</div><div class="stat-value" id="stat-pl-candidate">—</div></div>
+        <div class="stat-card"><div class="stat-label">Scouted</div><div class="stat-value" id="stat-pl-scouted">—</div></div>
+        <div class="stat-card"><div class="stat-label">Scraper built</div><div class="stat-value" id="stat-pl-built">—</div></div>
+        <div class="stat-card"><div class="stat-label">Live</div><div class="stat-value" id="stat-pl-live">—</div></div>
+      </div>
+      <div class="section">
+        <h2>Provider pipeline</h2>
+        <div id="pipeline-table-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
       </div>
     </div>
 
@@ -479,6 +498,7 @@ document.querySelectorAll('.tab').forEach(t => {
       summaries: loadSummariesTab,
       flags:     loadFlagsTab,
       audit:     loadAuditTab,
+      pipeline:  loadPipelineTab,
       settings:  loadSettingsTab,
     };
     loaders[t.dataset.tab]?.();
@@ -1256,6 +1276,148 @@ window.deleteActivityLabel = (key) => {
       loadSettingsTab();
     } catch (e) { toast('Failed: ' + e.message, true); }
   });
+};
+
+// ── Tab: Pipeline ───────────────────────────────
+let cachedPipeline = [];
+let pipelineSort = { col: 'priority', dir: 'asc' };
+let editingPipelineId = null;
+
+const PIPELINE_STATUSES = ['candidate', 'scouted', 'scraper_built', 'live', 'skip'];
+const PIPELINE_STATUS_BADGES = {
+  candidate:     'badge-grey',
+  scouted:       'badge-blue',
+  scraper_built: 'badge-yellow',
+  live:          'badge-green',
+  skip:          'badge-faded',
+};
+
+function domainOf(url) {
+  if (!url) return '';
+  try { return new URL(url).hostname.replace(/^www\./, '').toLowerCase(); }
+  catch { return String(url).toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0]; }
+}
+
+async function pipelinePatch(filterQuery, payload) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/provider_pipeline?${filterQuery}`, {
+    method: 'PATCH',
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=minimal',
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`PATCH ${res.status}: ${await res.text()}`);
+}
+
+async function syncPipelineLiveFromProviders() {
+  try {
+    const providers = await sbSelect('providers', { select: 'name,website,active', eq: { active: true } });
+    const pipeline = await sbSelect('provider_pipeline', { select: 'id,name,website,status' });
+    const byName = new Map(pipeline.map(p => [(p.name || '').toLowerCase().trim(), p]));
+    const byDomain = new Map(pipeline.map(p => [domainOf(p.website), p]).filter(([d]) => d));
+    for (const p of providers) {
+      const match = byName.get((p.name || '').toLowerCase().trim()) || byDomain.get(domainOf(p.website));
+      if (match && match.status !== 'live') {
+        await pipelinePatch(`id=eq.${match.id}`, { status: 'live' });
+      }
+    }
+  } catch (e) {
+    console.error('pipeline sync failed', e);
+  }
+}
+
+async function loadPipelineTab() {
+  try {
+    await syncPipelineLiveFromProviders();
+    cachedPipeline = await sbSelect('provider_pipeline', { order: { col: 'priority', ascending: true } });
+    const counts = { candidate: 0, scouted: 0, scraper_built: 0, live: 0 };
+    for (const r of cachedPipeline) if (counts[r.status] !== undefined) counts[r.status]++;
+    document.getElementById('stat-pl-candidate').textContent = counts.candidate;
+    document.getElementById('stat-pl-scouted').textContent = counts.scouted;
+    document.getElementById('stat-pl-built').textContent = counts.scraper_built;
+    document.getElementById('stat-pl-live').textContent = counts.live;
+    renderPipelineTable();
+  } catch (e) {
+    document.getElementById('pipeline-table-wrap').innerHTML = `<div class="loading">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+function pipelineSortValue(r, col) {
+  switch (col) {
+    case 'name':     return r.name;
+    case 'platform': return r.platform;
+    case 'status':   return r.status;
+    case 'priority': return Number(r.priority) || null;
+    default:         return null;
+  }
+}
+
+function renderPipelineTable() {
+  const visible = cachedPipeline.filter(r => r.status !== 'skip').slice()
+    .sort((a, b) => {
+      const c = cmpValues(pipelineSortValue(a, pipelineSort.col), pipelineSortValue(b, pipelineSort.col), pipelineSort.dir);
+      if (c !== 0) return c;
+      return cmpValues(a.name, b.name, 'asc');
+    });
+  if (!visible.length) { document.getElementById('pipeline-table-wrap').innerHTML = '<div class="loading">No rows</div>'; return; }
+  const h = (col, label) => sortableHeader(pipelineSort, col, label, `window.sortPipeline('${col}')`);
+  const statusBadge = (s) => `<span class="badge ${PIPELINE_STATUS_BADGES[s] || 'badge-grey'}">${esc(s || '—')}</span>`;
+  const truncate = (s, n) => !s ? '' : (s.length > n ? s.slice(0, n) + '…' : s);
+
+  document.getElementById('pipeline-table-wrap').innerHTML = `
+    <table><thead><tr>${h('name','Name')}<th>Location</th>${h('platform','Platform')}<th>Complexity</th>${h('status','Status')}${h('priority','Priority')}<th>Notes</th><th></th></tr></thead><tbody>${
+      visible.map(r => {
+        if (editingPipelineId === r.id) {
+          const statusOpts = PIPELINE_STATUSES.map(s => `<option value="${s}" ${r.status===s?'selected':''}>${s}</option>`).join('');
+          const prioOpts = [1,2,3].map(p => `<option value="${p}" ${Number(r.priority)===p?'selected':''}>${p}</option>`).join('');
+          return `<tr>
+            <td><strong>${esc(r.name)}</strong></td>
+            <td>${esc(r.location || '')}</td>
+            <td><input type="text" id="pp-platform-${r.id}" value="${esc(r.platform || '')}"></td>
+            <td>${esc(r.complexity || '')}</td>
+            <td><select id="pp-status-${r.id}">${statusOpts}</select></td>
+            <td><select id="pp-priority-${r.id}">${prioOpts}</select></td>
+            <td><textarea id="pp-notes-${r.id}">${esc(r.notes || '')}</textarea></td>
+            <td class="row-actions">
+              <button class="btn btn-small btn-primary" onclick="window.savePipelineRow(${r.id})">Save</button>
+              <button class="btn btn-small" onclick="window.cancelEditPipeline()">Cancel</button>
+            </td>
+          </tr>`;
+        }
+        const nameCell = r.website
+          ? `<a href="${esc(r.website)}" target="_blank" rel="noopener"><strong>${esc(r.name)}</strong></a>`
+          : `<strong>${esc(r.name)}</strong>`;
+        return `<tr>
+          <td>${nameCell}</td>
+          <td>${esc(r.location || '')}</td>
+          <td>${esc(r.platform || '') || '—'}</td>
+          <td>${esc(r.complexity || '') || '—'}</td>
+          <td>${statusBadge(r.status)}</td>
+          <td>${r.priority ?? '—'}</td>
+          <td class="detail-snippet" title="${esc(r.notes || '')}">${esc(truncate(r.notes || '', 60))}</td>
+          <td class="row-actions"><button class="btn btn-small" onclick="window.editPipelineRow(${r.id})">Edit</button></td>
+        </tr>`;
+      }).join('')
+    }</tbody></table>`;
+}
+
+window.sortPipeline = (col) => { toggleSortState(pipelineSort, col); renderPipelineTable(); };
+window.editPipelineRow = (id) => { editingPipelineId = id; renderPipelineTable(); };
+window.cancelEditPipeline = () => { editingPipelineId = null; renderPipelineTable(); };
+window.savePipelineRow = async (id) => {
+  const status = document.getElementById(`pp-status-${id}`).value;
+  const platform = document.getElementById(`pp-platform-${id}`).value.trim();
+  const priority = Number(document.getElementById(`pp-priority-${id}`).value);
+  const notes = document.getElementById(`pp-notes-${id}`).value;
+  try {
+    await pipelinePatch(`id=eq.${id}`, { status, platform: platform || null, priority, notes });
+    toast('Pipeline row updated');
+    editingPipelineId = null;
+    loadPipelineTab();
+  } catch (e) { toast('Failed: ' + e.message, true); }
 };
 
 // ── Init ─────────────────────────────────────────
