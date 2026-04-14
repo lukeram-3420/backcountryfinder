@@ -394,7 +394,9 @@ When the activity filter changes, the location dropdown is rebuilt to only show 
 ## Known gotchas
 
 ### Supabase pagination
-All Supabase queries default to 1000 rows. For COUNT queries always use `Prefer: count=exact` with `limit=0` and read the total from the `Content-Range` response header. For queries that need all rows use explicit `Range: 0-49999` headers. Never rely on default pagination for correctness — if a feature shows wrong counts or missing data, check pagination first.
+**RULE: Never use JavaScript `.length` on Supabase query results to count rows — this is always wrong because of pagination.** ALWAYS use `Prefer: count=exact` with `limit=0` for any count, total, or aggregate number shown in the UI. Use the `countRows()` helper in `admin.html` as the reference implementation. This applies to both `admin.html` and `index.html`. If you see `.length` used on a Supabase result anywhere, it is a bug.
+
+All Supabase queries default to 1000 rows. For queries that need all rows use explicit `Range: 0-49999` headers. Never rely on default pagination for correctness — if a feature shows wrong counts or missing data, check pagination first.
 
 ## Slash commands
 
