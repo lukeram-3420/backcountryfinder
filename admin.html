@@ -721,8 +721,8 @@ function renderProvidersTable() {
     let badge = '<span class="badge badge-green">clean</span>';
     if (p.af > 0) badge = `<span class="badge badge-red">${p.af} hidden</span>`;
     else if (p.uf > 0) badge = `<span class="badge badge-amber">${p.uf} user flag${p.uf>1?'s':''}</span>`;
-    const wf = WORKFLOW_MAP[p.id];
-    const runBtn = wf ? `<button class="btn btn-small" onclick="window.triggerScraper('${wf}')">Run</button>` : '';
+    const wf = WORKFLOW_MAP[p.id] || `scraper-${p.id}.yml`;
+    const runBtn = `<button class="btn btn-small" onclick="window.triggerScraper('${wf}')">Run</button>`;
     const validateBtn = `<button class="btn btn-small" id="validate-btn-${esc(p.id)}" onclick="window.triggerValidate('${esc(p.id)}')">Validate</button>`;
     return `<tr>
       <td><strong>${esc(p.name)}</strong><div class="meta-line"><code>${esc(p.id)}</code></div></td>
