@@ -722,22 +722,23 @@ let locationCourseCounts = {}; // { location_canonical: count }
 
 async function loadLocationMappings() {
   try {
-    // Fetch all mappings
-    const mappingsPromise = sbSelect('location_mappings', { order: { col: 'created_at', ascending: false } });
-    // Fetch active unflagged courses' location_canonical in one query (Range header avoids pagination)
-    const countsPromise = fetch(
-      `${SUPABASE_URL}/rest/v1/courses?select=location_canonical&active=eq.true&flagged=not.is.true&auto_flagged=not.is.true`,
-      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Range': '0-49999' } }
-    ).then(r => r.json());
-
-    const [mappings, courseRows] = await Promise.all([mappingsPromise, countsPromise]);
-    cachedLocationMappings = mappings;
+    cachedLocationMappings = await sbSelect('location_mappings', { order: { col: 'created_at', ascending: false } });
+    // Render once without counts so the UI shows immediately
     locationCourseCounts = {};
-    (courseRows || []).forEach(r => {
-      if (r.location_canonical) {
-        locationCourseCounts[r.location_canonical] = (locationCourseCounts[r.location_canonical] || 0) + 1;
-      }
-    });
+    window.renderLocationMappings();
+
+    // One count=exact query per unique canonical, fired in parallel
+    const uniqueCanonicals = [...new Set(cachedLocationMappings.map(m => m.location_canonical).filter(Boolean))];
+    const results = await Promise.all(uniqueCanonicals.map(async canonical => {
+      const count = await countRows(
+        'courses',
+        `location_canonical=eq.${encodeURIComponent(canonical)}&active=eq.true&flagged=not.is.true&auto_flagged=not.is.true`
+      );
+      return [canonical, count];
+    }));
+    for (const [canonical, count] of results) {
+      locationCourseCounts[canonical] = count;
+    }
     window.renderLocationMappings();
   } catch (e) {
     document.getElementById('location-mappings-wrap').innerHTML = `<div class="loading">Error: ${esc(e.message)}</div>`;
