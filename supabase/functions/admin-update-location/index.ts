@@ -36,18 +36,49 @@ serve(async (req) => {
 
     const { id, location_raw, location_canonical } = await req.json();
 
+    // Fetch the existing row to get old canonical value
+    const { data: existing, error: fetchErr } = await supabase
+      .from("location_mappings")
+      .select("location_canonical")
+      .eq("id", id)
+      .single();
+    if (fetchErr || !existing) {
+      return json({ error: `Mapping not found: ${fetchErr?.message || "no row"}` }, 404);
+    }
+    const oldCanonical = existing.location_canonical;
+
+    // Update the mapping row
     await supabase
       .from("location_mappings")
       .update({ location_raw, location_canonical })
       .eq("id", id);
 
+    // Cascade to courses only when the canonical value actually changed
+    let coursesUpdated = 0;
+    if (oldCanonical && oldCanonical !== location_canonical) {
+      const { data: updatedRows, error: patchErr } = await supabase
+        .from("courses")
+        .update({ location_canonical })
+        .eq("location_canonical", oldCanonical)
+        .select("id");
+      if (patchErr) {
+        return json({ error: `Course cascade failed: ${patchErr.message}` }, 500);
+      }
+      coursesUpdated = updatedRows?.length || 0;
+    }
+
     await supabase.from("admin_log").insert({
       user_email: userEmail,
       action: "update_location",
-      detail: { id, location_raw, location_canonical },
+      detail: {
+        location_raw,
+        old_canonical: oldCanonical,
+        new_canonical: location_canonical,
+        courses_updated: coursesUpdated,
+      },
     });
 
-    return json({ success: true });
+    return json({ success: true, courses_updated: coursesUpdated });
   } catch (err) {
     console.error(err);
     return json({ error: String(err) }, 500);
