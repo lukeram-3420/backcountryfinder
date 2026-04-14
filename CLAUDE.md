@@ -364,6 +364,7 @@ All live in `supabase/functions/admin-*/index.ts`. Every one verifies the JWT, c
 | `admin-approve-location` | Insert into `location_mappings`, mark `pending_location_mappings.reviewed=true` |
 | `admin-reject-location` | Mark `pending_location_mappings.reviewed=true` |
 | `admin-update-location` | Update `location_mappings.location_raw` + `location_canonical` by id |
+| `admin-delete-location` | Delete a `location_mappings` row by id (does not touch `courses`) |
 | `admin-approve-summary` | Approve `course_summaries` row, patch all matching `courses.summary`, clear any user flags |
 | `admin-reject-summary` | Set `course_summaries.approved=false` |
 | `admin-regenerate-summary` | Call Claude Haiku for fresh summary, write to `course_summaries` with `approved=false, pending_reason='regenerated'` |

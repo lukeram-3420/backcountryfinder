@@ -690,9 +690,26 @@ window.rejectLocation = (id) => {
   });
 };
 
+let locationCourseCounts = {}; // { location_canonical: count }
+
 async function loadLocationMappings() {
   try {
-    cachedLocationMappings = await sbSelect('location_mappings', { order: { col: 'created_at', ascending: false } });
+    // Fetch all mappings
+    const mappingsPromise = sbSelect('location_mappings', { order: { col: 'created_at', ascending: false } });
+    // Fetch active unflagged courses' location_canonical in one query (Range header avoids pagination)
+    const countsPromise = fetch(
+      `${SUPABASE_URL}/rest/v1/courses?select=location_canonical&active=eq.true&flagged=not.is.true&auto_flagged=not.is.true`,
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Range': '0-49999' } }
+    ).then(r => r.json());
+
+    const [mappings, courseRows] = await Promise.all([mappingsPromise, countsPromise]);
+    cachedLocationMappings = mappings;
+    locationCourseCounts = {};
+    (courseRows || []).forEach(r => {
+      if (r.location_canonical) {
+        locationCourseCounts[r.location_canonical] = (locationCourseCounts[r.location_canonical] || 0) + 1;
+      }
+    });
     window.renderLocationMappings();
   } catch (e) {
     document.getElementById('location-mappings-wrap').innerHTML = `<div class="loading">Error: ${esc(e.message)}</div>`;
@@ -703,13 +720,18 @@ window.renderLocationMappings = () => {
   const filtered = cachedLocationMappings.filter(m => !q || (m.location_raw || '').toLowerCase().includes(q) || (m.location_canonical || '').toLowerCase().includes(q));
   if (!filtered.length) { document.getElementById('location-mappings-wrap').innerHTML = '<div class="loading">No locations</div>'; return; }
   document.getElementById('location-mappings-wrap').innerHTML = `
-    <table><thead><tr><th>Raw</th><th>Canonical</th><th>Created</th><th></th></tr></thead><tbody>${
+    <table><thead><tr><th>Raw</th><th>Canonical</th><th>Courses</th><th>Created</th><th></th></tr></thead><tbody>${
       filtered.map(m => {
         const editing = editingLocationMappingId === m.id;
+        const count = locationCourseCounts[m.location_canonical] || 0;
+        const countBadge = count > 0
+          ? `<span class="badge badge-green">${count} course${count === 1 ? '' : 's'}</span>`
+          : `<span class="badge badge-grey">0 courses</span>`;
         if (editing) {
           return `<tr>
             <td><input type="text" id="lm-raw-${m.id}" value="${esc(m.location_raw)}"></td>
             <td><input type="text" id="lm-canon-${m.id}" value="${esc(m.location_canonical)}"></td>
+            <td>${countBadge}</td>
             <td class="meta-line">${fmt(m.created_at)}</td>
             <td class="row-actions">
               <button class="btn btn-small btn-primary" onclick="window.saveLocationMapping(${m.id})">Save</button>
@@ -720,13 +742,25 @@ window.renderLocationMappings = () => {
         return `<tr>
           <td><code>${esc(m.location_raw)}</code></td>
           <td><span class="badge badge-green">${esc(m.location_canonical)}</span></td>
+          <td>${countBadge}</td>
           <td class="meta-line">${fmt(m.created_at)}</td>
           <td class="row-actions">
             <button class="btn btn-small" onclick="window.editLocationMapping(${m.id})">Edit</button>
+            <button class="btn btn-small btn-danger" onclick="window.deleteLocationMapping(${m.id}, '${esc(m.location_raw).replace(/'/g, "&#39;")}')">Delete</button>
           </td>
         </tr>`;
       }).join('')
     }</tbody></table>`;
+};
+window.deleteLocationMapping = (id, location_raw) => {
+  const raw = location_raw.replace(/&#39;/g, "'");
+  confirmAction('Delete mapping', `Delete mapping for ${raw}?`, async () => {
+    try {
+      await callEdge('admin-delete-location', { id });
+      toast('Mapping deleted');
+      loadLocationMappings();
+    } catch (e) { toast('Failed: ' + e.message, true); }
+  });
 };
 window.editLocationMapping = (id) => { editingLocationMappingId = id; window.renderLocationMappings(); };
 window.cancelEditLocationMapping = () => { editingLocationMappingId = null; window.renderLocationMappings(); };
