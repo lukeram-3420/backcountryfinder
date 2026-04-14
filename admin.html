@@ -256,7 +256,12 @@
 
     <!-- TAB: FLAGS -->
     <div class="tab-panel hidden" id="panel-flags">
-      <details class="instructions"><summary>How to use this tab</summary><p>Fixable user-report flags (wrong_price, wrong_date, bad_description, sold_out) are fixed by updating the scraper — click Copy all to Claude to get a prompt. button_broken and other user flags require manual resolution — click Mark resolved once investigated. Validator auto-flags are grouped by title + reason; each group offers a root-cause fix: <strong>Add mapping</strong> (activity mismatch / null activity), <strong>Regenerate</strong> (summary mismatch), <strong>Mark as expected</strong> (invalid price), <strong>Diagnose</strong> (duplicate — calls Claude Haiku to decide whitelist vs scraper fix), or <strong>Clear all</strong> (always available).</p></details>
+      <details class="instructions"><summary>How to use this tab</summary><p>Fixable user-report flags (wrong_price, wrong_date, bad_description, sold_out) are fixed by updating the scraper — click Copy all to Claude to get a prompt. button_broken and other user flags require manual resolution — click Mark resolved once investigated. Validator auto-flags are grouped by title + reason; each group offers a root-cause fix: <strong>Add mapping</strong> (activity mismatch / null activity), <strong>Regenerate</strong> (summary mismatch), <strong>Mark as expected</strong> (invalid price), <strong>Diagnose</strong> (duplicate — calls Claude Haiku to decide whitelist vs scraper fix), or <strong>Clear all</strong> (always available). The Warnings section below shows email-only validator issues persisted in <code>validator_warnings</code> — these rows remain visible on the site but have data quality issues. Warnings are cleared and rewritten each validation run.</p></details>
+      <div class="stats-row" style="grid-template-columns:repeat(3,1fr);">
+        <div class="stat-card"><div class="stat-label">User reports</div><div class="stat-value" id="stat-flags-user">—</div></div>
+        <div class="stat-card"><div class="stat-label">Auto-hidden</div><div class="stat-value" id="stat-flags-auto" style="color:var(--red);">—</div></div>
+        <div class="stat-card"><div class="stat-label">Warnings</div><div class="stat-value" id="stat-flags-warnings" style="color:var(--amber);">—</div></div>
+      </div>
       <div class="section">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
           <h2 style="margin:0;">Flags</h2>
@@ -266,6 +271,9 @@
         <div id="user-flags-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
         <h3>Validator auto-flags</h3>
         <div id="auto-flags-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
+        <h3>Warnings</h3>
+        <p style="font-size:12px;color:var(--text-tertiary);margin:-4px 0 10px;">Courses still visible but with data quality issues.</p>
+        <div id="warnings-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
       </div>
     </div>
 
@@ -354,6 +362,18 @@
   );
 
   GRANT SELECT, INSERT ON validator_whitelist TO anon, authenticated, service_role;
+
+  CREATE TABLE IF NOT EXISTS validator_warnings (
+    id bigint generated always as identity primary key,
+    provider_id text not null,
+    course_id text,
+    title text,
+    check_type text not null,
+    reason text not null,
+    run_at timestamptz default now()
+  );
+
+  GRANT SELECT, INSERT, DELETE ON validator_warnings TO anon, authenticated, service_role;
 */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -1077,7 +1097,23 @@ window.regenerateSummary = async (provider_id, title) => {
 
 // ── Tab 4: Flags ─────────────────────────────────
 async function loadFlagsTab() {
-  await Promise.all([loadUserFlags(), loadAutoFlags()]);
+  loadFlagsStats();
+  await Promise.all([loadUserFlags(), loadAutoFlags(), loadWarnings()]);
+}
+
+async function loadFlagsStats() {
+  try {
+    const [u, a, w] = await Promise.all([
+      countRows('courses', 'flagged=eq.true'),
+      countRows('courses', 'auto_flagged=eq.true'),
+      countRows('validator_warnings'),
+    ]);
+    document.getElementById('stat-flags-user').textContent = u;
+    document.getElementById('stat-flags-auto').textContent = a;
+    document.getElementById('stat-flags-warnings').textContent = w;
+  } catch (e) {
+    // Silent failure — the individual sections show errors
+  }
 }
 async function loadUserFlags() {
   try {
@@ -1398,6 +1434,168 @@ window.copyFixPrompt = async (sk) => {
       setTimeout(() => { btn.textContent = original; }, 2000);
     }
   } catch (e) { toast('Copy failed: ' + e.message, true); }
+};
+
+// ── Warnings (email-only validator issues persisted to validator_warnings) ───
+let warningGroups = [];
+
+function prettyWarning(check_type, reason) {
+  switch (check_type) {
+    case 'price_outlier':  return `Price outlier: ${reason}`;
+    case 'null_price':     return `Missing price: ${reason}`;
+    case 'null_avail':     return 'Missing availability';
+    case 'all_sold':       return 'All dates sold out';
+    case 'future_date':    return `Far future date: ${reason}`;
+    case 'count_drop':     return `Course count drop: ${reason}`;
+    case 'summary_empty':  return `Missing or poor summary: ${reason}`;
+    default:               return reason || check_type;
+  }
+}
+
+async function loadWarnings() {
+  try {
+    const url = `${SUPABASE_URL}/rest/v1/validator_warnings?select=*&order=run_at.desc&limit=2000`;
+    const res = await fetch(url, {
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    if (!res.ok) throw new Error(`GET ${res.status}: ${await res.text()}`);
+    const rows = await res.json();
+    if (!rows.length) {
+      warningGroups = [];
+      document.getElementById('warnings-wrap').innerHTML = '<div class="loading">No warnings from last validation run.</div>';
+      return;
+    }
+    const groupMap = new Map();
+    for (const r of rows) {
+      const key = `${r.title}|||${r.check_type}`;
+      let g = groupMap.get(key);
+      if (!g) {
+        g = { key, title: r.title, check_type: r.check_type, reason: r.reason, providerIds: new Set(), courseIds: [], warningIds: [] };
+        groupMap.set(key, g);
+      }
+      g.providerIds.add(r.provider_id);
+      if (r.course_id) g.courseIds.push(r.course_id);
+      g.warningIds.push(r.id);
+      if (!g.reason && r.reason) g.reason = r.reason;
+    }
+    warningGroups = [...groupMap.values()].map(g => ({
+      ...g,
+      providerIds: [...g.providerIds],
+      occurrences: g.warningIds.length,
+    })).sort((a, b) => {
+      const c = (a.check_type || '').localeCompare(b.check_type || '');
+      return c !== 0 ? c : (a.title || '').localeCompare(b.title || '');
+    });
+    renderWarnings();
+  } catch (e) {
+    document.getElementById('warnings-wrap').innerHTML = `<div class="loading">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+function findWarningGroupBySafeKey(sk) { return warningGroups.find(g => safeKeyOf(g.key) === sk); }
+
+function renderWarnings() {
+  if (!warningGroups.length) {
+    document.getElementById('warnings-wrap').innerHTML = '<div class="loading">No warnings from last validation run.</div>';
+    return;
+  }
+  const html = warningGroups.map(g => {
+    const sk = safeKeyOf(g.key);
+    const providersLabel = g.providerIds.length === 1 ? g.providerIds[0] : `${g.providerIds.length} providers`;
+    let actionBtn = '';
+    let note = '';
+    if (g.check_type === 'price_outlier') {
+      actionBtn = `<button class="btn btn-small btn-primary" onclick="window.warningMarkExpected('${sk}')">Mark as expected</button>`;
+    } else if (g.check_type === 'summary_empty') {
+      actionBtn = `<button class="btn btn-small btn-primary" onclick="window.warningRegenerate('${sk}')">Regenerate</button>`;
+    } else if (g.check_type === 'null_price' || g.check_type === 'null_avail' || g.check_type === 'future_date') {
+      actionBtn = `<button class="btn btn-small" onclick="window.warningView('${sk}')">View</button>`;
+    } else if (g.check_type === 'count_drop') {
+      actionBtn = `<button class="btn btn-small" onclick="window.warningViewProvider('${sk}')">View provider</button>`;
+    } else if (g.check_type === 'all_sold') {
+      note = `<div class="meta-line" style="color:var(--text-tertiary);margin-top:4px;">All dates currently sold out — monitor for new availability.</div>`;
+    }
+    return `<tr>
+      <td><strong>${esc(g.title)}</strong><div class="meta-line"><code>${esc(providersLabel)}</code></div>${note}</td>
+      <td class="detail-snippet">${esc(prettyWarning(g.check_type, g.reason))}</td>
+      <td><span class="badge ${g.occurrences > 1 ? 'badge-amber' : 'badge-grey'}">${g.occurrences} occurrence${g.occurrences === 1 ? '' : 's'}</span></td>
+      <td class="row-actions">${actionBtn}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('warnings-wrap').innerHTML = `
+    <table><thead><tr><th>Course</th><th>Reason</th><th>Occurrences</th><th></th></tr></thead><tbody>${html}</tbody></table>`;
+}
+
+async function deleteWarningRows(warningIds) {
+  if (!warningIds.length) return;
+  const idList = warningIds.join(',');
+  const url = `${SUPABASE_URL}/rest/v1/validator_warnings?id=in.(${idList})`;
+  const res = await fetch(url, {
+    method: 'DELETE',
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=minimal',
+    },
+  });
+  if (!res.ok) throw new Error(`DELETE ${res.status}: ${await res.text()}`);
+}
+
+window.warningMarkExpected = (sk) => {
+  const g = findWarningGroupBySafeKey(sk); if (!g) return;
+  confirmAction('Mark as expected', `Dismiss ${g.occurrences} price outlier warning${g.occurrences === 1 ? '' : 's'} for "${g.title}"? The warning may reappear on the next validation run until a code exception is added.`, async () => {
+    try {
+      await deleteWarningRows(g.warningIds);
+      toast(`Dismissed ${g.occurrences}`);
+      loadWarnings();
+      loadFlagsStats();
+    } catch (e) { toast('Failed: ' + e.message, true); }
+  });
+};
+
+window.warningRegenerate = (sk) => {
+  const g = findWarningGroupBySafeKey(sk); if (!g) return;
+  confirmAction('Regenerate summaries', `Regenerate summary for ${g.occurrences} course${g.occurrences === 1 ? '' : 's'} via Claude Haiku?`, async () => {
+    try {
+      for (const id of g.courseIds) {
+        const { data } = await sb.from('courses').select('provider_id,description').eq('id', id).limit(1);
+        const row = data?.[0];
+        if (!row) continue;
+        await callEdge('admin-regenerate-summary', {
+          provider_id: row.provider_id,
+          title: g.title,
+          description: row.description || g.title,
+        });
+      }
+      await deleteWarningRows(g.warningIds);
+      toast(`Regenerated and cleared ${g.occurrences}`);
+      loadWarnings();
+      loadFlagsStats();
+    } catch (e) { toast('Failed: ' + e.message, true); }
+  });
+};
+
+window.warningView = async (sk) => {
+  const g = findWarningGroupBySafeKey(sk); if (!g) return;
+  const id = g.courseIds[0];
+  if (!id) { toast('No course to view', true); return; }
+  try {
+    const { data } = await sb.from('courses').select('booking_url').eq('id', id).limit(1);
+    const url = data?.[0]?.booking_url;
+    if (url) window.open(url, '_blank');
+    else toast('No booking URL on this course', true);
+  } catch (e) { toast('Failed: ' + e.message, true); }
+};
+
+window.warningViewProvider = (sk) => {
+  const g = findWarningGroupBySafeKey(sk); if (!g) return;
+  document.querySelector('.tab[data-tab="providers"]')?.click();
+  toast(`See Providers tab for ${g.providerIds.join(', ')}`);
 };
 
 window.copyFixablePrompt = async () => {

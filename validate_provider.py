@@ -22,7 +22,12 @@ import statistics
 from collections import defaultdict
 from datetime import datetime, date, timedelta
 
-from scraper_utils import sb_get, sb_upsert, sb_patch, send_email
+import requests
+
+from scraper_utils import (
+    sb_get, sb_upsert, sb_patch, send_email,
+    SUPABASE_URL, SUPABASE_KEY,
+)
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
@@ -70,6 +75,37 @@ def reset_flags(provider_id: str):
         f"provider_id=eq.{provider_id}&auto_flagged=eq.true",
         {"auto_flagged": False, "flag_reason": None},
     )
+
+
+def reset_warnings(provider_id: str):
+    """Delete existing validator_warnings rows for this provider (clean slate)."""
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+    }
+    url = f"{SUPABASE_URL}/rest/v1/validator_warnings?provider_id=eq.{provider_id}"
+    resp = requests.delete(url, headers=headers, timeout=30)
+    resp.raise_for_status()
+
+
+def write_warnings(provider_id: str, provider_name: str, email_only: list):
+    """Write collected email-only warnings to validator_warnings table."""
+    if not email_only:
+        return
+    rows = []
+    for i in email_only:
+        check_type = i.get("check_type")
+        if not check_type:
+            continue
+        rows.append({
+            "provider_id": provider_id,
+            "course_id": i.get("id") or None,
+            "title": i.get("title") or provider_name,
+            "check_type": check_type,
+            "reason": i.get("issue", "")[:500],
+        })
+    if rows:
+        sb_upsert("validator_warnings", rows)
 
 
 # ── User report auto-clear ───────────────────────────────────────────────────
@@ -160,6 +196,7 @@ def check_summaries(courses: list, auto_hidden: list) -> list:
         if not c.get("summary"):
             email_only.append({
                 "check": "Summary quality",
+                "check_type": "summary_empty",
                 "title": c["title"],
                 "issue": "Summary is empty or null",
                 "value": "",
@@ -195,6 +232,7 @@ def check_summaries(courses: list, auto_hidden: list) -> list:
             other_titles = [t for t in titles if t != c["title"]]
             email_only.append({
                 "check": "Summary quality",
+                "check_type": "summary_empty",
                 "title": c["title"],
                 "issue": f"Possible summary bleed: shared with {other_titles[0][:60]}",
                 "value": summary_text[:80],
@@ -255,6 +293,7 @@ def check_prices(courses: list, auto_hidden: list) -> list:
         if price is None and has_prices:
             email_only.append({
                 "check": "Price sanity",
+                "check_type": "null_price",
                 "title": c["title"],
                 "issue": "Price is null (other courses have prices)",
                 "value": "null",
@@ -268,6 +307,7 @@ def check_prices(courses: list, auto_hidden: list) -> list:
                 continue
             email_only.append({
                 "check": "Price sanity",
+                "check_type": "price_outlier",
                 "title": c["title"],
                 "issue": f"Price ${price} is >5x median (${median_price:.0f})",
                 "value": str(price),
@@ -298,6 +338,7 @@ def check_dates(courses: list, auto_hidden: list) -> list:
         if d > two_years:
             email_only.append({
                 "check": "Date sanity",
+                "check_type": "future_date",
                 "title": c["title"],
                 "issue": f"Date {ds} is more than 2 years in the future",
                 "value": ds,
@@ -315,6 +356,7 @@ def check_availability(courses: list, auto_hidden: list) -> list:
         if not c.get("avail"):
             email_only.append({
                 "check": "Availability",
+                "check_type": "null_avail",
                 "title": c["title"],
                 "issue": "avail is null",
                 "value": "",
@@ -325,6 +367,7 @@ def check_availability(courses: list, auto_hidden: list) -> list:
     if avail_values and all(v == "sold" for v in avail_values):
         email_only.append({
             "check": "Availability",
+            "check_type": "all_sold",
             "title": "(all courses)",
             "issue": "CRITICAL: Every course shows avail='sold' — possible availability parsing error",
             "value": f"{len(avail_values)} courses all sold",
@@ -379,6 +422,7 @@ def check_course_count(provider_id: str, current_count: int) -> list:
             drop_pct = ((last_count - current_count) / last_count) * 100
             email_only.append({
                 "check": "Course count",
+                "check_type": "count_drop",
                 "title": "(provider-level)",
                 "issue": f"CRITICAL: Course count dropped {drop_pct:.0f}% ({last_count} → {current_count})",
                 "value": f"{last_count} → {current_count}",
@@ -543,6 +587,13 @@ def main():
     except Exception as e:
         print(f"  ⚠ Could not reset flags: {e}")
 
+    # Clear previous validator_warnings for this provider (clean slate each run)
+    print("  Resetting previous validator_warnings...")
+    try:
+        reset_warnings(provider_id)
+    except Exception as e:
+        print(f"  ⚠ Could not reset validator_warnings: {e}")
+
     # Fetch all courses for this provider
     courses = sb_get("courses", {
         "provider_id": f"eq.{provider_id}",
@@ -625,20 +676,13 @@ def main():
     except Exception as e:
         print(f"  ⚠ Could not log run to scraper_run_log: {e}")
 
-    # Send email
-    has_issues = total > 0 or user_open
-    emoji = "✅" if not has_issues else "⚠️"
-    subject = f"{emoji} Validation {'passed' if not has_issues else 'issues'} — {provider_name}"
-    html = build_report_html(
-        provider_name, provider_id, courses,
-        auto_hidden, email_only,
-        current_count, last_count,
-        user_cleared, user_open,
-    )
-    # EMAILS OFF
-    # send_email(subject, html)
+    # Write email-only warnings to validator_warnings table (replaces email report)
+    try:
+        write_warnings(provider_id, provider_name, email_only)
+    except Exception as e:
+        print(f"  ⚠ Could not write validator_warnings: {e}")
 
-    print(f"── Validation complete: {len(auto_hidden)} hidden, {len(email_only)} email-only, {len(user_cleared)} user-cleared, {len(user_open)} user-open ──")
+    print(f"── Validation complete: {len(auto_hidden)} hidden, {len(email_only)} warnings, {len(user_cleared)} user-cleared, {len(user_open)} user-open ──")
 
 
 if __name__ == "__main__":
