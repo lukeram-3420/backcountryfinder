@@ -1318,6 +1318,7 @@ async function pipelineFetch(query) {
     headers: {
       'apikey': SUPABASE_KEY,
       'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Content-Type': 'application/json',
     },
   });
   if (!res.ok) throw new Error(`GET ${url} → ${res.status}: ${await res.text()}`);
