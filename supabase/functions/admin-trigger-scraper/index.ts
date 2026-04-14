@@ -37,10 +37,15 @@ serve(async (req) => {
     }
     const userEmail = userData.user.email;
 
-    const { workflow_id } = await req.json();
+    const { workflow_id, inputs } = await req.json();
 
     const ghToken = Deno.env.get("GITHUB_TOKEN");
     if (!ghToken) return json({ error: "Missing GITHUB_TOKEN secret" }, 500);
+
+    const dispatchBody: { ref: string; inputs?: Record<string, string> } = { ref: "main" };
+    if (inputs && typeof inputs === "object") {
+      dispatchBody.inputs = inputs;
+    }
 
     const ghRes = await fetch(
       `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/workflows/${workflow_id}/dispatches`,
@@ -52,7 +57,7 @@ serve(async (req) => {
           "X-GitHub-Api-Version": "2022-11-28",
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ ref: "main" }),
+        body: JSON.stringify(dispatchBody),
       }
     );
 

@@ -263,9 +263,13 @@
         <div class="stat-card"><div class="stat-label">Warnings</div><div class="stat-value" id="stat-flags-warnings" style="color:var(--amber);">—</div></div>
       </div>
       <div class="section">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap;">
           <h2 style="margin:0;">Flags</h2>
-          <button class="btn btn-primary" onclick="copyFixablePrompt()">Copy fixable flags prompt</button>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn" id="reload-flags-btn" onclick="window.reloadFlags()">Reload flags</button>
+            <button class="btn" id="revalidate-all-btn" onclick="window.revalidateAll()">Re-validate all ↗</button>
+            <button class="btn btn-primary" onclick="copyFixablePrompt()">Copy fixable flags prompt</button>
+          </div>
         </div>
         <h3>User reports</h3>
         <div id="user-flags-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
@@ -654,13 +658,14 @@ function renderProvidersTable() {
     else if (p.uf > 0) badge = `<span class="badge badge-amber">${p.uf} user flag${p.uf>1?'s':''}</span>`;
     const wf = WORKFLOW_MAP[p.id];
     const runBtn = wf ? `<button class="btn btn-small" onclick="window.triggerScraper('${wf}')">Run</button>` : '';
+    const validateBtn = `<button class="btn btn-small" id="validate-btn-${esc(p.id)}" onclick="window.triggerValidate('${esc(p.id)}')">Validate</button>`;
     return `<tr>
       <td><strong>${esc(p.name)}</strong><div class="meta-line"><code>${esc(p.id)}</code></div></td>
       <td><label class="toggle"><input type="checkbox" ${p.active ? 'checked' : ''} onchange="window.toggleProvider('${esc(p.id)}', this.checked)"><span class="toggle-slider"></span></label></td>
       <td>${p.lastRun ? fmt(p.lastRun.run_at) : '—'}</td>
       <td>${p.visible || 0}</td>
       <td>${badge}</td>
-      <td class="row-actions">${runBtn}</td>
+      <td class="row-actions">${runBtn}${validateBtn}</td>
     </tr>`;
   }).join('');
 
@@ -691,6 +696,39 @@ window.triggerScraper = (workflow_id) => {
       toast('Scraper triggered');
     } catch (e) { toast('Failed: ' + e.message, true); }
   });
+};
+
+async function triggerValidateForProvider(provider_id) {
+  return callEdge('admin-trigger-scraper', {
+    workflow_id: 'validate-provider.yml',
+    inputs: { provider_id },
+  });
+}
+
+function flashBtn(btn, text, colour, ms = 3000) {
+  if (!btn) return;
+  const orig = btn.innerHTML;
+  const origColor = btn.style.color;
+  btn.innerHTML = text;
+  if (colour) btn.style.color = colour;
+  btn.disabled = true;
+  setTimeout(() => {
+    btn.innerHTML = orig;
+    btn.style.color = origColor;
+    btn.disabled = false;
+  }, ms);
+}
+
+window.triggerValidate = async (provider_id) => {
+  const btn = document.getElementById(`validate-btn-${provider_id}`);
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Validating…'; }
+  try {
+    await triggerValidateForProvider(provider_id);
+    flashBtn(btn, 'Triggered ✓', '');
+  } catch (e) {
+    flashBtn(btn, 'Failed', 'var(--red)');
+    toast('Validate failed: ' + e.message, true);
+  }
 };
 
 // ── Activity labels cache (shared between tabs) ──
@@ -1677,6 +1715,45 @@ window.copyFixablePrompt = async () => {
     await navigator.clipboard.writeText(prompt);
     toast(`Copied prompt for ${rows.length} flags`);
   } catch (e) { toast('Failed: ' + e.message, true); }
+};
+
+window.reloadFlags = async () => {
+  const btn = document.getElementById('reload-flags-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Reloading…'; }
+  try {
+    await loadFlagsTab();
+    flashBtn(btn, 'Reloaded ✓', '', 2000);
+  } catch (e) {
+    flashBtn(btn, 'Failed', 'var(--red)', 2500);
+    toast('Reload failed: ' + e.message, true);
+  }
+};
+
+window.revalidateAll = () => {
+  const btn = document.getElementById('revalidate-all-btn');
+  confirmAction(
+    'Re-validate all',
+    'Trigger validation for all active providers? This will refresh all warnings and auto-flags.',
+    async () => {
+      try {
+        const providers = await sbSelect('providers', { select: 'id', eq: { active: true } });
+        const ids = (providers || []).map(p => p.id).filter(Boolean);
+        if (!ids.length) { toast('No active providers', true); return; }
+        if (btn) btn.disabled = true;
+        let done = 0;
+        for (const id of ids) {
+          if (btn) btn.innerHTML = `<span class="spinner"></span>Triggering… (${done}/${ids.length})`;
+          try { await triggerValidateForProvider(id); } catch (e) { console.error('Validate trigger failed for', id, e); }
+          done++;
+          await new Promise(r => setTimeout(r, 500));
+        }
+        flashBtn(btn, 'All providers queued ✓', '', 3000);
+      } catch (e) {
+        flashBtn(btn, 'Failed', 'var(--red)', 3000);
+        toast('Re-validate all failed: ' + e.message, true);
+      }
+    }
+  );
 };
 
 // ── Tab 5: Audit log ─────────────────────────────
