@@ -316,7 +316,7 @@
 
     <!-- TAB: PIPELINE -->
     <div class="tab-panel hidden" id="panel-pipeline">
-      <details class="instructions"><summary>How to use this tab</summary><p>Track provider onboarding from candidate → scouted → scraper_built → live. Skipped providers are hidden. Click <strong>Add provider</strong> to paste a URL — Claude Haiku fetches the site and pre-fills name, location, platform, complexity, priority, plus Google Places rating. Click <strong>Copy prompt ↗</strong> on any non-live row to copy a Claude Code instruction for building the scraper. Column headers for Name, Platform, Status, Priority are clickable to sort. Click Edit to change status/platform/priority/notes inline. Pipeline rows auto-sync to 'live' whenever the matching provider is active=true in the Providers tab — and revert to 'candidate' if that provider is later toggled off.</p></details>
+      <details class="instructions"><summary>How to use this tab</summary><p>Providers that are live in the Providers tab are automatically hidden here. This list shows candidates still to be onboarded. Click <strong>Add provider</strong> to paste a URL — Claude Haiku fetches the site and pre-fills name, location, platform, complexity, priority, plus Google Places rating. Click <strong>Copy prompt ↗</strong> on any row to copy a Claude Code instruction for building the scraper. Column headers for Name, Platform, Status, Priority are clickable to sort. Click Edit to change status/platform/priority/notes inline.</p></details>
       <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
         <button class="btn btn-primary" id="add-provider-btn" onclick="window.showAddProvider()">Add provider</button>
       </div>
@@ -2129,44 +2129,21 @@ async function fetchActiveProviders() {
   return res.json();
 }
 
-async function syncPipelineLiveFromProviders() {
-  try {
-    const [activeProviders, pipeline] = await Promise.all([
-      fetchActiveProviders(),
-      pipelineFetch('select=id,name,website,status'),
-    ]);
-    const byName = new Map(pipeline.map(p => [(p.name || '').toLowerCase().trim(), p]));
-    const byDomain = new Map(pipeline.map(p => [domainOf(p.website), p]).filter(([d]) => d));
-
-    // Forward: active provider → matching pipeline row should be 'live'
-    const matchedPipelineIds = new Set();
-    for (const p of activeProviders) {
-      const match = byDomain.get(domainOf(p.website)) || byName.get((p.name || '').toLowerCase().trim());
-      if (!match) continue;
-      matchedPipelineIds.add(match.id);
-      if (match.status !== 'live') {
-        try { await pipelinePatch(`id=eq.${match.id}`, { status: 'live' }); }
-        catch (e) { console.error('forward sync failed for', match.id, e); }
-      }
-    }
-
-    // Reverse: pipeline row marked 'live' but no longer matches any active provider → revert to 'candidate'
-    for (const row of pipeline) {
-      if (row.status === 'live' && !matchedPipelineIds.has(row.id)) {
-        try { await pipelinePatch(`id=eq.${row.id}`, { status: 'candidate' }); }
-        catch (e) { console.error('reverse sync failed for', row.id, e); }
-      }
-    }
-  } catch (e) {
-    console.error('pipeline sync failed', e);
-  }
-}
-window.syncPipelineLiveFromProviders = syncPipelineLiveFromProviders;
+// Set of (domain, lowercase-name) keys for active providers — used to hide
+// already-live rows from the pipeline display. Rebuilt on every tab load.
+let activeProviderKeys = { domains: new Set(), names: new Set() };
 
 async function loadPipelineTab() {
   try {
-    await syncPipelineLiveFromProviders();
-    cachedPipeline = await pipelineFetch('select=*&status=neq.skip&order=priority.asc');
+    const [activeProviders, pipeline] = await Promise.all([
+      fetchActiveProviders(),
+      pipelineFetch('select=*&status=neq.skip&order=priority.asc'),
+    ]);
+    activeProviderKeys = {
+      domains: new Set(activeProviders.map(p => domainOf(p.website)).filter(Boolean)),
+      names:   new Set(activeProviders.map(p => (p.name || '').toLowerCase().trim()).filter(Boolean)),
+    };
+    cachedPipeline = pipeline;
     renderPipelineTable();
   } catch (e) {
     document.getElementById('pipeline-table-wrap').innerHTML = `<div class="loading">Error: ${esc(e.message)}</div>`;
@@ -2184,7 +2161,14 @@ function pipelineSortValue(r, col) {
 }
 
 function renderPipelineTable() {
-  const visible = cachedPipeline.filter(r => r.status !== 'skip').slice()
+  const isLiveElsewhere = (r) => {
+    const d = domainOf(r.website);
+    const n = (r.name || '').toLowerCase().trim();
+    return (d && activeProviderKeys.domains.has(d)) || (n && activeProviderKeys.names.has(n));
+  };
+  const visible = cachedPipeline
+    .filter(r => r.status !== 'skip' && !isLiveElsewhere(r))
+    .slice()
     .sort((a, b) => {
       const c = cmpValues(pipelineSortValue(a, pipelineSort.col), pipelineSortValue(b, pipelineSort.col), pipelineSort.dir);
       if (c !== 0) return c;
