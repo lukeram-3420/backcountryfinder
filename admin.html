@@ -316,12 +316,25 @@
 
     <!-- TAB: PIPELINE -->
     <div class="tab-panel hidden" id="panel-pipeline">
-      <details class="instructions"><summary>How to use this tab</summary><p>Track provider onboarding from candidate → scouted → scraper_built → live. Skipped providers are hidden. Column headers for Name, Platform, Status, Priority are clickable to sort. Click Edit to change status/platform/priority/notes inline. Pipeline rows auto-sync to 'live' whenever the matching provider is active in the Providers tab.</p></details>
-      <div class="stats-row" id="pipeline-stats-row">
-        <div class="stat-card"><div class="stat-label">Candidates</div><div class="stat-value" id="stat-pl-candidate">—</div></div>
-        <div class="stat-card"><div class="stat-label">Scouted</div><div class="stat-value" id="stat-pl-scouted">—</div></div>
-        <div class="stat-card"><div class="stat-label">Scraper built</div><div class="stat-value" id="stat-pl-built">—</div></div>
-        <div class="stat-card"><div class="stat-label">Live</div><div class="stat-value" id="stat-pl-live">—</div></div>
+      <details class="instructions"><summary>How to use this tab</summary><p>Track provider onboarding from candidate → scouted → scraper_built → live. Skipped providers are hidden. Click <strong>Add provider</strong> to paste a URL — Claude Haiku fetches the site and pre-fills name, location, platform, complexity, priority, plus Google Places rating. Click <strong>Copy prompt ↗</strong> on any non-live row to copy a Claude Code instruction for building the scraper. Column headers for Name, Platform, Status, Priority are clickable to sort. Click Edit to change status/platform/priority/notes inline. Pipeline rows auto-sync to 'live' whenever the matching provider is active in the Providers tab.</p></details>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
+        <div class="stats-row" id="pipeline-stats-row" style="flex:1;min-width:520px;margin-bottom:0;">
+          <div class="stat-card"><div class="stat-label">Candidates</div><div class="stat-value" id="stat-pl-candidate">—</div></div>
+          <div class="stat-card"><div class="stat-label">Scouted</div><div class="stat-value" id="stat-pl-scouted">—</div></div>
+          <div class="stat-card"><div class="stat-label">Scraper built</div><div class="stat-value" id="stat-pl-built">—</div></div>
+          <div class="stat-card"><div class="stat-label">Live</div><div class="stat-value" id="stat-pl-live">—</div></div>
+        </div>
+        <button class="btn btn-primary" id="add-provider-btn" onclick="window.showAddProvider()" style="margin-top:4px;">Add provider</button>
+      </div>
+      <div id="add-provider-form" class="hidden" style="background:#faf9f5;border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;margin-bottom:16px;">
+        <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+          <div style="flex:1;min-width:260px;">
+            <label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-tertiary);display:block;margin-bottom:4px;">Website URL</label>
+            <input type="text" id="new-provider-url" placeholder="https://...">
+          </div>
+          <button class="btn btn-small btn-primary" id="analyse-provider-btn" onclick="window.addAndAnalyseProvider()">Add &amp; Analyse</button>
+          <button class="btn btn-small" onclick="window.hideAddProvider()">Cancel</button>
+        </div>
       </div>
       <div class="section">
         <h2>Provider pipeline</h2>
@@ -418,6 +431,13 @@
 
   CREATE POLICY "authenticated can insert location_mappings"
     ON location_mappings FOR INSERT TO authenticated WITH CHECK (true);
+
+  -- For the Pipeline tab "Add provider" form and inline edit:
+  CREATE POLICY "authenticated can insert provider_pipeline"
+    ON provider_pipeline FOR INSERT TO authenticated WITH CHECK (true);
+
+  CREATE POLICY "authenticated can update provider_pipeline"
+    ON provider_pipeline FOR UPDATE TO authenticated USING (true);
 */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -2120,6 +2140,10 @@ function renderPipelineTable() {
         const nameCell = r.website
           ? `<a href="${esc(r.website)}" target="_blank" rel="noopener"><strong>${esc(r.name)}</strong></a>`
           : `<strong>${esc(r.name)}</strong>`;
+        const showCopy = ['candidate', 'scouted', 'scraper_built'].includes(r.status);
+        const copyBtn = showCopy
+          ? `<button class="btn btn-small" id="copy-pp-${r.id}" onclick="window.copyPipelinePrompt(${r.id})">Copy prompt ↗</button>`
+          : '';
         return `<tr>
           <td>${nameCell}</td>
           <td>${esc(r.location || '')}</td>
@@ -2128,7 +2152,7 @@ function renderPipelineTable() {
           <td>${statusBadge(r.status)}</td>
           <td>${r.priority ?? '—'}</td>
           <td class="detail-snippet" title="${esc(r.notes || '')}">${esc(truncate(r.notes || '', 60))}</td>
-          <td class="row-actions"><button class="btn btn-small" onclick="window.editPipelineRow(${r.id})">Edit</button></td>
+          <td class="row-actions"><button class="btn btn-small" onclick="window.editPipelineRow(${r.id})">Edit</button> ${copyBtn}</td>
         </tr>`;
       }).join('')
     }</tbody></table>`;
@@ -2148,6 +2172,119 @@ window.savePipelineRow = async (id) => {
     editingPipelineId = null;
     loadPipelineTab();
   } catch (e) { toast('Failed: ' + e.message, true); }
+};
+
+window.showAddProvider = () => {
+  document.getElementById('new-provider-url').value = '';
+  document.getElementById('add-provider-form').classList.remove('hidden');
+};
+window.hideAddProvider = () => {
+  document.getElementById('add-provider-form').classList.add('hidden');
+};
+
+function slugify(name) {
+  return String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+}
+
+window.addAndAnalyseProvider = async () => {
+  const url = document.getElementById('new-provider-url').value.trim();
+  if (!url || !/^https?:\/\//i.test(url)) { toast('Enter a URL starting with http(s)://', true); return; }
+  const btn = document.getElementById('analyse-provider-btn');
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Analysing…';
+  try {
+    let analysis;
+    try {
+      analysis = await callEdge('admin-analyse-provider', { url });
+    } catch (e) {
+      // Fallback — derive name from URL domain, use safe defaults
+      let domain = '';
+      try { domain = new URL(url).hostname.replace(/^www\./, ''); } catch { domain = url; }
+      const fallbackName = (domain.split('.')[0] || domain);
+      analysis = {
+        name: fallbackName.charAt(0).toUpperCase() + fallbackName.slice(1),
+        location: null, platform: 'unknown', complexity: 'low', priority: 3, notes: '',
+        google_place_id: null, rating: null, review_count: null,
+      };
+      toast('Analyse failed; saving with URL-derived defaults', true);
+    }
+    const slug = slugify(analysis.name);
+    const row = {
+      id: slug,
+      name: analysis.name,
+      website: url,
+      location: analysis.location,
+      platform: analysis.platform,
+      complexity: analysis.complexity,
+      priority: analysis.priority,
+      status: 'candidate',
+      notes: analysis.notes,
+      google_place_id: analysis.google_place_id,
+      rating: analysis.rating,
+      review_count: analysis.review_count,
+    };
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/provider_pipeline`, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify([row]),
+    });
+    if (res.status === 409) {
+      toast('A provider with this name already exists in the pipeline', true);
+    } else if (!res.ok) {
+      throw new Error(`POST ${res.status}: ${await res.text()}`);
+    } else {
+      toast(`Provider added — ${analysis.name} detected as ${analysis.platform}`);
+      window.hideAddProvider();
+      loadPipelineTab();
+    }
+  } catch (e) {
+    toast('Failed: ' + e.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = orig;
+  }
+};
+
+window.copyPipelinePrompt = async (id) => {
+  const r = cachedPipeline.find(x => String(x.id) === String(id));
+  if (!r) return;
+  const lines = [
+    'Please analyse this new provider for backcountryfinder.com.',
+    '',
+    `Provider name: ${r.name || ''}`,
+    `Website: ${r.website || ''}`,
+    `Location: ${r.location || ''}`,
+  ];
+  if (r.platform && r.platform !== 'unknown') lines.push(`Platform: ${r.platform}`);
+  if (r.notes) lines.push(`Notes: ${r.notes}`);
+  lines.push(
+    '',
+    'Please:',
+    '1. Fetch and inspect the live website — visit the main site and 2-3 course/booking pages',
+    '2. Identify the booking platform and whether dates are JS-rendered or static HTML',
+    '3. Determine the scraper approach (BeautifulSoup only, Playwright hybrid, or existing adapter)',
+    '4. Return all three deliverables:',
+    `   - Complete standalone scraper file (scraper_${r.id}.py) following the scraper_yamnuska.py pattern`,
+    '   - GitHub Actions workflow yml',
+    '   - Supabase SQL (provider row + location mappings + activity mappings)',
+    '5. Note any warnings, bot protection observed, or things to verify after first run',
+  );
+  const prompt = lines.join('\n');
+  try {
+    await navigator.clipboard.writeText(prompt);
+    const btn = document.getElementById(`copy-pp-${id}`);
+    if (btn) {
+      const o = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = o; }, 2000);
+    }
+  } catch (e) { toast('Copy failed: ' + e.message, true); }
 };
 
 // ── Next-cron countdown (scraper-all.yml runs at 0 */6 * * * UTC) ─────────
