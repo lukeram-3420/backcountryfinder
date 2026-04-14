@@ -2161,6 +2161,7 @@ async function syncPipelineLiveFromProviders() {
     console.error('pipeline sync failed', e);
   }
 }
+window.syncPipelineLiveFromProviders = syncPipelineLiveFromProviders;
 
 async function loadPipelineTab() {
   try {
