@@ -546,9 +546,10 @@ def is_future(date_sort: Optional[str]) -> bool:
 # ── Stable ID ────────────────────────────────────────────────────────────────
 
 def stable_id(provider_id: str, activity: str, date_sort: Optional[str], title: str) -> str:
-    """Generate a stable course ID: {provider}-{activity}-{date} or hash fallback."""
+    """Generate a stable course ID: {provider}-{activity}-{date}-{title_hash} or hash fallback."""
     if date_sort:
-        return f"{provider_id}-{activity}-{date_sort}"
+        title_hash = hashlib.md5(title.encode()).hexdigest()[:6]
+        return f"{provider_id}-{activity}-{date_sort}-{title_hash}"
     h = hashlib.md5(title.encode()).hexdigest()[:8]
     return f"{provider_id}-{activity}-{h}"
 

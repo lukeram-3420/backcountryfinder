@@ -44,7 +44,7 @@ In production, scrapers run via GitHub Actions with `workflow_dispatch` (manual 
 ## Conventions
 
 - **Booking URLs** must always append `utm_source=backcountryfinder&utm_medium=referral`
-- **Stable ID format:** `{provider_id}-{activity}-{date_sort}`
+- **Stable ID format:** `{provider_id}-{activity}-{date_sort}-{title_hash}` (title_hash = first 6 chars of md5(title))
 - **Availability (`avail`) values:** `open`, `low`, `critical`, `sold` — sold courses set `active=false`
 - **Activity canonical values** (use exactly these): `skiing`, `climbing`, `mountaineering`, `hiking`, `biking`, `fishing`, `heli`, `cat`, `huts`, `guided`, `glissading`, `rappelling`, `snowshoeing`, `via_ferrata`, `avalanche_safety`
 - **Location canonical format:** `"City, Province"` e.g. `"Canmore, AB"` — for ranges use `"Area Name, BC"` e.g. `"Rogers Pass, BC"`
@@ -91,7 +91,7 @@ Each provider has a dedicated scraping function in `scraper.py` (or a standalone
 1. **Fetch** listings from provider (REST API, HTML scraping, or Playwright for JS-rendered pages)
 2. **Normalize** activity type via three-tier resolution: mapping tables → Claude classification → regex fallback
 3. **Normalize** location via `location_mappings` table + Google Places API + Claude
-4. **Generate** stable IDs: `{provider_id}-{activity}-{date_sort}`
+4. **Generate** stable IDs: `{provider_id}-{activity}-{date_sort}-{title_hash}`
 5. **Upsert** to Supabase `courses` table
 6. **Validate** via `validate_provider.py` (auto-hide bad rows, auto-clear resolved user flags)
 
@@ -196,7 +196,7 @@ Both systems produce identical output (rows upserted to the `courses` table with
 |----------|-----------|-------------|
 | `parse_date_sort` | `(date_str: str) -> Optional[str]` | Extract `YYYY-MM-DD` from various date string formats. |
 | `is_future` | `(date_sort: Optional[str]) -> bool` | Returns `True` if date is today or later (or unparseable). |
-| `stable_id` | `(provider_id: str, activity: str, date_sort: Optional[str], title: str) -> str` | Generate stable ID: `{provider}-{activity}-{date}` or hash fallback. |
+| `stable_id` | `(provider_id: str, activity: str, date_sort: Optional[str], title: str) -> str` | Generate stable ID: `{provider}-{activity}-{date}-{title_hash}` or hash fallback. |
 
 #### Availability & URLs
 
@@ -358,7 +358,7 @@ Never wait for manual confirmation to commit.
 ### courses
 | column | type | notes |
 |---|---|---|
-| id | text | stable ID: `{provider_id}-{activity}-{date_sort}` or hash fallback |
+| id | text | stable ID: `{provider_id}-{activity}-{date_sort}-{title_hash}` or hash fallback |
 | title | text | |
 | provider_id | text | |
 | badge | text | |
