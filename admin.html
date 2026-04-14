@@ -2145,6 +2145,7 @@ function renderPipelineTable() {
   document.getElementById('pipeline-table-wrap').innerHTML = `
     <table><thead><tr>${h('name','Name')}<th>Location</th><th>Rating</th>${h('platform','Platform')}<th>Complexity</th>${h('status','Status')}${h('priority','Priority')}<th>Notes</th><th></th></tr></thead><tbody>${
       visible.map(r => {
+        const idArg = `'${esc(String(r.id)).replace(/'/g, "\\'")}'`;
         if (editingPipelineId === r.id) {
           const statusOpts = PIPELINE_STATUSES.map(s => `<option value="${s}" ${r.status===s?'selected':''}>${s}</option>`).join('');
           const prioOpts = [1,2,3].map(p => `<option value="${p}" ${Number(r.priority)===p?'selected':''}>${p}</option>`).join('');
@@ -2157,18 +2158,33 @@ function renderPipelineTable() {
             <td><select id="pp-status-${r.id}">${statusOpts}</select></td>
             <td><select id="pp-priority-${r.id}">${prioOpts}</select></td>
             <td><textarea id="pp-notes-${r.id}">${esc(r.notes || '')}</textarea></td>
-            <td class="row-actions">
-              <button class="btn btn-small btn-primary" onclick="window.savePipelineRow(${r.id})">Save</button>
+            <td></td>
+          </tr>
+          <tr><td colspan="9" style="background:#faf9f5;padding:14px 16px;">
+            <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+              <div style="flex:2;min-width:240px;">
+                <label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-tertiary);display:block;margin-bottom:4px;">Google Place ID</label>
+                <input type="text" id="pp-placeid-${r.id}" value="${esc(r.google_place_id || '')}">
+              </div>
+              <div style="width:110px;">
+                <label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-tertiary);display:block;margin-bottom:4px;">Rating</label>
+                <input type="number" step="0.1" id="pp-rating-${r.id}" value="${r.rating ?? ''}">
+              </div>
+              <div style="width:130px;">
+                <label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-tertiary);display:block;margin-bottom:4px;">Review count</label>
+                <input type="number" id="pp-reviews-${r.id}" value="${r.review_count ?? ''}">
+              </div>
+              <button class="btn btn-small btn-primary" onclick="window.savePipelineRow(${idArg})">Save</button>
               <button class="btn btn-small" onclick="window.cancelEditPipeline()">Cancel</button>
-            </td>
-          </tr>`;
+            </div>
+          </td></tr>`;
         }
         const nameCell = r.website
           ? `<a href="${esc(r.website)}" target="_blank" rel="noopener"><strong>${esc(r.name)}</strong></a>`
           : `<strong>${esc(r.name)}</strong>`;
         const showCopy = ['candidate', 'scouted', 'scraper_built'].includes(r.status);
         const copyBtn = showCopy
-          ? `<button class="btn btn-small" id="copy-pp-${r.id}" onclick="window.copyPipelinePrompt(${r.id})">Copy prompt ↗</button>`
+          ? `<button class="btn btn-small" id="copy-pp-${r.id}" onclick="window.copyPipelinePrompt(${idArg})">Copy prompt ↗</button>`
           : '';
         return `<tr>
           <td>${nameCell}</td>
@@ -2179,7 +2195,7 @@ function renderPipelineTable() {
           <td>${statusBadge(r.status)}</td>
           <td>${r.priority ?? '—'}</td>
           <td class="detail-snippet" title="${esc(r.notes || '')}">${esc(truncate(r.notes || '', 60))}</td>
-          <td class="row-actions"><button class="btn btn-small" onclick="window.editPipelineRow(${r.id})">Edit</button> ${copyBtn}</td>
+          <td class="row-actions"><button class="btn btn-small" onclick="window.editPipelineRow(${idArg})">Edit</button> ${copyBtn}</td>
         </tr>`;
       }).join('')
     }</tbody></table>`;
@@ -2193,8 +2209,20 @@ window.savePipelineRow = async (id) => {
   const platform = document.getElementById(`pp-platform-${id}`).value.trim();
   const priority = Number(document.getElementById(`pp-priority-${id}`).value);
   const notes = document.getElementById(`pp-notes-${id}`).value;
+  const placeIdRaw = document.getElementById(`pp-placeid-${id}`)?.value.trim() ?? '';
+  const ratingRaw  = document.getElementById(`pp-rating-${id}`)?.value ?? '';
+  const reviewsRaw = document.getElementById(`pp-reviews-${id}`)?.value ?? '';
+  const payload = {
+    status,
+    platform: platform || null,
+    priority,
+    notes,
+    google_place_id: placeIdRaw || null,
+    rating: ratingRaw === '' ? null : Number(ratingRaw),
+    review_count: reviewsRaw === '' ? null : Number(reviewsRaw),
+  };
   try {
-    await pipelinePatch(`id=eq.${id}`, { status, platform: platform || null, priority, notes });
+    await pipelinePatch(`id=eq.${encodeURIComponent(id)}`, payload);
     toast('Pipeline row updated');
     editingPipelineId = null;
     loadPipelineTab();
