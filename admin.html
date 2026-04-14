@@ -256,7 +256,7 @@
 
     <!-- TAB: FLAGS -->
     <div class="tab-panel hidden" id="panel-flags">
-      <details class="instructions"><summary>How to use this tab</summary><p>Fixable flags (wrong_price, wrong_date, bad_description, sold_out) are fixed by updating the scraper — click Copy all to Claude to get a prompt. button_broken and other flags require manual resolution — click Mark resolved once investigated. Validator auto-flags clear automatically on the next scraper run if the underlying issue is fixed.</p></details>
+      <details class="instructions"><summary>How to use this tab</summary><p>Fixable user-report flags (wrong_price, wrong_date, bad_description, sold_out) are fixed by updating the scraper — click Copy all to Claude to get a prompt. button_broken and other user flags require manual resolution — click Mark resolved once investigated. Validator auto-flags are grouped by title + reason; each group offers a root-cause fix: <strong>Add mapping</strong> (activity mismatch / null activity), <strong>Regenerate</strong> (summary mismatch), <strong>Mark as expected</strong> (invalid price), or <strong>Clear all</strong> (always available).</p></details>
       <div class="section">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
           <h2 style="margin:0;">Flags</h2>
@@ -1089,61 +1089,205 @@ async function loadUserFlags() {
     document.getElementById('user-flags-wrap').innerHTML = `<div class="loading">Error: ${esc(e.message)}</div>`;
   }
 }
+// Auto-flags grouped by (title, flag_reason) with per-reason fix actions
+let autoFlagGroups = [];
+let expandedAutoFlagKey = null;
+
+function parseFlagAction(reason) {
+  const r = (reason || '').toLowerCase();
+  if (r.startsWith('activity mismatch')) {
+    const m = reason.match(/title suggests (\w+) but got (\w+)/i);
+    return { type: 'add_mapping', expectedActivity: m ? m[1] : '' };
+  }
+  if (r.startsWith('null activity')) return { type: 'add_mapping', expectedActivity: '' };
+  if (r.startsWith('summary mismatch') || r.startsWith('summary bleed')) return { type: 'regenerate' };
+  if (r.startsWith('duplicate')) return { type: 'duplicate' };
+  if (r.startsWith('invalid price')) return { type: 'mark_expected' };
+  return { type: 'none' };
+}
+
+function prettyReason(reason) {
+  if (!reason) return '—';
+  let m = reason.match(/^activity mismatch: title suggests (\w+) but got (\w+)/i);
+  if (m) return `Activity mismatch: title suggests ${m[1]} → currently ${m[2]}`;
+  m = reason.match(/^summary mismatch: '([^']+)' on (\w+) course/i);
+  if (m) return `Summary mismatch: contains "${m[1]}" on ${m[2]} course`;
+  if (/^duplicate/i.test(reason)) return 'Duplicate: same title and date as another row';
+  if (/^null activity/i.test(reason)) return 'Activity is null — needs a mapping';
+  if (/^invalid price/i.test(reason)) return reason.replace(/^invalid price/i, 'Invalid price');
+  if (/^past date/i.test(reason)) return 'Past date but still active';
+  return reason;
+}
+
 async function loadAutoFlags() {
   try {
-    const { data } = await sb.from('courses').select('id,title,provider_id,flag_reason,booking_url').eq('auto_flagged', true).limit(200);
-    const rows = (data || []).slice().sort((a, b) => {
-      const pa = (a.provider_id || '').localeCompare(b.provider_id || '');
-      if (pa !== 0) return pa;
-      return (a.flag_reason || '').localeCompare(b.flag_reason || '');
+    await ensureActivityLabels();
+    const { data } = await sb.from('courses').select('id,title,provider_id,flag_reason,booking_url').eq('auto_flagged', true).limit(2000);
+    const rows = data || [];
+    if (!rows.length) {
+      autoFlagGroups = [];
+      document.getElementById('auto-flags-wrap').innerHTML = '<div class="loading">No auto-flags</div>';
+      return;
+    }
+    const groupMap = new Map();
+    for (const r of rows) {
+      const key = `${r.title}|||${r.flag_reason || ''}`;
+      let g = groupMap.get(key);
+      if (!g) {
+        g = { key, title: r.title, flag_reason: r.flag_reason || '', providerIds: new Set(), courseIds: [], booking_url: r.booking_url };
+        groupMap.set(key, g);
+      }
+      g.providerIds.add(r.provider_id);
+      g.courseIds.push(r.id);
+      if (!g.booking_url && r.booking_url) g.booking_url = r.booking_url;
+    }
+    autoFlagGroups = [...groupMap.values()].map(g => ({
+      ...g,
+      providerIds: [...g.providerIds],
+      occurrences: g.courseIds.length,
+      action: parseFlagAction(g.flag_reason),
+    })).sort((a, b) => {
+      const c = (a.flag_reason || '').localeCompare(b.flag_reason || '');
+      return c !== 0 ? c : (a.title || '').localeCompare(b.title || '');
     });
-    if (!rows.length) { document.getElementById('auto-flags-wrap').innerHTML = '<div class="loading">No auto-flags</div>'; return; }
-
-    // Initial render without counts
-    const renderRows = (counts) => {
-      document.getElementById('auto-flags-wrap').innerHTML = `
-        <table><thead><tr><th>Course</th><th>Reason</th><th>Occurrences</th><th></th></tr></thead><tbody>${
-          rows.map(r => {
-            const n = counts[r.title];
-            const badge = n === undefined
-              ? `<span class="badge badge-grey">…</span>`
-              : `<span class="badge ${n > 1 ? 'badge-amber' : 'badge-grey'}">${n} occurrence${n === 1 ? '' : 's'}</span>`;
-            return `<tr>
-              <td><strong>${esc(r.title)}</strong><div class="meta-line"><code>${esc(r.provider_id)}</code></div></td>
-              <td class="detail-snippet">${esc(r.flag_reason || '')}</td>
-              <td>${badge}</td>
-              <td class="row-actions">
-                <button class="btn btn-small" onclick="window.clearAutoFlag('${esc(r.id)}')">Clear flag</button>
-                ${r.booking_url ? `<a class="btn btn-small" href="${esc(r.booking_url)}" target="_blank">View</a>` : ''}
-              </td>
-            </tr>`;
-          }).join('')
-        }</tbody></table>`;
-    };
-    renderRows({});
-
-    // Fetch occurrence count per unique title in parallel
-    const uniqueTitles = [...new Set(rows.map(r => r.title).filter(Boolean))];
-    const titleCountResults = await Promise.all(uniqueTitles.map(async t => {
-      const n = await countRows('courses', `title=eq.${encodeURIComponent(t)}&active=eq.true`);
-      return [t, n];
-    }));
-    const counts = Object.fromEntries(titleCountResults);
-    renderRows(counts);
+    renderAutoFlags();
   } catch (e) {
     document.getElementById('auto-flags-wrap').innerHTML = `<div class="loading">Error: ${esc(e.message)}</div>`;
   }
 }
+
+function safeKeyOf(key) { return btoa(unescape(encodeURIComponent(key))).replace(/[^A-Za-z0-9]/g, ''); }
+function findAutoFlagGroup(key) { return autoFlagGroups.find(g => g.key === key); }
+
+function renderAutoFlags() {
+  if (!autoFlagGroups.length) {
+    document.getElementById('auto-flags-wrap').innerHTML = '<div class="loading">No auto-flags</div>';
+    return;
+  }
+  const html = autoFlagGroups.map(g => {
+    const sk = safeKeyOf(g.key);
+    const providersLabel = g.providerIds.length === 1 ? g.providerIds[0] : `${g.providerIds.length} providers`;
+    const viewBtn = g.booking_url ? `<a class="btn btn-small" href="${esc(g.booking_url)}" target="_blank">View</a>` : '';
+    let actionBtn = '';
+    let note = '';
+    if (g.action.type === 'add_mapping') {
+      actionBtn = `<button class="btn btn-small btn-primary" onclick="window.expandAddMapping('${sk}')">Add mapping</button>`;
+    } else if (g.action.type === 'regenerate') {
+      actionBtn = `<button class="btn btn-small btn-primary" onclick="window.regenerateGroup('${sk}')">Regenerate</button>`;
+    } else if (g.action.type === 'mark_expected') {
+      actionBtn = `<button class="btn btn-small btn-primary" onclick="window.markPriceExpected('${sk}')">Mark as expected</button>`;
+    } else if (g.action.type === 'duplicate') {
+      note = `<div class="meta-line" style="color:var(--text-tertiary);margin-top:4px;">Duplicate suppression working correctly.</div>`;
+    }
+    const mainRow = `<tr>
+      <td><strong>${esc(g.title)}</strong><div class="meta-line"><code>${esc(providersLabel)}</code></div>${note}</td>
+      <td class="detail-snippet">${esc(prettyReason(g.flag_reason))}</td>
+      <td><span class="badge ${g.occurrences > 1 ? 'badge-amber' : 'badge-grey'}">${g.occurrences} occurrence${g.occurrences === 1 ? '' : 's'}</span></td>
+      <td class="row-actions">
+        ${actionBtn}
+        <button class="btn btn-small" onclick="window.clearGroup('${sk}')">Clear all</button>
+        ${viewBtn}
+      </td>
+    </tr>`;
+    let formRow = '';
+    if (expandedAutoFlagKey === g.key && g.action.type === 'add_mapping') {
+      formRow = `<tr><td colspan="4" style="background:#faf9f5;padding:14px 16px;">
+        <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+          <div style="flex:2;min-width:240px;">
+            <label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-tertiary);display:block;margin-bottom:4px;">Title contains</label>
+            <input type="text" id="afm-title-${sk}" value="${esc(g.title)}">
+          </div>
+          <div style="flex:1;min-width:160px;">
+            <label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-tertiary);display:block;margin-bottom:4px;">Activity</label>
+            <select id="afm-activity-${sk}">${activityOptionsHtml(g.action.expectedActivity || '')}</select>
+          </div>
+          <button class="btn btn-small btn-primary" onclick="window.saveAddMapping('${sk}')">Save mapping &amp; clear</button>
+          <button class="btn btn-small" onclick="window.cancelAddMapping()">Cancel</button>
+        </div>
+      </td></tr>`;
+    }
+    return mainRow + formRow;
+  }).join('');
+  document.getElementById('auto-flags-wrap').innerHTML = `
+    <table><thead><tr><th>Course</th><th>Reason</th><th>Occurrences</th><th></th></tr></thead><tbody>${html}</tbody></table>`;
+}
+
+function findGroupBySafeKey(sk) { return autoFlagGroups.find(g => safeKeyOf(g.key) === sk); }
+
+async function clearGroupCourseIds(courseIds) {
+  for (const id of courseIds) {
+    await callEdge('admin-clear-auto-flag', { course_id: id });
+  }
+}
+
 window.resolveFlag = (course_id) => {
   confirmAction('Resolve flag', 'Clear this user report flag?', async () => {
     try { await callEdge('admin-resolve-flag', { course_id }); toast('Flag resolved'); loadFlagsTab(); }
     catch (e) { toast('Failed: ' + e.message, true); }
   });
 };
-window.clearAutoFlag = (course_id) => {
-  confirmAction('Clear auto-flag', 'Clear this validator flag?', async () => {
-    try { await callEdge('admin-clear-auto-flag', { course_id }); toast('Auto-flag cleared'); loadFlagsTab(); }
-    catch (e) { toast('Failed: ' + e.message, true); }
+
+window.clearGroup = (sk) => {
+  const g = findGroupBySafeKey(sk); if (!g) return;
+  confirmAction('Clear flags', `Clear auto-flag on ${g.occurrences} course${g.occurrences === 1 ? '' : 's'}?`, async () => {
+    try {
+      await clearGroupCourseIds(g.courseIds);
+      toast(`Cleared ${g.occurrences}`);
+      loadAutoFlags();
+    } catch (e) { toast('Failed: ' + e.message, true); }
+  });
+};
+
+window.expandAddMapping = (sk) => {
+  const g = findGroupBySafeKey(sk); if (!g) return;
+  expandedAutoFlagKey = g.key;
+  renderAutoFlags();
+};
+window.cancelAddMapping = () => { expandedAutoFlagKey = null; renderAutoFlags(); };
+
+window.saveAddMapping = async (sk) => {
+  const g = findGroupBySafeKey(sk); if (!g) return;
+  const title_contains = document.getElementById(`afm-title-${sk}`).value.trim();
+  const activity = document.getElementById(`afm-activity-${sk}`).value;
+  if (!title_contains || !activity) { toast('Both fields required', true); return; }
+  try {
+    await callEdge('admin-approve-mapping', { title_contains, activity });
+    await clearGroupCourseIds(g.courseIds);
+    toast(`Mapping added, ${g.occurrences} flag${g.occurrences === 1 ? '' : 's'} cleared`);
+    expandedAutoFlagKey = null;
+    loadAutoFlags();
+  } catch (e) { toast('Failed: ' + e.message, true); }
+};
+
+window.regenerateGroup = (sk) => {
+  const g = findGroupBySafeKey(sk); if (!g) return;
+  confirmAction('Regenerate summaries', `Regenerate summary for ${g.occurrences} course${g.occurrences === 1 ? '' : 's'} via Claude Haiku?`, async () => {
+    try {
+      for (const id of g.courseIds) {
+        const { data } = await sb.from('courses').select('provider_id,description').eq('id', id).limit(1);
+        const row = data?.[0];
+        if (!row) continue;
+        await callEdge('admin-regenerate-summary', {
+          provider_id: row.provider_id,
+          title: g.title,
+          description: row.description || g.title,
+        });
+      }
+      await clearGroupCourseIds(g.courseIds);
+      toast(`Regenerated and cleared ${g.occurrences}`);
+      loadAutoFlags();
+    } catch (e) { toast('Failed: ' + e.message, true); }
+  });
+};
+
+window.markPriceExpected = (sk) => {
+  const g = findGroupBySafeKey(sk); if (!g) return;
+  confirmAction('Mark price expected', `Acknowledge price for ${g.occurrences} course${g.occurrences === 1 ? '' : 's'}? Validator may re-flag on next run unless an exception is added.`, async () => {
+    try {
+      await clearGroupCourseIds(g.courseIds);
+      toast(`Cleared ${g.occurrences}`);
+      loadAutoFlags();
+    } catch (e) { toast('Failed: ' + e.message, true); }
   });
 };
 
