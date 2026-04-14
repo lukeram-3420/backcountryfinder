@@ -2077,8 +2077,17 @@ const PIPELINE_STATUS_BADGES = {
 
 function domainOf(url) {
   if (!url) return '';
-  try { return new URL(url).hostname.replace(/^www\./, '').toLowerCase(); }
-  catch { return String(url).toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0]; }
+  const norm = (s) => String(s)
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .replace(/\/$/, '');
+  try {
+    const h = new URL(url).hostname;
+    return norm(h);
+  } catch {
+    return norm(String(url)).split('/')[0];
+  }
 }
 
 async function pipelinePatch(filterQuery, payload) {
