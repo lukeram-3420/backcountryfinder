@@ -214,15 +214,26 @@
 
     <!-- TAB: ACTIVITY MAPPINGS -->
     <div class="tab-panel hidden" id="panel-activity">
-      <details class="instructions"><summary>How to use this tab</summary><p>Pending mappings are Haiku suggestions waiting for your review. Approve to add permanently to the mapping table, or edit the activity first if Haiku got it wrong. Approved mappings with 0 courses are safe to delete — they will be re-suggested if a matching course appears in future. Column headers are clickable to sort ascending or descending.</p></details>
+      <details class="instructions"><summary>How to use this tab</summary><p>Pending mappings are Haiku suggestions waiting for your review. Approve to add permanently to the mapping table, or edit the activity first if Haiku got it wrong. Use <strong>Add mapping</strong> to insert a mapping directly without waiting for the scraper to surface a pending suggestion — useful for pinning a title to an activity proactively. Approved mappings with 0 courses are safe to delete — they will be re-suggested if a matching course appears in future. Column headers are clickable to sort ascending or descending.</p></details>
       <div class="section">
         <h2>Pending activity mappings</h2>
         <div id="pending-mappings-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
       </div>
       <div class="section">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap;">
           <h2 style="margin:0;">Approved activity mappings</h2>
-          <button class="btn" id="activity-counts-btn" onclick="loadActivityCounts()">Load counts</button>
+          <div style="display:flex;gap:8px;">
+            <button class="btn" id="activity-counts-btn" onclick="loadActivityCounts()">Load counts</button>
+            <button class="btn btn-primary" onclick="window.showAddActivityMapping()">Add mapping</button>
+          </div>
+        </div>
+        <div id="add-activity-mapping-form" class="hidden" style="background:#faf9f5;border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;margin-bottom:12px;">
+          <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+            <div style="flex:2;min-width:240px;"><label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-tertiary);display:block;margin-bottom:4px;">Title contains</label><input type="text" id="new-am-title" placeholder="e.g. Crevasse Rescue"></div>
+            <div style="flex:1;min-width:160px;"><label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-tertiary);display:block;margin-bottom:4px;">Activity</label><select id="new-am-activity"></select></div>
+            <button class="btn btn-small btn-primary" onclick="window.saveNewActivityMapping()">Save</button>
+            <button class="btn btn-small" onclick="window.hideAddActivityMapping()">Cancel</button>
+          </div>
         </div>
         <div class="search-row"><input type="text" id="activity-search" placeholder="Search mappings…" oninput="renderActivityMappings()"></div>
         <div id="activity-mappings-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
@@ -231,15 +242,26 @@
 
     <!-- TAB: LOCATION MAPPINGS -->
     <div class="tab-panel hidden" id="panel-location">
-      <details class="instructions"><summary>How to use this tab</summary><p>Pending location mappings work the same as activity mappings. Approve Haiku's suggested canonical or correct it before approving. Editing an approved mapping cascades instantly to all matching course rows on the site. Column headers are clickable to sort ascending or descending.</p></details>
+      <details class="instructions"><summary>How to use this tab</summary><p>Pending location mappings work the same as activity mappings. Approve Haiku's suggested canonical or correct it before approving. Use <strong>Add mapping</strong> to insert a raw → canonical pair directly without waiting for a pending suggestion. Editing an approved mapping cascades instantly to all matching course rows on the site. Column headers are clickable to sort ascending or descending.</p></details>
       <div class="section">
         <h2>Pending location mappings</h2>
         <div id="pending-locations-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
       </div>
       <div class="section">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap;">
           <h2 style="margin:0;">Approved location mappings</h2>
-          <button class="btn" id="location-counts-btn" onclick="loadLocationCounts()">Load counts</button>
+          <div style="display:flex;gap:8px;">
+            <button class="btn" id="location-counts-btn" onclick="loadLocationCounts()">Load counts</button>
+            <button class="btn btn-primary" onclick="window.showAddLocationMapping()">Add mapping</button>
+          </div>
+        </div>
+        <div id="add-location-mapping-form" class="hidden" style="background:#faf9f5;border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;margin-bottom:12px;">
+          <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+            <div style="flex:1;min-width:200px;"><label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-tertiary);display:block;margin-bottom:4px;">Location raw</label><input type="text" id="new-lm-raw" placeholder="e.g. Canmore AB"></div>
+            <div style="flex:1;min-width:200px;"><label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-tertiary);display:block;margin-bottom:4px;">Location canonical</label><input type="text" id="new-lm-canon" placeholder="e.g. Canmore, AB"></div>
+            <button class="btn btn-small btn-primary" onclick="window.saveNewLocationMapping()">Save</button>
+            <button class="btn btn-small" onclick="window.hideAddLocationMapping()">Cancel</button>
+          </div>
         </div>
         <div class="search-row"><input type="text" id="location-search" placeholder="Search locations…" oninput="renderLocationMappings()"></div>
         <div id="location-mappings-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
@@ -389,6 +411,13 @@
   );
 
   GRANT SELECT, INSERT ON validator_price_exceptions TO anon, authenticated, service_role;
+
+  -- For the Activity / Location Mappings tab "Add mapping" buttons:
+  CREATE POLICY "authenticated can insert activity_mappings"
+    ON activity_mappings FOR INSERT TO authenticated WITH CHECK (true);
+
+  CREATE POLICY "authenticated can insert location_mappings"
+    ON location_mappings FOR INSERT TO authenticated WITH CHECK (true);
 */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -813,6 +842,37 @@ window.rejectMapping = (id) => {
   });
 };
 
+window.showAddActivityMapping = async () => {
+  await ensureActivityLabels();
+  document.getElementById('new-am-activity').innerHTML = activityOptionsHtml('');
+  document.getElementById('new-am-title').value = '';
+  document.getElementById('add-activity-mapping-form').classList.remove('hidden');
+};
+window.hideAddActivityMapping = () => {
+  document.getElementById('add-activity-mapping-form').classList.add('hidden');
+};
+window.saveNewActivityMapping = async () => {
+  const title_contains = document.getElementById('new-am-title').value.trim();
+  const activity = document.getElementById('new-am-activity').value;
+  if (!title_contains || !activity) { toast('Both fields required', true); return; }
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/activity_mappings`, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify([{ title_contains, activity }]),
+    });
+    if (!res.ok) throw new Error(`POST ${res.status}: ${await res.text()}`);
+    toast('Mapping saved');
+    window.hideAddActivityMapping();
+    loadActivityMappings();
+  } catch (e) { toast('Failed: ' + e.message, true); }
+};
+
 // Per-row course counts, keyed by mapping id. Session-cached.
 let activityMappingCounts = {}; // { mapping_id: count }
 let activityCountsLoaded = false;
@@ -980,6 +1040,36 @@ window.rejectLocation = (id) => {
   confirmAction('Reject location', 'This will mark the pending location as reviewed.', async () => {
     try { await callEdge('admin-reject-location', { id }); toast('Rejected'); loadLocationTab(); } catch (e) { toast('Failed: ' + e.message, true); }
   });
+};
+
+window.showAddLocationMapping = () => {
+  document.getElementById('new-lm-raw').value = '';
+  document.getElementById('new-lm-canon').value = '';
+  document.getElementById('add-location-mapping-form').classList.remove('hidden');
+};
+window.hideAddLocationMapping = () => {
+  document.getElementById('add-location-mapping-form').classList.add('hidden');
+};
+window.saveNewLocationMapping = async () => {
+  const location_raw = document.getElementById('new-lm-raw').value.trim();
+  const location_canonical = document.getElementById('new-lm-canon').value.trim();
+  if (!location_raw || !location_canonical) { toast('Both fields required', true); return; }
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/location_mappings`, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify([{ location_raw, location_canonical }]),
+    });
+    if (!res.ok) throw new Error(`POST ${res.status}: ${await res.text()}`);
+    toast('Mapping saved');
+    window.hideAddLocationMapping();
+    loadLocationMappings();
+  } catch (e) { toast('Failed: ' + e.message, true); }
 };
 
 // Per-row location course counts keyed by location_raw. Session-cached.
