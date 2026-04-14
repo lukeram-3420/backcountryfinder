@@ -340,8 +340,8 @@ One file per provider at `.github/workflows/scraper-{id}.yml`. All use `workflow
 
 ### Tabs
 1. **Providers** — stats row (providers / courses / auto-hidden / user flags), provider table with active toggle, last run, course count, status badge, per-provider "Run" button, and "Run all" button.
-2. **Activity Mappings** — pending + approved activity mappings with inline Edit. Approved rows can be edited in place (title_contains + activity dropdown fetched dynamically from `activity_labels`).
-3. **Location Mappings** — pending + approved location mappings with inline Edit. Approved rows edit both `location_raw` and `location_canonical` in place.
+2. **Activity Mappings** — pending + approved activity mappings with inline Edit and Delete. Approved rows edit `title_contains` + activity dropdown (fetched dynamically from `activity_labels`). Course counts are on-demand via a "Load counts" button — one `countRows()` query per mapping using `title=ilike.*{title_contains}*`, results cached for the session. Default sort is alphabetical by `title_contains`; after counts load, sort becomes count desc then alphabetical.
+3. **Location Mappings** — pending + approved location mappings with inline Edit and Delete. Approved rows edit both `location_raw` and `location_canonical`. Course counts are on-demand via a "Load counts" button — one `countRows()` query per unique `location_raw`, results cached for the session. Default sort is alphabetical by `location_raw`; after counts load, sort becomes count desc then alphabetical.
 4. **Summary Review** — all `course_summaries` rows where `approved=false`. Approve / Reject / Regenerate buttons per row.
 5. **Flags** — "Copy fixable flags prompt" button (bundles wrong_price, wrong_date, bad_description, sold_out flags for Claude Code). User reports section (only `button_broken` and `other` get a Mark resolved button). Validator auto-flags section with Clear flag button.
 6. **Audit Log** — last 100 rows of `admin_log` with search filter.
