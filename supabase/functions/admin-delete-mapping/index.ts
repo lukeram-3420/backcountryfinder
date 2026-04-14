@@ -34,32 +34,29 @@ serve(async (req) => {
     }
     const userEmail = userData.user.email;
 
-    const { provider_id, active } = await req.json();
-    const activeBool = Boolean(active);
+    const { id } = await req.json();
 
-    await supabase
-      .from("providers")
-      .update({ active: activeBool })
-      .eq("id", provider_id);
-
-    // Cascade to courses: set all provider's courses.active to match
-    const { data: updatedCourses, error: cascadeErr } = await supabase
-      .from("courses")
-      .update({ active: activeBool })
-      .eq("provider_id", provider_id)
-      .select("id");
-    if (cascadeErr) {
-      return json({ error: `Course cascade failed: ${cascadeErr.message}` }, 500);
+    const { data: existing, error: fetchErr } = await supabase
+      .from("activity_mappings")
+      .select("title_contains,activity")
+      .eq("id", id)
+      .single();
+    if (fetchErr || !existing) {
+      return json({ error: `Mapping not found: ${fetchErr?.message || "no row"}` }, 404);
     }
-    const coursesUpdated = updatedCourses?.length || 0;
+
+    await supabase.from("activity_mappings").delete().eq("id", id);
 
     await supabase.from("admin_log").insert({
       user_email: userEmail,
-      action: "toggle_provider",
-      detail: { provider_id, active: activeBool, courses_updated: coursesUpdated },
+      action: "delete_mapping",
+      detail: {
+        title_contains: existing.title_contains,
+        activity: existing.activity,
+      },
     });
 
-    return json({ success: true, courses_updated: coursesUpdated });
+    return json({ success: true });
   } catch (err) {
     console.error(err);
     return json({ error: String(err) }, 500);

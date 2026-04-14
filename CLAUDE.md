@@ -361,6 +361,7 @@ All live in `supabase/functions/admin-*/index.ts`. Every one verifies the JWT, c
 | `admin-approve-mapping` | Insert into `activity_mappings`, mark `pending_mappings.reviewed=true` |
 | `admin-reject-mapping` | Mark `pending_mappings.reviewed=true` |
 | `admin-update-mapping` | Update `activity_mappings.activity` by id |
+| `admin-delete-mapping` | Delete an `activity_mappings` row by id (does not touch `courses`) |
 | `admin-approve-location` | Insert into `location_mappings`, mark `pending_location_mappings.reviewed=true` |
 | `admin-reject-location` | Mark `pending_location_mappings.reviewed=true` |
 | `admin-update-location` | Update `location_mappings.location_raw` + `location_canonical` by id |
@@ -370,7 +371,7 @@ All live in `supabase/functions/admin-*/index.ts`. Every one verifies the JWT, c
 | `admin-regenerate-summary` | Call Claude Haiku for fresh summary, write to `course_summaries` with `approved=false, pending_reason='regenerated'` |
 | `admin-resolve-flag` | Clear user flag — only for `button_broken` / `other` reasons (400 otherwise) |
 | `admin-clear-auto-flag` | Clear `auto_flagged` + `flag_reason` |
-| `admin-toggle-provider` | Set `providers.active` |
+| `admin-toggle-provider` | Set `providers.active` and cascade to all of that provider's `courses.active` |
 | `admin-trigger-scraper` | Call GitHub Actions `workflow_dispatches` — requires `GITHUB_TOKEN` secret in Supabase Edge Functions settings |
 
 ### Related one-offs
