@@ -18,6 +18,7 @@ from typing import Optional
 
 from scraper_utils import (
     sb_get, sb_upsert, sb_insert,
+    normalise_location,
     send_email, send_scraper_summary,
     SUPABASE_URL, SUPABASE_KEY, RESEND_API_KEY, ANTHROPIC_API_KEY,
     GOOGLE_PLACES_API_KEY, UTM, CLAUDE_MODEL, NOTIFY_EMAIL, FROM_EMAIL,
@@ -211,30 +212,6 @@ def resolve_activity(title, description, mappings, provider=""):
             sb_upsert("activity_labels", [{"activity": activity, "label": label}])
             return activity, is_new, True
     return detect_activity(title, description), False, False
-
-
-def normalise_location(raw, mappings):
-    """
-    Normalise a raw location string to canonical value.
-    Returns (canonical, is_new, should_add_mapping)
-    """
-    if not raw:
-        return None, False, False
-    key = raw.lower().strip()
-    if key in mappings:
-        return mappings[key], False, False
-    for known_raw, canonical in mappings.items():
-        if known_raw in key or key in known_raw:
-            return canonical, False, False
-    if ANTHROPIC_API_KEY:
-        known = get_known_locations(mappings)
-        result = claude_classify_location(raw, known)
-        if result.get("location_canonical"):
-            canonical = result["location_canonical"]
-            is_new = result.get("is_new", False)
-            log.info(f"Claude normalised '{raw}' to '{canonical}' (new={is_new})")
-            return canonical, is_new, True
-    return None, False, False
 
 
 def build_badge(activity: str, duration_days) -> str:
@@ -568,10 +545,7 @@ def main():
     for c in raw_courses:
         loc_raw = c.get("location_raw") or ""
         if loc_raw:
-            loc_canonical, loc_is_new, loc_add_mapping = normalise_location(loc_raw, mappings)
-            if loc_add_mapping:
-                sb_insert("location_mappings", {"location_raw": loc_raw, "location_canonical": loc_canonical})
-                mappings[loc_raw.lower().strip()] = loc_canonical
+            loc_canonical = normalise_location(loc_raw, mappings)
             if not loc_canonical:
                 location_flags.append({"location_raw": loc_raw, "provider_id": provider["id"], "course_title": c["title"]})
         else:

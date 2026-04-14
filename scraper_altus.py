@@ -18,6 +18,8 @@ from typing import Optional
 import requests
 from bs4 import BeautifulSoup
 
+from scraper_utils import normalise_location
+
 # ── CONFIG ──
 SUPABASE_URL          = os.environ["SUPABASE_URL"]
 SUPABASE_KEY          = os.environ["SUPABASE_SERVICE_KEY"]
@@ -230,30 +232,6 @@ Respond with JSON only, no other text:
 {{"location_canonical": "the_canonical_value", "is_new": false, "confidence": "high", "reasoning": "one line explanation"}}"""
 
     return claude_classify(prompt)
-
-
-def normalise_location(raw, mappings):
-    """
-    Normalise a raw location string to canonical value.
-    Returns (canonical, is_new, should_add_mapping)
-    """
-    if not raw:
-        return None, False, False
-    key = raw.lower().strip()
-    if key in mappings:
-        return mappings[key], False, False
-    for known_raw, canonical in mappings.items():
-        if known_raw in key or key in known_raw:
-            return canonical, False, False
-    if ANTHROPIC_API_KEY:
-        known = get_known_locations(mappings)
-        result = claude_classify_location(raw, known)
-        if result.get("location_canonical"):
-            canonical = result["location_canonical"]
-            is_new = result.get("is_new", False)
-            log.info(f"Claude normalised '{raw}' to '{canonical}' (new={is_new})")
-            return canonical, is_new, True
-    return None, False, False
 
 
 # ── ACTIVITY RESOLUTION ──
@@ -1066,12 +1044,7 @@ def main():
         # Normalise location
         loc_raw = c.get("location_raw") or ""
         if loc_raw:
-            loc_canonical, loc_is_new, loc_add_mapping = normalise_location(loc_raw, mappings)
-            if loc_add_mapping:
-                sb_insert("location_mappings", {"location_raw": loc_raw, "location_canonical": loc_canonical})
-                mappings[loc_raw.lower().strip()] = loc_canonical
-                if loc_is_new:
-                    log.info(f"New canonical location added: '{loc_raw}' -> '{loc_canonical}'")
+            loc_canonical = normalise_location(loc_raw, mappings)
             if not loc_canonical:
                 log.warning(f"Unmatched location: '{loc_raw}' for '{c['title']}'")
                 location_flags.append({"location_raw": loc_raw, "provider_id": provider["id"], "course_title": c["title"]})
@@ -1164,10 +1137,7 @@ def main():
             loc_raw = c.get("location_raw") or ""
             loc_canonical = None
             if loc_raw:
-                loc_canonical, loc_is_new, loc_add_mapping = normalise_location(loc_raw, mappings)
-                if loc_add_mapping:
-                    sb_insert("location_mappings", {"location_raw": loc_raw, "location_canonical": loc_canonical})
-                    mappings[loc_raw.lower().strip()] = loc_canonical
+                loc_canonical = normalise_location(loc_raw, mappings)
 
             badge_canonical = build_badge(activity_canonical, c.get("duration_days"))
             course_id = stable_id(provider["id"], activity_canonical, c.get("date_sort"), c["title"])
