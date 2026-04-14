@@ -784,16 +784,68 @@ function flashBtn(btn, text, colour, ms = 3000) {
   }, ms);
 }
 
+async function pollRunLogForCompletion(provider_id, triggeredAt) {
+  const url = `${SUPABASE_URL}/rest/v1/scraper_run_log`
+    + `?provider_id=eq.${encodeURIComponent(provider_id)}`
+    + `&run_at=gt.${encodeURIComponent(triggeredAt)}`
+    + `&select=run_at,course_count`
+    + `&limit=1`
+    + `&order=run_at.desc`;
+  const res = await fetch(url, {
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Content-Type': 'application/json',
+    },
+  });
+  if (!res.ok) throw new Error(`poll ${res.status}`);
+  const rows = await res.json();
+  return Array.isArray(rows) && rows.length ? rows[0] : null;
+}
+
+function resetValidateBtn(btn) {
+  if (!btn) return;
+  btn.innerHTML = 'Validate';
+  btn.style.color = '';
+  btn.disabled = false;
+}
+
 window.triggerValidate = async (provider_id) => {
   const btn = document.getElementById(`validate-btn-${provider_id}`);
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Validating…'; }
   try {
     await triggerValidateForProvider(provider_id);
-    flashBtn(btn, 'Triggered ✓', '');
   } catch (e) {
-    flashBtn(btn, 'Failed', 'var(--red)');
+    if (btn) { btn.innerHTML = 'Failed'; btn.style.color = 'var(--red)'; }
+    setTimeout(() => resetValidateBtn(btn), 3000);
     toast('Validate failed: ' + e.message, true);
+    return;
   }
+  // Polling phase — look for a new scraper_run_log row newer than this moment
+  const triggeredAt = new Date().toISOString();
+  const MAX_POLLS = 36; // 36 × 5s = 3 minutes
+  let poll = 0;
+  const interval = setInterval(async () => {
+    poll++;
+    try {
+      const row = await pollRunLogForCompletion(provider_id, triggeredAt);
+      if (row) {
+        clearInterval(interval);
+        if (btn) { btn.innerHTML = 'Done ✓'; btn.style.color = ''; }
+        setTimeout(() => resetValidateBtn(btn), 3000);
+        toast(`Validation complete — ${row.course_count} courses. Reload Flags tab to see results.`);
+        return;
+      }
+    } catch (e) {
+      // Transient polling error — keep trying until timeout
+      console.error('poll error', e);
+    }
+    if (poll >= MAX_POLLS) {
+      clearInterval(interval);
+      resetValidateBtn(btn);
+      toast('Validation triggered — check Flags tab in a minute');
+    }
+  }, 5000);
 };
 
 // ── Activity labels cache (shared between tabs) ──
