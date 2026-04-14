@@ -39,7 +39,11 @@ ACTIVITY_CONTRADICTIONS = {
 
 # Order matters — first match wins. More specific rules must come before generic ones.
 # Titles containing these phrases accept EITHER activity without flagging:
-TITLE_ACTIVITY_EXCEPTIONS = ["ski mountaineering"]
+TITLE_ACTIVITY_EXCEPTIONS = [
+    "ski mountaineering",
+    "crevasse rescue",  # correctly avalanche_safety despite "crevasse" keyword
+    "crevasse",         # catch variants
+]
 
 TITLE_ACTIVITY_RULES = [
     (["alpine climbing", "alpine rock"],                     "mountaineering"),
