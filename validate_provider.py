@@ -43,6 +43,11 @@ TITLE_ACTIVITY_EXCEPTIONS = [
     "ski mountaineering",
     "crevasse rescue",  # correctly avalanche_safety despite "crevasse" keyword
     "crevasse",         # catch variants
+    "ast",              # avalanche skills training — always avalanche_safety
+    "avalanche skills", # same
+    "avalanche safety", # same
+    "sled ast",         # sledder AST variant
+    "ski & board ast",  # ski and board AST variant
 ]
 
 TITLE_ACTIVITY_RULES = [
