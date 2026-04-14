@@ -985,10 +985,12 @@ async function loadActivitiesDropdown() {
 }
 
 // ── LOCATION DROPDOWN ──
+// Source of truth is the location_mappings table (~55 rows) — avoids missing
+// locations due to Supabase pagination on the 25k+ courses table.
 async function loadLocationsDropdown() {
   try {
     const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/courses?select=location_canonical,location_raw&active=eq.true&flagged=not.is.true&auto_flagged=not.is.true`,
+      `${SUPABASE_URL}/rest/v1/location_mappings?select=location_canonical`,
       { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
     );
     const rows = await res.json();
@@ -1012,7 +1014,7 @@ async function updateLocationsForActivity(activity) {
   try {
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/courses?select=location_canonical&active=eq.true&flagged=not.is.true&auto_flagged=not.is.true&activity_canonical=eq.${encodeURIComponent(activity)}`,
-      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Range': '0-9999' } }
     );
     const rows = await res.json();
     const locations = new Set();
