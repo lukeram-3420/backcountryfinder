@@ -109,3 +109,9 @@ jobs:
       - name: Validate Hangfire Training
         run: python validate_provider.py hangfire
         continue-on-error: true
+      - name: Girth Hitch Guiding
+        run: python scraper_girth_hitch_guiding.py
+        continue-on-error: true
+      - name: Validate Girth Hitch Guiding
+        run: python validate_provider.py girth-hitch-guiding
+        continue-on-error: true
