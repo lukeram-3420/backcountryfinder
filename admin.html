@@ -1312,10 +1312,22 @@ async function pipelinePatch(filterQuery, payload) {
   if (!res.ok) throw new Error(`PATCH ${res.status}: ${await res.text()}`);
 }
 
+async function pipelineFetch(query) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/provider_pipeline?${query}`, {
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Range': '0-4999',
+    },
+  });
+  if (!res.ok) throw new Error(`GET ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
 async function syncPipelineLiveFromProviders() {
   try {
     const providers = await sbSelect('providers', { select: 'name,website,active', eq: { active: true } });
-    const pipeline = await sbSelect('provider_pipeline', { select: 'id,name,website,status' });
+    const pipeline = await pipelineFetch('select=id,name,website,status');
     const byName = new Map(pipeline.map(p => [(p.name || '').toLowerCase().trim(), p]));
     const byDomain = new Map(pipeline.map(p => [domainOf(p.website), p]).filter(([d]) => d));
     for (const p of providers) {
@@ -1332,7 +1344,7 @@ async function syncPipelineLiveFromProviders() {
 async function loadPipelineTab() {
   try {
     await syncPipelineLiveFromProviders();
-    cachedPipeline = await sbSelect('provider_pipeline', { order: { col: 'priority', ascending: true } });
+    cachedPipeline = await pipelineFetch('select=*&status=neq.skip&order=priority.asc.nullslast,name.asc');
     const counts = { candidate: 0, scouted: 0, scraper_built: 0, live: 0 };
     for (const r of cachedPipeline) if (counts[r.status] !== undefined) counts[r.status]++;
     document.getElementById('stat-pl-candidate').textContent = counts.candidate;
