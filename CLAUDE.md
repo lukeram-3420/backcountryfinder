@@ -10,6 +10,11 @@ Every Claude Code prompt should begin by reading CLAUDE.md in full before making
 ### Keeping project knowledge in sync
 Whenever CLAUDE.md is updated, output the full contents of the updated CLAUDE.md at the end of your response so it can be copied directly into the claude.ai project knowledge base.
 
+### UX conventions
+- Every tab in admin.html has a "How to use this tab" collapsible help section at the top
+- Whenever a UX change is made to any tab — new button, new section, new behaviour — the "How to use this tab" text for that tab must be updated to reflect the change in the same commit
+- This applies to all tabs: Providers, Activity Mappings, Location Mappings, Summary Review, Flags, Audit Log, Pipeline, Settings
+
 ### Claude Code behaviour
 - Never ask for confirmation before making changes when following a prompt
 - Never pause mid-task to check in — complete the full prompt end to end

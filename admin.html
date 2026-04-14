@@ -194,7 +194,7 @@
   <div class="main">
     <!-- TAB: PROVIDERS -->
     <div class="tab-panel" id="panel-providers">
-      <details class="instructions"><summary>How to use this tab</summary><p>Toggle a provider off to hide all their courses from the site. Click Run to trigger a fresh scrape for that provider. Run all triggers a full scrape of all providers — expect 45-60 minutes. Column headers are clickable to sort ascending or descending.</p></details>
+      <details class="instructions"><summary>How to use this tab</summary><p>Toggle a provider off to hide all their courses from the site. Click Run to trigger a fresh scrape for that provider. Click Validate to run the validator — use this after fixing a mapping or summary to confirm the flag is resolved without waiting for the next cron run. Run all triggers a full scrape of all providers — expect 45-60 minutes. Column headers are clickable to sort ascending or descending.</p></details>
       <div class="stats-row" id="stats-row">
         <div class="stat-card"><div class="stat-label">Providers</div><div class="stat-value" id="stat-providers">—</div></div>
         <div class="stat-card"><div class="stat-label">Courses</div><div class="stat-value" id="stat-courses">—</div></div>
@@ -256,7 +256,7 @@
 
     <!-- TAB: FLAGS -->
     <div class="tab-panel hidden" id="panel-flags">
-      <details class="instructions"><summary>How to use this tab</summary><p>Fixable user-report flags (wrong_price, wrong_date, bad_description, sold_out) are fixed by updating the scraper — click Copy all to Claude to get a prompt. button_broken and other user flags require manual resolution — click Mark resolved once investigated. Validator auto-flags are grouped by title + reason; each group offers a root-cause fix: <strong>Add mapping</strong> (activity mismatch / null activity), <strong>Regenerate</strong> (summary mismatch), <strong>Mark as expected</strong> (invalid price), <strong>Diagnose</strong> (duplicate — calls Claude Haiku to decide whitelist vs scraper fix), or <strong>Clear all</strong> (always available). The Warnings section below shows email-only validator issues persisted in <code>validator_warnings</code> — these rows remain visible on the site but have data quality issues. Warnings are cleared and rewritten each validation run.</p></details>
+      <details class="instructions"><summary>How to use this tab</summary><p>Auto-hidden courses are hidden from the site until the flag is resolved. Use Add mapping to permanently fix activity mismatches — the mapping is saved and applied on every future scrape. Use Diagnose on duplicates to let Haiku determine if it is safe to whitelist or needs a scraper fix. Use Regenerate to fix empty or mismatched summaries. Warnings are courses still visible on the site but with data quality issues — use Mark as expected to permanently suppress price outliers. Click Re-validate all to refresh flags and warnings after making fixes. Flags and warnings auto-refresh after each validate run.</p></details>
       <div class="stats-row" style="grid-template-columns:repeat(3,1fr);">
         <div class="stat-card"><div class="stat-label">User reports</div><div class="stat-value" id="stat-flags-user">—</div></div>
         <div class="stat-card"><div class="stat-label">Auto-hidden</div><div class="stat-value" id="stat-flags-auto" style="color:var(--red);">—</div></div>
@@ -665,13 +665,13 @@ function renderProvidersTable() {
       <td>${p.lastRun ? fmt(p.lastRun.run_at) : '—'}</td>
       <td>${p.visible || 0}</td>
       <td>${badge}</td>
-      <td class="row-actions">${runBtn}${validateBtn}</td>
+      <td><div class="row-actions">${runBtn} ${validateBtn}</div></td>
     </tr>`;
   }).join('');
 
   const h = (col, label) => sortableHeader(providersSort, col, label, `window.sortProviders('${col}')`);
   document.getElementById('providers-table-wrap').innerHTML = `
-    <table><thead><tr>${h('name','Provider')}<th>Active</th>${h('last_run','Last run')}${h('courses','Courses')}${h('status','Status')}<th></th></tr></thead><tbody>${rows}</tbody></table>`;
+    <table><thead><tr>${h('name','Provider')}<th>Active</th>${h('last_run','Last run')}${h('courses','Courses')}${h('status','Status')}<th>Actions</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 window.sortProviders = (col) => {
