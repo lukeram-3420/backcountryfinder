@@ -371,7 +371,7 @@ All live in `supabase/functions/admin-*/index.ts`. Every one verifies the JWT, c
 | `admin-regenerate-summary` | Call Claude Haiku for fresh summary, write to `course_summaries` with `approved=false, pending_reason='regenerated'` |
 | `admin-resolve-flag` | Clear user flag — only for `button_broken` / `other` reasons (400 otherwise) |
 | `admin-clear-auto-flag` | Clear `auto_flagged` + `flag_reason` |
-| `admin-toggle-provider` | Set `providers.active` and cascade to all of that provider's `courses.active` |
+| `admin-toggle-provider` | Set `providers.active` and cascade to that provider's `courses.active`. Toggle OFF sets all courses to `active=false`. Toggle ON only restores courses where `avail != 'sold'` — preserves sold-out and notify-me courses. |
 | `admin-trigger-scraper` | Call GitHub Actions `workflow_dispatches` — requires `GITHUB_TOKEN` secret in Supabase Edge Functions settings |
 
 ### Related one-offs

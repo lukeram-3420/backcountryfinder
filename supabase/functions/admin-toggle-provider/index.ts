@@ -42,12 +42,18 @@ serve(async (req) => {
       .update({ active: activeBool })
       .eq("id", provider_id);
 
-    // Cascade to courses: set all provider's courses.active to match
-    const { data: updatedCourses, error: cascadeErr } = await supabase
+    // Cascade to courses:
+    //   Toggle OFF → set every provider row to active=false
+    //   Toggle ON  → restore active=true ONLY where avail != 'sold',
+    //                so sold-out / notify-me rows stay hidden
+    let updateQuery = supabase
       .from("courses")
       .update({ active: activeBool })
-      .eq("provider_id", provider_id)
-      .select("id");
+      .eq("provider_id", provider_id);
+    if (activeBool) {
+      updateQuery = updateQuery.neq("avail", "sold");
+    }
+    const { data: updatedCourses, error: cascadeErr } = await updateQuery.select("id");
     if (cascadeErr) {
       return json({ error: `Course cascade failed: ${cascadeErr.message}` }, 500);
     }
