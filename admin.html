@@ -703,11 +703,13 @@ window.renderActivityMappings = () => {
     .slice()
     .sort((a, b) => {
       if (activityCountsLoaded) {
-        const ca = activityMappingCounts[a.id] || 0;
-        const cb = activityMappingCounts[b.id] || 0;
+        const ca = Number(activityMappingCounts[a.id]) || 0;
+        const cb = Number(activityMappingCounts[b.id]) || 0;
         if (cb !== ca) return cb - ca;
       }
-      return (a.title_contains || '').localeCompare(b.title_contains || '');
+      const at = (a.title_contains || '').toLowerCase();
+      const bt = (b.title_contains || '').toLowerCase();
+      return at.localeCompare(bt);
     });
   if (!filtered.length) { document.getElementById('activity-mappings-wrap').innerHTML = '<div class="loading">No mappings</div>'; return; }
   document.getElementById('activity-mappings-wrap').innerHTML = `
@@ -861,11 +863,13 @@ window.renderLocationMappings = () => {
     .slice()
     .sort((a, b) => {
       if (locationCountsLoaded) {
-        const ca = locationMappingCounts[a.location_raw] || 0;
-        const cb = locationMappingCounts[b.location_raw] || 0;
+        const ca = Number(locationMappingCounts[a.location_raw]) || 0;
+        const cb = Number(locationMappingCounts[b.location_raw]) || 0;
         if (cb !== ca) return cb - ca;
       }
-      return (a.location_raw || '').localeCompare(b.location_raw || '');
+      const ar = (a.location_raw || '').toLowerCase();
+      const br = (b.location_raw || '').toLowerCase();
+      return ar.localeCompare(br);
     });
   if (!filtered.length) { document.getElementById('location-mappings-wrap').innerHTML = '<div class="loading">No locations</div>'; return; }
   document.getElementById('location-mappings-wrap').innerHTML = `
