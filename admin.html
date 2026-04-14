@@ -175,6 +175,7 @@
   <nav class="topnav">
     <div class="topnav-logo">backcountry<em>finder</em> · admin</div>
     <div class="topnav-right">
+      <span id="next-scrape-countdown" title="Next scheduled cron scrape (00:00 / 06:00 / 12:00 / 18:00 UTC)"></span>
       <span id="user-email-display"></span>
       <button class="signout-btn" onclick="signOut()">Sign out</button>
     </div>
@@ -194,7 +195,7 @@
   <div class="main">
     <!-- TAB: PROVIDERS -->
     <div class="tab-panel" id="panel-providers">
-      <details class="instructions"><summary>How to use this tab</summary><p>Toggle a provider off to hide all their courses from the site. Click Run to trigger a fresh scrape for that provider. Click Validate to run the validator — use this after fixing a mapping or summary to confirm the flag is resolved without waiting for the next cron run. Run all triggers a full scrape of all providers — expect 45-60 minutes. Column headers are clickable to sort ascending or descending.</p></details>
+      <details class="instructions"><summary>How to use this tab</summary><p>Toggle a provider off to hide all their courses from the site. Click Run to trigger a fresh scrape for that provider. Click Validate to run the validator — use this after fixing a mapping or summary to confirm the flag is resolved without waiting for the next cron run. Last run shows the most recent scraper execution per provider. Use Validate after Run to confirm fixes were applied. Validate alone is useful after fixing summaries or price exceptions — for mapping or scraper fixes, always Run first then Validate. Run all triggers a full scrape of all providers — expect 45-60 minutes. Column headers are clickable to sort ascending or descending.</p></details>
       <div class="stats-row" id="stats-row">
         <div class="stat-card"><div class="stat-label">Providers</div><div class="stat-value" id="stat-providers">—</div></div>
         <div class="stat-card"><div class="stat-label">Courses</div><div class="stat-value" id="stat-courses">—</div></div>
@@ -604,11 +605,32 @@ async function countRows(table, filterQuery = '') {
 let cachedProviders = [];       // enriched: {id, name, active, lastRun, visible, af, uf}
 let providersSort = { col: 'name', dir: 'asc' };
 
+async function fetchRunLog() {
+  // Direct REST (anon key) — resilient against the JS client's RLS quirks.
+  // PREREQUISITE: scraper_run_log needs an anon SELECT policy. Run once in Supabase SQL editor:
+  //   ALTER TABLE scraper_run_log ENABLE ROW LEVEL SECURITY;
+  //   CREATE POLICY anon_read ON scraper_run_log FOR SELECT TO anon, authenticated USING (true);
+  // (Or if RLS is already disabled and reads work, this is a no-op.)
+  const url = `${SUPABASE_URL}/rest/v1/scraper_run_log?select=provider_id,run_at,course_count&order=run_at.desc&limit=2000`;
+  const res = await fetch(url, {
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Content-Type': 'application/json',
+    },
+  });
+  if (!res.ok) {
+    console.error('scraper_run_log fetch failed', res.status, await res.text());
+    return [];
+  }
+  return res.json();
+}
+
 async function loadProvidersTab() {
   try {
     const [providers, runs, totalCourses, autoHidden, userFlags] = await Promise.all([
       sbSelect('providers', { select: 'id,name,active' }),
-      sbSelect('scraper_run_log', { select: 'provider_id,run_at,course_count', order: { col: 'run_at', ascending: false } }),
+      fetchRunLog(),
       countRows('courses'),
       countRows('courses', 'auto_flagged=eq.true'),
       countRows('courses', 'flagged=eq.true'),
@@ -2037,6 +2059,27 @@ window.savePipelineRow = async (id) => {
     loadPipelineTab();
   } catch (e) { toast('Failed: ' + e.message, true); }
 };
+
+// ── Next-cron countdown (scraper-all.yml runs at 0 */6 * * * UTC) ─────────
+function updateNextScrapeCountdown() {
+  const el = document.getElementById('next-scrape-countdown');
+  if (!el) return;
+  const now = new Date();
+  const utcH = now.getUTCHours();
+  const nextSlotH = (Math.floor(utcH / 6) + 1) * 6; // 6, 12, 18, 24
+  const next = new Date(Date.UTC(
+    now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
+    nextSlotH, 0, 0, 0,
+  ));
+  let diffMs = next - now;
+  if (diffMs < 0) diffMs = 0;
+  const totalMin = Math.floor(diffMs / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  el.textContent = `Next scrape: ${h}h ${m}m`;
+}
+updateNextScrapeCountdown();
+setInterval(updateNextScrapeCountdown, 60000);
 
 // ── Init ─────────────────────────────────────────
 checkSession();
