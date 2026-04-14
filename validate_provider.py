@@ -15,6 +15,7 @@ Usage:
     python validate_provider.py <provider_id>
 """
 
+import logging
 import re
 import sys
 import statistics
@@ -333,12 +334,22 @@ def check_availability(courses: list, auto_hidden: list) -> list:
     return email_only
 
 
-def check_duplicates(courses: list, auto_hidden: list) -> list:
-    """Check 6: Duplicates — auto-hide all but first occurrence."""
+def check_duplicates(courses: list, auto_hidden: list, whitelisted: set, provider_id: str) -> list:
+    """Check 6: Duplicates — auto-hide all but first occurrence.
+
+    Skips titles present in validator_whitelist for this provider (or globally).
+    """
     email_only = []
     seen = {}
 
     for c in courses:
+        title = c.get("title") or ""
+        title_key = title.strip().lower()
+        if (title_key, provider_id) in whitelisted or (title_key, None) in whitelisted:
+            if (c["title"], c.get("date_sort")) in seen:
+                logging.info(f"Skipping whitelisted duplicate: {title} ({provider_id})")
+            seen[(c["title"], c.get("date_sort"))] = c["id"]
+            continue
         key = (c["title"], c.get("date_sort"))
         if key in seen:
             flag_course(c["id"], "duplicate: same title and date", auto_hidden)
@@ -540,6 +551,19 @@ def main():
     current_count = len(courses)
     print(f"  Fetched {current_count} courses")
 
+    # Load duplicate whitelist
+    whitelist_rows = []
+    try:
+        whitelist_rows = sb_get("validator_whitelist", {"select": "title,provider_id"})
+    except Exception as e:
+        print(f"  ⚠ Could not load validator_whitelist: {e}")
+    logging.info(f"Loaded {len(whitelist_rows)} whitelist entries")
+    whitelisted = set()
+    for row in whitelist_rows:
+        title = (row.get("title") or "").strip().lower()
+        pid = row.get("provider_id")
+        whitelisted.add((title, pid if pid else None))
+
     # Get last run count
     last_count = None
     try:
@@ -566,7 +590,7 @@ def main():
     email_only.extend(check_prices(courses, auto_hidden))
     email_only.extend(check_dates(courses, auto_hidden))
     email_only.extend(check_availability(courses, auto_hidden))
-    email_only.extend(check_duplicates(courses, auto_hidden))
+    email_only.extend(check_duplicates(courses, auto_hidden, whitelisted, provider_id))
     email_only.extend(check_course_count(provider_id, current_count))
 
     # Enrich auto_hidden with titles for the report

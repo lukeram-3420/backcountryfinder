@@ -273,7 +273,7 @@ Post-scrape validation script. Runs after any provider scraper completes. Read-o
 | 3. Price sanity | Zero or negative price | Null price (when peers have prices), >5x median outlier |
 | 4. Date sanity | Past date with `active=true` | >2 years in the future |
 | 5. Availability | — | Null avail, all-sold warning |
-| 6. Duplicates | All but first occurrence of same title+date | — |
+| 6. Duplicates | All but first occurrence of same title+date (titles in `validator_whitelist` are skipped) | — |
 | 7. Course count | — | >30% drop vs last run |
 
 **Exceptions:** "Ski Mountaineering" titles accept either skiing or mountaineering. Price outliers skip courses with "Logan", "Expedition", or "Traverse" in the title.
@@ -358,7 +358,7 @@ Three tables (Providers, Activity Mappings, Location Mappings) use a shared sort
 - `pending_mappings` — pending activity mapping suggestions (columns: `id, course_title, title_contains, provider_id, description, suggested_activity, reviewed bool, created_at`)
 - `pending_location_mappings` — pending location mapping suggestions (columns: `id, location_raw, suggested_canonical, reviewed bool, created_at`)
 - `course_summaries` — unique on `(provider_id, title)`. Columns: `id, provider_id, title, course_id, summary, description_hash, approved bool, approved_at, pending_reason, created_at`
-- `validator_whitelist` — records duplicate-flag groups that admin marked as safe to whitelist. Columns: `id bigserial, title text not null, provider_id text, reason text, created_at timestamptz default now()`. Populated by the Flags tab's Whitelist action. **Not yet consumed by `validate_provider.py`** — future wiring step.
+- `validator_whitelist` — records duplicate-flag groups that admin marked as safe to whitelist. Columns: `id bigserial, title text not null, provider_id text, reason text, created_at timestamptz default now()`. Populated by the Flags tab's Whitelist action. **Consumed by `validate_provider.py`'s duplicate check**: titles matching a whitelist entry (title + provider_id, or title + null provider_id for global whitelist) are skipped by Check 6 and never auto-flagged as duplicates.
 
 ### Admin edge functions (deployed via deploy-functions.yml)
 All live in `supabase/functions/admin-*/index.ts`. Every one verifies the JWT, checks `user.email === 'luke@backcountryfinder.com'`, executes, then writes a row to `admin_log`.
