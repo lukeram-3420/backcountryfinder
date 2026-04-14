@@ -327,6 +327,54 @@ One file per provider at `.github/workflows/scraper-{id}.yml`. All use `workflow
 ### Secrets used by all workflows
 `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `RESEND_API_KEY`, `GOOGLE_PLACES_API_KEY`, `ANTHROPIC_API_KEY`
 
+## Admin page
+
+- **URL:** `backcountryfinder.com/admin` (static `admin.html` at repo root)
+- **Auth:** Supabase Auth, email + password. Only `luke@backcountryfinder.com` is allowed — any other account is auto-signed-out. Auto-logout after 30 minutes of inactivity.
+- **All writes go through edge functions** with `Authorization: Bearer {session.access_token}`. The edge function verifies the JWT and checks admin email before touching any table.
+- **Reads** use the Supabase publishable (anon) key directly.
+- **Security:** `<meta name="robots" content="noindex, nofollow">` + `robots.txt` has `Disallow: /admin`.
+
+### Tabs
+1. **Providers** — stats row (providers / courses / auto-hidden / user flags), provider table with active toggle, last run, course count, status badge, per-provider "Run" button, and "Run all" button.
+2. **Mapping Review** — pending + approved activity mappings, pending + approved location mappings. Search filters on the approved lists.
+3. **Summary Review** — all `course_summaries` rows where `approved=false`. Approve / Reject / Regenerate buttons per row.
+4. **Flags** — "Copy fixable flags prompt" button (bundles wrong_price, wrong_date, bad_description, sold_out flags for Claude Code). User reports section (only `button_broken` and `other` get a Mark resolved button). Validator auto-flags section with Clear flag button.
+5. **Audit Log** — last 100 rows of `admin_log` with search filter.
+
+### Admin-facing tables (create in Supabase if not already)
+- `admin_log` — `id bigserial, user_email text, action text, detail jsonb, created_at timestamptz default now()`
+- `pending_mappings` — pending activity mapping suggestions (columns: `id, course_title, title_contains, provider_id, description, suggested_activity, reviewed bool, created_at`)
+- `pending_location_mappings` — pending location mapping suggestions (columns: `id, location_raw, suggested_canonical, reviewed bool, created_at`)
+- `course_summaries` — unique on `(provider_id, title)`. Columns: `id, provider_id, title, course_id, summary, description_hash, approved bool, approved_at, pending_reason, created_at`
+
+### Admin edge functions (deployed via deploy-functions.yml)
+All live in `supabase/functions/admin-*/index.ts`. Every one verifies the JWT, checks `user.email === 'luke@backcountryfinder.com'`, executes, then writes a row to `admin_log`.
+
+| Function | Purpose |
+|----------|---------|
+| `admin-approve-mapping` | Insert into `activity_mappings`, mark `pending_mappings.reviewed=true` |
+| `admin-reject-mapping` | Mark `pending_mappings.reviewed=true` |
+| `admin-update-mapping` | Update `activity_mappings.activity` by id |
+| `admin-approve-location` | Insert into `location_mappings`, mark `pending_location_mappings.reviewed=true` |
+| `admin-reject-location` | Mark `pending_location_mappings.reviewed=true` |
+| `admin-approve-summary` | Approve `course_summaries` row, patch all matching `courses.summary`, clear any user flags |
+| `admin-reject-summary` | Set `course_summaries.approved=false` |
+| `admin-regenerate-summary` | Call Claude Haiku for fresh summary, write to `course_summaries` with `approved=false, pending_reason='regenerated'` |
+| `admin-resolve-flag` | Clear user flag — only for `button_broken` / `other` reasons (400 otherwise) |
+| `admin-clear-auto-flag` | Clear `auto_flagged` + `flag_reason` |
+| `admin-toggle-provider` | Set `providers.active` |
+| `admin-trigger-scraper` | Call GitHub Actions `workflow_dispatches` — requires `GITHUB_TOKEN` secret in Supabase Edge Functions settings |
+
+### Related one-offs
+- `bootstrap_summaries.py` — one-time migration that seeded `course_summaries` from existing `courses.summary` values. Already run; file can be deleted.
+- `course_summaries` dedup: unique constraint on `(provider_id, title)`; `description_hash` tracks when the underlying description changes so a stale approved summary can be flagged for review.
+
+### Two-flag system reminder
+- `flagged` + `flagged_reason` + `flagged_note` → user reports (set by `notify-report`, cleared by admin actions or validator auto-clear rules)
+- `auto_flagged` + `flag_reason` → validator only (set + reset by `validate_provider.py`)
+- Scrapers never touch either set.
+
 ## Filter behaviour
 
 ### Activity → location dependency
