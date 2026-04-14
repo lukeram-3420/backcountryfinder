@@ -279,7 +279,7 @@
 
     <!-- TAB: FLAGS -->
     <div class="tab-panel hidden" id="panel-flags">
-      <details class="instructions"><summary>How to use this tab</summary><p>Auto-hidden courses are hidden from the site until the flag is resolved. Use Add mapping to permanently fix activity mismatches — the mapping is saved and applied on every future scrape. Use Diagnose on duplicates to let Haiku determine if it is safe to whitelist or needs a scraper fix. Use Regenerate to fix empty or mismatched summaries. Warnings are courses still visible on the site but with data quality issues — use Mark as expected to permanently suppress price outliers. Click Re-validate all to refresh flags and warnings after making fixes. Flags and warnings auto-refresh after each validate run.</p></details>
+      <details class="instructions"><summary>How to use this tab</summary><p>Auto-hidden courses are hidden from the site until the flag is resolved. Use Add mapping to permanently fix activity mismatches — the mapping is saved and applied on every future scrape. Use Diagnose on duplicates to let Haiku determine if it is safe to whitelist or needs a scraper fix. Use Regenerate to fix empty or mismatched summaries. Warnings are courses still visible on the site but with data quality issues — use Mark as expected to permanently suppress price outliers. Click Re-validate all to refresh flags and warnings after making fixes. Flags and warnings auto-refresh after each validate run. Column headers in the User Reports and Auto-flags tables are clickable to sort ascending or descending.</p></details>
       <div class="stats-row" style="grid-template-columns:repeat(3,1fr);">
         <div class="stat-card"><div class="stat-label">User reports</div><div class="stat-value" id="stat-flags-user">—</div></div>
         <div class="stat-card"><div class="stat-label">Auto-hidden</div><div class="stat-value" id="stat-flags-auto" style="color:var(--red);">—</div></div>
@@ -1341,25 +1341,52 @@ async function loadFlagsStats() {
     // Silent failure — the individual sections show errors
   }
 }
+let cachedUserFlags = [];
+let userFlagSort = { col: 'title', dir: 'asc' };
+
+function userFlagSortValue(r, col) {
+  switch (col) {
+    case 'title':  return r.title;
+    case 'reason': return r.flagged_reason;
+    default:       return null;
+  }
+}
+
+window.sortUserFlags = (col) => {
+  toggleSortState(userFlagSort, col);
+  renderUserFlags();
+};
+
+function renderUserFlags() {
+  if (!cachedUserFlags.length) {
+    document.getElementById('user-flags-wrap').innerHTML = '<div class="loading">No user flags</div>';
+    return;
+  }
+  const sorted = cachedUserFlags.slice().sort((a, b) =>
+    cmpValues(userFlagSortValue(a, userFlagSort.col), userFlagSortValue(b, userFlagSort.col), userFlagSort.dir)
+  );
+  const h = (col, label) => sortableHeader(userFlagSort, col, label, `window.sortUserFlags('${col}')`);
+  document.getElementById('user-flags-wrap').innerHTML = `
+    <table><thead><tr>${h('title','Course')}${h('reason','Reason')}<th>Note</th><th></th></tr></thead><tbody>${
+      sorted.map(r => {
+        const canResolve = r.flagged_reason === 'button_broken' || r.flagged_reason === 'other';
+        const resolveBtn = canResolve ? `<button class="btn btn-small" onclick="window.resolveFlag('${esc(r.id)}')">Mark resolved</button>` : '';
+        const viewBtn = r.booking_url ? `<a class="btn btn-small" href="${esc(r.booking_url)}" target="_blank">View</a>` : '';
+        return `<tr>
+          <td><strong>${esc(r.title)}</strong><div class="meta-line"><code>${esc(r.provider_id)}</code></div></td>
+          <td><span class="badge badge-amber">${esc(r.flagged_reason || '—')}</span></td>
+          <td class="detail-snippet">${esc(r.flagged_note || '')}</td>
+          <td class="row-actions">${resolveBtn}${viewBtn}</td>
+        </tr>`;
+      }).join('')
+    }</tbody></table>`;
+}
+
 async function loadUserFlags() {
   try {
     const { data } = await sb.from('courses').select('id,title,provider_id,flagged_reason,flagged_note,booking_url').eq('flagged', true).order('scraped_at', { ascending: false });
-    const rows = data || [];
-    if (!rows.length) { document.getElementById('user-flags-wrap').innerHTML = '<div class="loading">No user flags</div>'; return; }
-    document.getElementById('user-flags-wrap').innerHTML = `
-      <table><thead><tr><th>Course</th><th>Reason</th><th>Note</th><th></th></tr></thead><tbody>${
-        rows.map(r => {
-          const canResolve = r.flagged_reason === 'button_broken' || r.flagged_reason === 'other';
-          const resolveBtn = canResolve ? `<button class="btn btn-small" onclick="window.resolveFlag('${esc(r.id)}')">Mark resolved</button>` : '';
-          const viewBtn = r.booking_url ? `<a class="btn btn-small" href="${esc(r.booking_url)}" target="_blank">View</a>` : '';
-          return `<tr>
-            <td><strong>${esc(r.title)}</strong><div class="meta-line"><code>${esc(r.provider_id)}</code></div></td>
-            <td><span class="badge badge-amber">${esc(r.flagged_reason || '—')}</span></td>
-            <td class="detail-snippet">${esc(r.flagged_note || '')}</td>
-            <td class="row-actions">${resolveBtn}${viewBtn}</td>
-          </tr>`;
-        }).join('')
-      }</tbody></table>`;
+    cachedUserFlags = data || [];
+    renderUserFlags();
   } catch (e) {
     document.getElementById('user-flags-wrap').innerHTML = `<div class="loading">Error: ${esc(e.message)}</div>`;
   }
@@ -1368,6 +1395,21 @@ async function loadUserFlags() {
 let autoFlagGroups = [];
 let expandedAutoFlagKey = null;
 let autoFlagDiagnosis = {}; // { groupKey: { status: 'loading'|'done'|'error', verdict, reason, claude_code_prompt } }
+let autoFlagSort = { col: 'occurrences', dir: 'desc' };
+
+function autoFlagSortValue(g, col) {
+  switch (col) {
+    case 'title':       return g.title;
+    case 'reason':      return g.flag_reason;
+    case 'occurrences': return Number(g.occurrences) || 0;
+    default:            return null;
+  }
+}
+
+window.sortAutoFlags = (col) => {
+  toggleSortState(autoFlagSort, col);
+  renderAutoFlags();
+};
 
 function parseFlagAction(reason) {
   const r = (reason || '').toLowerCase();
@@ -1422,10 +1464,7 @@ async function loadAutoFlags() {
       providerIds: [...g.providerIds],
       occurrences: g.courseIds.length,
       action: parseFlagAction(g.flag_reason),
-    })).sort((a, b) => {
-      const c = (a.flag_reason || '').localeCompare(b.flag_reason || '');
-      return c !== 0 ? c : (a.title || '').localeCompare(b.title || '');
-    });
+    }));
     renderAutoFlags();
   } catch (e) {
     document.getElementById('auto-flags-wrap').innerHTML = `<div class="loading">Error: ${esc(e.message)}</div>`;
@@ -1440,7 +1479,10 @@ function renderAutoFlags() {
     document.getElementById('auto-flags-wrap').innerHTML = '<div class="loading">No auto-flags</div>';
     return;
   }
-  const html = autoFlagGroups.map(g => {
+  const sorted = autoFlagGroups.slice().sort((a, b) =>
+    cmpValues(autoFlagSortValue(a, autoFlagSort.col), autoFlagSortValue(b, autoFlagSort.col), autoFlagSort.dir)
+  );
+  const html = sorted.map(g => {
     const sk = safeKeyOf(g.key);
     const providersLabel = g.providerIds.length === 1 ? g.providerIds[0] : `${g.providerIds.length} providers`;
     const viewBtn = g.booking_url ? `<a class="btn btn-small" href="${esc(g.booking_url)}" target="_blank">View</a>` : '';
@@ -1499,8 +1541,9 @@ function renderAutoFlags() {
     }
     return mainRow + formRow;
   }).join('');
+  const h = (col, label) => sortableHeader(autoFlagSort, col, label, `window.sortAutoFlags('${col}')`);
   document.getElementById('auto-flags-wrap').innerHTML = `
-    <table><thead><tr><th>Course</th><th>Reason</th><th>Occurrences</th><th></th></tr></thead><tbody>${html}</tbody></table>`;
+    <table><thead><tr>${h('title','Course')}${h('reason','Reason')}${h('occurrences','Occurrences')}<th></th></tr></thead><tbody>${html}</tbody></table>`;
 }
 
 function findGroupBySafeKey(sk) { return autoFlagGroups.find(g => safeKeyOf(g.key) === sk); }
