@@ -469,38 +469,58 @@ function esc(s) { return String(s ?? '').replace(/[<>&"']/g, c => ({'<':'&lt;','
 function fmt(d) { if (!d) return '—'; const dt = new Date(d); return dt.toLocaleString('en-CA', { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }); }
 
 // ── Tab 1: Providers ─────────────────────────────
+// Efficient row counter using Prefer: count=exact + limit=0
+// Returns the total row count matching the given query filters without transferring any rows.
+async function countRows(table, filterQuery = '') {
+  const url = `${SUPABASE_URL}/rest/v1/${table}?select=id&limit=0${filterQuery ? '&' + filterQuery : ''}`;
+  const res = await fetch(url, {
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Prefer': 'count=exact',
+    },
+  });
+  const cr = res.headers.get('content-range') || '';
+  const total = parseInt(cr.split('/')[1]);
+  return Number.isFinite(total) ? total : 0;
+}
+
 async function loadProvidersTab() {
   try {
-    // Fetch all courses with Range header to bypass default 1000-row limit
-    const coursesPromise = fetch(
-      `${SUPABASE_URL}/rest/v1/courses?select=provider_id,flagged,auto_flagged,active`,
-      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Range': '0-49999' } }
-    ).then(r => r.json());
-
-    const [providers, allCourses, runs] = await Promise.all([
+    // Sequential: fetch providers first, then fire all count queries in parallel
+    const [providers, runs, totalCourses, autoHidden, userFlags] = await Promise.all([
       sbSelect('providers', { select: 'id,name,active' }),
-      coursesPromise,
       sbSelect('scraper_run_log', { select: 'provider_id,run_at,course_count', order: { col: 'run_at', ascending: false } }),
+      countRows('courses'),
+      countRows('courses', 'auto_flagged=eq.true'),
+      countRows('courses', 'flagged=eq.true'),
     ]);
-    const autoHidden = allCourses.filter(c => c.auto_flagged).length;
-    const userFlags  = allCourses.filter(c => c.flagged).length;
+
     document.getElementById('stat-providers').textContent = providers.length;
-    document.getElementById('stat-courses').textContent = allCourses.length;
+    document.getElementById('stat-courses').textContent = totalCourses;
     document.getElementById('stat-auto-hidden').textContent = autoHidden;
     document.getElementById('stat-user-flags').textContent = userFlags;
 
     const lastRunByProvider = {};
     for (const r of runs) { if (!lastRunByProvider[r.provider_id]) lastRunByProvider[r.provider_id] = r; }
+
+    // Per-provider counts in parallel — each query uses count=exact so millions of rows don't matter
+    const perProvider = await Promise.all(providers.map(async p => {
+      const pFilter = `provider_id=eq.${encodeURIComponent(p.id)}`;
+      const [visible, af, uf] = await Promise.all([
+        countRows('courses', `${pFilter}&active=eq.true&flagged=not.is.true&auto_flagged=not.is.true`),
+        countRows('courses', `${pFilter}&auto_flagged=eq.true`),
+        countRows('courses', `${pFilter}&flagged=eq.true`),
+      ]);
+      return { id: p.id, visible, af, uf };
+    }));
     const courseCountByProvider = {};
     const flaggedByProvider = {};
     const autoFlaggedByProvider = {};
-    for (const c of allCourses) {
-      // Count only active, unflagged courses — matches frontend visibility rules
-      if (c.active && !c.flagged && !c.auto_flagged) {
-        courseCountByProvider[c.provider_id] = (courseCountByProvider[c.provider_id] || 0) + 1;
-      }
-      if (c.flagged) flaggedByProvider[c.provider_id] = (flaggedByProvider[c.provider_id] || 0) + 1;
-      if (c.auto_flagged) autoFlaggedByProvider[c.provider_id] = (autoFlaggedByProvider[c.provider_id] || 0) + 1;
+    for (const r of perProvider) {
+      courseCountByProvider[r.id] = r.visible;
+      flaggedByProvider[r.id] = r.uf;
+      autoFlaggedByProvider[r.id] = r.af;
     }
 
     const rows = providers.sort((a, b) => a.name.localeCompare(b.name)).map(p => {

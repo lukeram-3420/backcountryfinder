@@ -391,6 +391,11 @@ When the activity filter changes, the location dropdown is rebuilt to only show 
 - No filters + 0 results → maintenance state: '🏔 Updating course listings / Check back in 45 minutes' with pulsing scraper status pill. Shows when courses table is empty and no filters are active.
 - Filters applied + 0 results → standard empty state: 'no experiences found / Try adjusting your filters'. Existing behaviour unchanged.
 
+## Known gotchas
+
+### Supabase pagination
+All Supabase queries default to 1000 rows. For COUNT queries always use `Prefer: count=exact` with `limit=0` and read the total from the `Content-Range` response header. For queries that need all rows use explicit `Range: 0-49999` headers. Never rely on default pagination for correctness — if a feature shows wrong counts or missing data, check pagination first.
+
 ## Slash commands
 
 ### /add-scraper
