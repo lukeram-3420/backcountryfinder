@@ -2310,6 +2310,8 @@ window.copyPipelinePrompt = async (id) => {
   const r = cachedPipeline.find(x => String(x.id) === String(id));
   if (!r) return;
   const lines = [
+    'Read CLAUDE.md in full before doing anything else — it contains all conventions, column rules, naming standards, and stack context that must be followed.',
+    '',
     'Please analyse this new provider for backcountryfinder.com.',
     '',
     `Provider name: ${r.name || ''}`,
@@ -2328,6 +2330,7 @@ window.copyPipelinePrompt = async (id) => {
     `   - Complete standalone scraper file (scraper_${r.id}.py) following the scraper_yamnuska.py pattern`,
     '   - GitHub Actions workflow yml',
     '   - Supabase SQL (provider row + location mappings + activity mappings)',
+    '     — provider INSERT must use active=false for staging',
     '5. Note any warnings, bot protection observed, or things to verify after first run',
   );
   const prompt = lines.join('\n');
