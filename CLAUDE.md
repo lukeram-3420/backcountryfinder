@@ -332,6 +332,10 @@ One file per provider at `.github/workflows/scraper-{id}.yml`. All use `workflow
 ### Activity → location dependency
 When the activity filter changes, the location dropdown is rebuilt to only show locations where that activity has active unflagged courses. This is handled by `updateLocationsForActivity(activity)` in `index.html`. When activity is reset to all, `loadLocationsDropdown()` is called to restore all locations. If the previously selected location is not available in the new activity's locations, the location filter is reset to all.
 
+### Empty states
+- No filters + 0 results → maintenance state: '🏔 Updating course listings / Check back in 45 minutes' with pulsing scraper status pill. Shows when courses table is empty and no filters are active.
+- Filters applied + 0 results → standard empty state: 'no experiences found / Try adjusting your filters'. Existing behaviour unchanged.
+
 ## Slash commands
 
 ### /add-scraper
