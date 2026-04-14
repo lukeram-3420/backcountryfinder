@@ -14,6 +14,7 @@ Whenever CLAUDE.md is updated, output the full contents of the updated CLAUDE.md
 - Every tab in admin.html has a "How to use this tab" collapsible help section at the top
 - Whenever a UX change is made to any tab — new button, new section, new behaviour — the "How to use this tab" text for that tab must be updated to reflect the change in the same commit
 - This applies to all tabs: Providers, Activity Mappings, Location Mappings, Summary Review, Flags, Audit Log, Pipeline, Settings
+- After any successful write action in the admin panel (save, approve, reject, clear, regenerate, whitelist, add mapping, mark as expected), the actioned row must be immediately removed from the UI. The user should never have to re-action something they have already actioned. Rows only reappear after the next data refresh or page reload.
 
 ### Claude Code behaviour
 - Never ask for confirmation before making changes when following a prompt

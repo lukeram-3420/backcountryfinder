@@ -1327,6 +1327,13 @@ function renderAutoFlags() {
 
 function findGroupBySafeKey(sk) { return autoFlagGroups.find(g => safeKeyOf(g.key) === sk); }
 
+function removeAutoFlagGroup(key) {
+  autoFlagGroups = autoFlagGroups.filter(g => g.key !== key);
+  delete autoFlagDiagnosis[key];
+  if (expandedAutoFlagKey === key) expandedAutoFlagKey = null;
+  renderAutoFlags();
+}
+
 async function clearGroupCourseIds(courseIds) {
   for (const id of courseIds) {
     await callEdge('admin-clear-auto-flag', { course_id: id });
@@ -1346,7 +1353,8 @@ window.clearGroup = (sk) => {
     try {
       await clearGroupCourseIds(g.courseIds);
       toast(`Cleared ${g.occurrences}`);
-      loadAutoFlags();
+      removeAutoFlagGroup(g.key);
+      loadFlagsStats();
     } catch (e) { toast('Failed: ' + e.message, true); }
   });
 };
@@ -1367,8 +1375,8 @@ window.saveAddMapping = async (sk) => {
     await callEdge('admin-approve-mapping', { title_contains, activity });
     await clearGroupCourseIds(g.courseIds);
     toast(`Mapping added, ${g.occurrences} flag${g.occurrences === 1 ? '' : 's'} cleared`);
-    expandedAutoFlagKey = null;
-    loadAutoFlags();
+    removeAutoFlagGroup(g.key);
+    loadFlagsStats();
   } catch (e) { toast('Failed: ' + e.message, true); }
 };
 
@@ -1388,7 +1396,8 @@ window.regenerateGroup = (sk) => {
       }
       await clearGroupCourseIds(g.courseIds);
       toast(`Regenerated and cleared ${g.occurrences}`);
-      loadAutoFlags();
+      removeAutoFlagGroup(g.key);
+      loadFlagsStats();
     } catch (e) { toast('Failed: ' + e.message, true); }
   });
 };
@@ -1399,7 +1408,8 @@ window.markPriceExpected = (sk) => {
     try {
       await clearGroupCourseIds(g.courseIds);
       toast(`Cleared ${g.occurrences}`);
-      loadAutoFlags();
+      removeAutoFlagGroup(g.key);
+      loadFlagsStats();
     } catch (e) { toast('Failed: ' + e.message, true); }
   });
 };
@@ -1462,8 +1472,8 @@ window.whitelistGroup = (sk) => {
       if (!res.ok) throw new Error(`Whitelist insert ${res.status}: ${await res.text()}`);
       await clearGroupCourseIds(g.courseIds);
       toast(`Whitelisted and cleared ${g.occurrences}`);
-      delete autoFlagDiagnosis[g.key];
-      loadAutoFlags();
+      removeAutoFlagGroup(g.key);
+      loadFlagsStats();
     } catch (e) { toast('Failed: ' + e.message, true); }
   });
 };
@@ -1546,6 +1556,12 @@ async function loadWarnings() {
 }
 
 function findWarningGroupBySafeKey(sk) { return warningGroups.find(g => safeKeyOf(g.key) === sk); }
+
+function removeWarningGroup(key) {
+  warningGroups = warningGroups.filter(g => g.key !== key);
+  if (expandedWarningKey === key) expandedWarningKey = null;
+  renderWarnings();
+}
 
 function renderWarnings() {
   if (!warningGroups.length) {
@@ -1649,9 +1665,8 @@ window.savePriceException = async (sk) => {
     });
     if (!res.ok) throw new Error(`POST ${res.status}: ${await res.text()}`);
     await deleteWarningRows(g.warningIds);
-    expandedWarningKey = null;
     toast("Exception saved — won't re-flag after next run");
-    loadWarnings();
+    removeWarningGroup(g.key);
     loadFlagsStats();
   } catch (e) { toast('Failed: ' + e.message, true); }
 };
@@ -1672,7 +1687,7 @@ window.warningRegenerate = (sk) => {
       }
       await deleteWarningRows(g.warningIds);
       toast(`Regenerated and cleared ${g.occurrences}`);
-      loadWarnings();
+      removeWarningGroup(g.key);
       loadFlagsStats();
     } catch (e) { toast('Failed: ' + e.message, true); }
   });
