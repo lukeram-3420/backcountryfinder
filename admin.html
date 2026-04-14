@@ -316,15 +316,9 @@
 
     <!-- TAB: PIPELINE -->
     <div class="tab-panel hidden" id="panel-pipeline">
-      <details class="instructions"><summary>How to use this tab</summary><p>Track provider onboarding from candidate → scouted → scraper_built → live. Skipped providers are hidden. Click <strong>Add provider</strong> to paste a URL — Claude Haiku fetches the site and pre-fills name, location, platform, complexity, priority, plus Google Places rating. Click <strong>Copy prompt ↗</strong> on any non-live row to copy a Claude Code instruction for building the scraper. Column headers for Name, Platform, Status, Priority are clickable to sort. Click Edit to change status/platform/priority/notes inline. Pipeline rows auto-sync to 'live' whenever the matching provider is active in the Providers tab.</p></details>
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
-        <div class="stats-row" id="pipeline-stats-row" style="flex:1;min-width:520px;margin-bottom:0;">
-          <div class="stat-card"><div class="stat-label">Candidates</div><div class="stat-value" id="stat-pl-candidate">—</div></div>
-          <div class="stat-card"><div class="stat-label">Scouted</div><div class="stat-value" id="stat-pl-scouted">—</div></div>
-          <div class="stat-card"><div class="stat-label">Scraper built</div><div class="stat-value" id="stat-pl-built">—</div></div>
-          <div class="stat-card"><div class="stat-label">Live</div><div class="stat-value" id="stat-pl-live">—</div></div>
-        </div>
-        <button class="btn btn-primary" id="add-provider-btn" onclick="window.showAddProvider()" style="margin-top:4px;">Add provider</button>
+      <details class="instructions"><summary>How to use this tab</summary><p>Track provider onboarding from candidate → scouted → scraper_built → live. Skipped providers are hidden. Click <strong>Add provider</strong> to paste a URL — Claude Haiku fetches the site and pre-fills name, location, platform, complexity, priority, plus Google Places rating. Click <strong>Copy prompt ↗</strong> on any non-live row to copy a Claude Code instruction for building the scraper. Column headers for Name, Platform, Status, Priority are clickable to sort. Click Edit to change status/platform/priority/notes inline. Pipeline rows auto-sync to 'live' whenever the matching provider is active=true in the Providers tab — and revert to 'candidate' if that provider is later toggled off.</p></details>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
+        <button class="btn btn-primary" id="add-provider-btn" onclick="window.showAddProvider()">Add provider</button>
       </div>
       <div id="add-provider-form" class="hidden" style="background:#faf9f5;border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;margin-bottom:16px;">
         <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
@@ -2040,7 +2034,7 @@ async function pipelinePatch(filterQuery, payload) {
     method: 'PATCH',
     headers: {
       'apikey': SUPABASE_KEY,
-      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Authorization': `Bearer ${session.access_token}`,
       'Content-Type': 'application/json',
       'Prefer': 'return=minimal',
     },
@@ -2062,16 +2056,44 @@ async function pipelineFetch(query) {
   return res.json();
 }
 
+async function fetchActiveProviders() {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/providers?active=eq.true&select=id,name,website`, {
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Content-Type': 'application/json',
+    },
+  });
+  if (!res.ok) throw new Error(`providers GET ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
 async function syncPipelineLiveFromProviders() {
   try {
-    const providers = await sbSelect('providers', { select: 'name,website,active', eq: { active: true } });
-    const pipeline = await pipelineFetch('select=id,name,website,status');
+    const [activeProviders, pipeline] = await Promise.all([
+      fetchActiveProviders(),
+      pipelineFetch('select=id,name,website,status'),
+    ]);
     const byName = new Map(pipeline.map(p => [(p.name || '').toLowerCase().trim(), p]));
     const byDomain = new Map(pipeline.map(p => [domainOf(p.website), p]).filter(([d]) => d));
-    for (const p of providers) {
-      const match = byName.get((p.name || '').toLowerCase().trim()) || byDomain.get(domainOf(p.website));
-      if (match && match.status !== 'live') {
-        await pipelinePatch(`id=eq.${match.id}`, { status: 'live' });
+
+    // Forward: active provider → matching pipeline row should be 'live'
+    const matchedPipelineIds = new Set();
+    for (const p of activeProviders) {
+      const match = byDomain.get(domainOf(p.website)) || byName.get((p.name || '').toLowerCase().trim());
+      if (!match) continue;
+      matchedPipelineIds.add(match.id);
+      if (match.status !== 'live') {
+        try { await pipelinePatch(`id=eq.${match.id}`, { status: 'live' }); }
+        catch (e) { console.error('forward sync failed for', match.id, e); }
+      }
+    }
+
+    // Reverse: pipeline row marked 'live' but no longer matches any active provider → revert to 'candidate'
+    for (const row of pipeline) {
+      if (row.status === 'live' && !matchedPipelineIds.has(row.id)) {
+        try { await pipelinePatch(`id=eq.${row.id}`, { status: 'candidate' }); }
+        catch (e) { console.error('reverse sync failed for', row.id, e); }
       }
     }
   } catch (e) {
@@ -2083,12 +2105,6 @@ async function loadPipelineTab() {
   try {
     await syncPipelineLiveFromProviders();
     cachedPipeline = await pipelineFetch('select=*&status=neq.skip&order=priority.asc');
-    const counts = { candidate: 0, scouted: 0, scraper_built: 0, live: 0 };
-    for (const r of cachedPipeline) if (counts[r.status] !== undefined) counts[r.status]++;
-    document.getElementById('stat-pl-candidate').textContent = counts.candidate;
-    document.getElementById('stat-pl-scouted').textContent = counts.scouted;
-    document.getElementById('stat-pl-built').textContent = counts.scraper_built;
-    document.getElementById('stat-pl-live').textContent = counts.live;
     renderPipelineTable();
   } catch (e) {
     document.getElementById('pipeline-table-wrap').innerHTML = `<div class="loading">Error: ${esc(e.message)}</div>`;
