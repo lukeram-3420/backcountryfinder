@@ -1328,7 +1328,7 @@ window.diagnoseGroup = async (sk) => {
     // Fetch full rows for this duplicate group (all providers if mixed)
     const titleQ = `title=eq.${encodeURIComponent(g.title)}`;
     const providerQ = g.providerIds.length === 1 ? `&provider_id=eq.${encodeURIComponent(g.providerIds[0])}` : '';
-    const url = `${SUPABASE_URL}/rest/v1/courses?${titleQ}${providerQ}&auto_flagged=eq.true&select=id,title,date_sort,price,booking_url,location_canonical,activity,summary`;
+    const url = `${SUPABASE_URL}/rest/v1/courses?${titleQ}${providerQ}&select=id,title,date_sort,price,booking_url,location_canonical,activity,summary`;
     const res = await fetch(url, {
       headers: {
         'apikey': SUPABASE_KEY,
