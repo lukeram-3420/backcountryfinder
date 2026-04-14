@@ -189,6 +189,9 @@
   .empty-icon { font-size: 40px; }
   .empty-state h3 { font-size: 18px; font-weight: 700; color: var(--text-primary); }
   .empty-state p { font-size: 14px; color: var(--text-tertiary); max-width: 280px; line-height: 1.6; font-weight: 500; }
+  .status-pill { display: inline-flex; align-items: center; gap: 8px; background: #eaf3de; border: 1px solid #c0dd97; color: #2d6a11; padding: 6px 14px; border-radius: var(--radius-pill); font-size: 12px; font-weight: 600; margin-top: 8px; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 0 0 rgba(74,222,128,0.7); animation: pulse 1.8s cubic-bezier(0.4,0,0.6,1) infinite; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(74,222,128,0.7); } 70% { box-shadow: 0 0 0 8px rgba(74,222,128,0); } 100% { box-shadow: 0 0 0 0 rgba(74,222,128,0); } }
 
   /* SAVED TOOLBAR */
   .saved-toolbar { padding: 12px 0; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); margin-bottom: 24px; flex-wrap: wrap; gap: 10px; }
@@ -1129,7 +1132,12 @@ function renderCards(courses, append=false){
   if(!grid)return;
   if(!courses||courses.length===0){
     if(!append){
-      grid.innerHTML=`<div class="empty-state" style="grid-column:1/-1;"><div class="empty-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="20" rx="6" ry="2.5" stroke="#ccc" stroke-width="1.5" fill="none"/><ellipse cx="12" cy="14.5" rx="4.5" ry="2" stroke="#ccc" stroke-width="1.5" fill="none"/><ellipse cx="12" cy="9.5" rx="3" ry="1.8" stroke="#ccc" stroke-width="1.5" fill="none"/></svg></div><h3>no experiences found</h3><p>Try adjusting your filters.</p></div>`;
+      const noFiltersActive = !currentFilters.activity && !currentFilters.location && !currentFilters.provider;
+      if (noFiltersActive) {
+        grid.innerHTML=`<div class="empty-state" style="grid-column:1/-1;"><div class="empty-icon" style="font-size:52px;">🏔</div><h3>Updating course listings</h3><p>We're pulling in fresh data. Check back in about 45 minutes.</p><div class="status-pill"><span class="status-dot"></span><span>Scraper running now</span></div></div>`;
+      } else {
+        grid.innerHTML=`<div class="empty-state" style="grid-column:1/-1;"><div class="empty-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="20" rx="6" ry="2.5" stroke="#ccc" stroke-width="1.5" fill="none"/><ellipse cx="12" cy="14.5" rx="4.5" ry="2" stroke="#ccc" stroke-width="1.5" fill="none"/><ellipse cx="12" cy="9.5" rx="3" ry="1.8" stroke="#ccc" stroke-width="1.5" fill="none"/></svg></div><h3>no experiences found</h3><p>Try adjusting your filters.</p></div>`;
+      }
       if(count)count.textContent='0 results';
     }
     if(wrap)wrap.style.display='none';
