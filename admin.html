@@ -190,7 +190,7 @@
   <div class="main">
     <!-- TAB: PROVIDERS -->
     <div class="tab-panel" id="panel-providers">
-      <details class="instructions"><summary>How to use this tab</summary><p>Toggle a provider off to hide all their courses from the site. Click Run to trigger a fresh scrape for that provider. Run all triggers a full scrape of all providers — expect 45-60 minutes.</p></details>
+      <details class="instructions"><summary>How to use this tab</summary><p>Toggle a provider off to hide all their courses from the site. Click Run to trigger a fresh scrape for that provider. Run all triggers a full scrape of all providers — expect 45-60 minutes. Column headers are clickable to sort ascending or descending.</p></details>
       <div class="stats-row" id="stats-row">
         <div class="stat-card"><div class="stat-label">Providers</div><div class="stat-value" id="stat-providers">—</div></div>
         <div class="stat-card"><div class="stat-label">Courses</div><div class="stat-value" id="stat-courses">—</div></div>
@@ -209,7 +209,7 @@
 
     <!-- TAB: ACTIVITY MAPPINGS -->
     <div class="tab-panel hidden" id="panel-activity">
-      <details class="instructions"><summary>How to use this tab</summary><p>Pending mappings are Haiku suggestions waiting for your review. Approve to add permanently to the mapping table, or edit the activity first if Haiku got it wrong. Approved mappings with 0 courses are safe to delete — they will be re-suggested if a matching course appears in future.</p></details>
+      <details class="instructions"><summary>How to use this tab</summary><p>Pending mappings are Haiku suggestions waiting for your review. Approve to add permanently to the mapping table, or edit the activity first if Haiku got it wrong. Approved mappings with 0 courses are safe to delete — they will be re-suggested if a matching course appears in future. Column headers are clickable to sort ascending or descending.</p></details>
       <div class="section">
         <h2>Pending activity mappings</h2>
         <div id="pending-mappings-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
@@ -226,7 +226,7 @@
 
     <!-- TAB: LOCATION MAPPINGS -->
     <div class="tab-panel hidden" id="panel-location">
-      <details class="instructions"><summary>How to use this tab</summary><p>Pending location mappings work the same as activity mappings. Approve Haiku's suggested canonical or correct it before approving. Editing an approved mapping cascades instantly to all matching course rows on the site.</p></details>
+      <details class="instructions"><summary>How to use this tab</summary><p>Pending location mappings work the same as activity mappings. Approve Haiku's suggested canonical or correct it before approving. Editing an approved mapping cascades instantly to all matching course rows on the site. Column headers are clickable to sort ascending or descending.</p></details>
       <div class="section">
         <h2>Pending location mappings</h2>
         <div id="pending-locations-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
@@ -490,6 +490,31 @@ function esc(s) { return String(s ?? '').replace(/[<>&"']/g, c => ({'<':'&lt;','
 function fmt(d) { if (!d) return '—'; const dt = new Date(d); return dt.toLocaleString('en-CA', { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' }); }
 
 // ── Tab 1: Providers ─────────────────────────────
+// Generic sort helpers — nulls always sink to the bottom regardless of direction
+function isNullish(v) { return v === null || v === undefined || v === ''; }
+function cmpValues(av, bv, dir) {
+  const an = isNullish(av), bn = isNullish(bv);
+  if (an && bn) return 0;
+  if (an) return 1;
+  if (bn) return -1;
+  let c;
+  if (typeof av === 'number' && typeof bv === 'number') c = av - bv;
+  else c = String(av).toLowerCase().localeCompare(String(bv).toLowerCase());
+  return dir === 'desc' ? -c : c;
+}
+function sortIndicator(state, col) {
+  if (state.col !== col) return '';
+  return state.dir === 'asc' ? ' ↑' : ' ↓';
+}
+function sortableHeader(state, col, label, onclick) {
+  const active = state.col === col ? 'style="color:var(--green-dark);"' : '';
+  return `<th ${active} style="cursor:pointer;user-select:none;" onclick="${onclick}">${esc(label)}${sortIndicator(state, col)}</th>`;
+}
+function toggleSortState(state, col) {
+  if (state.col === col) state.dir = state.dir === 'asc' ? 'desc' : 'asc';
+  else { state.col = col; state.dir = 'asc'; }
+}
+
 // Efficient row counter using Prefer: count=exact + limit=0
 // Returns the total row count matching the given query filters without transferring any rows.
 async function countRows(table, filterQuery = '') {
@@ -506,9 +531,12 @@ async function countRows(table, filterQuery = '') {
   return Number.isFinite(total) ? total : 0;
 }
 
+// Providers table state
+let cachedProviders = [];       // enriched: {id, name, active, lastRun, visible, af, uf}
+let providersSort = { col: 'name', dir: 'asc' };
+
 async function loadProvidersTab() {
   try {
-    // Sequential: fetch providers first, then fire all count queries in parallel
     const [providers, runs, totalCourses, autoHidden, userFlags] = await Promise.all([
       sbSelect('providers', { select: 'id,name,active' }),
       sbSelect('scraper_run_log', { select: 'provider_id,run_at,course_count', order: { col: 'run_at', ascending: false } }),
@@ -525,7 +553,6 @@ async function loadProvidersTab() {
     const lastRunByProvider = {};
     for (const r of runs) { if (!lastRunByProvider[r.provider_id]) lastRunByProvider[r.provider_id] = r; }
 
-    // Per-provider counts in parallel — each query uses count=exact so millions of rows don't matter
     const perProvider = await Promise.all(providers.map(async p => {
       const pFilter = `provider_id=eq.${encodeURIComponent(p.id)}`;
       const [visible, af, uf] = await Promise.all([
@@ -533,43 +560,54 @@ async function loadProvidersTab() {
         countRows('courses', `${pFilter}&auto_flagged=eq.true`),
         countRows('courses', `${pFilter}&flagged=eq.true`),
       ]);
-      return { id: p.id, visible, af, uf };
+      return { ...p, visible, af, uf, lastRun: lastRunByProvider[p.id] || null };
     }));
-    const courseCountByProvider = {};
-    const flaggedByProvider = {};
-    const autoFlaggedByProvider = {};
-    for (const r of perProvider) {
-      courseCountByProvider[r.id] = r.visible;
-      flaggedByProvider[r.id] = r.uf;
-      autoFlaggedByProvider[r.id] = r.af;
-    }
-
-    const rows = providers.sort((a, b) => a.name.localeCompare(b.name)).map(p => {
-      const lr = lastRunByProvider[p.id];
-      const count = courseCountByProvider[p.id] || 0;
-      const af = autoFlaggedByProvider[p.id] || 0;
-      const uf = flaggedByProvider[p.id] || 0;
-      let badge = '<span class="badge badge-green">clean</span>';
-      if (af > 0) badge = `<span class="badge badge-red">${af} hidden</span>`;
-      else if (uf > 0) badge = `<span class="badge badge-amber">${uf} user flag${uf>1?'s':''}</span>`;
-      const wf = WORKFLOW_MAP[p.id];
-      const runBtn = wf ? `<button class="btn btn-small" onclick="window.triggerScraper('${wf}')">Run</button>` : '';
-      return `<tr>
-        <td><strong>${esc(p.name)}</strong><div class="meta-line"><code>${esc(p.id)}</code></div></td>
-        <td><label class="toggle"><input type="checkbox" ${p.active ? 'checked' : ''} onchange="window.toggleProvider('${esc(p.id)}', this.checked)"><span class="toggle-slider"></span></label></td>
-        <td>${lr ? fmt(lr.run_at) : '—'}</td>
-        <td>${count}</td>
-        <td>${badge}</td>
-        <td class="row-actions">${runBtn}</td>
-      </tr>`;
-    }).join('');
-
-    document.getElementById('providers-table-wrap').innerHTML = `
-      <table><thead><tr><th>Provider</th><th>Active</th><th>Last run</th><th>Courses</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+    cachedProviders = perProvider;
+    renderProvidersTable();
   } catch (e) {
     document.getElementById('providers-table-wrap').innerHTML = `<div class="loading">Error: ${esc(e.message)}</div>`;
   }
 }
+
+function providerSortValue(p, col) {
+  switch (col) {
+    case 'name':     return p.name;
+    case 'courses':  return Number(p.visible) || 0;
+    case 'status':   return (p.af > 0) ? 1 : 0; // 0 clean, 1 hidden (amber user-flag sits with clean for this sort)
+    case 'last_run': return p.lastRun ? p.lastRun.run_at : null;
+    default:         return null;
+  }
+}
+
+function renderProvidersTable() {
+  const sorted = cachedProviders.slice().sort((a, b) =>
+    cmpValues(providerSortValue(a, providersSort.col), providerSortValue(b, providersSort.col), providersSort.dir)
+  );
+  const rows = sorted.map(p => {
+    let badge = '<span class="badge badge-green">clean</span>';
+    if (p.af > 0) badge = `<span class="badge badge-red">${p.af} hidden</span>`;
+    else if (p.uf > 0) badge = `<span class="badge badge-amber">${p.uf} user flag${p.uf>1?'s':''}</span>`;
+    const wf = WORKFLOW_MAP[p.id];
+    const runBtn = wf ? `<button class="btn btn-small" onclick="window.triggerScraper('${wf}')">Run</button>` : '';
+    return `<tr>
+      <td><strong>${esc(p.name)}</strong><div class="meta-line"><code>${esc(p.id)}</code></div></td>
+      <td><label class="toggle"><input type="checkbox" ${p.active ? 'checked' : ''} onchange="window.toggleProvider('${esc(p.id)}', this.checked)"><span class="toggle-slider"></span></label></td>
+      <td>${p.lastRun ? fmt(p.lastRun.run_at) : '—'}</td>
+      <td>${p.visible || 0}</td>
+      <td>${badge}</td>
+      <td class="row-actions">${runBtn}</td>
+    </tr>`;
+  }).join('');
+
+  const h = (col, label) => sortableHeader(providersSort, col, label, `window.sortProviders('${col}')`);
+  document.getElementById('providers-table-wrap').innerHTML = `
+    <table><thead><tr>${h('name','Provider')}<th>Active</th>${h('last_run','Last run')}${h('courses','Courses')}${h('status','Status')}<th></th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+window.sortProviders = (col) => {
+  toggleSortState(providersSort, col);
+  renderProvidersTable();
+};
 
 window.toggleProvider = async (id, active) => {
   try {
@@ -696,24 +734,32 @@ window.loadActivityCounts = async () => {
   }
 };
 
+let activitySort = { col: 'title_contains', dir: 'asc' };
+function activityMappingSortValue(m, col) {
+  switch (col) {
+    case 'title_contains': return m.title_contains;
+    case 'activity':       return m.activity;
+    case 'courses':        return activityCountsLoaded ? (Number(activityMappingCounts[m.id]) || 0) : null;
+    case 'created_at':     return m.created_at;
+    default:               return null;
+  }
+}
+window.sortActivityMappings = (col) => {
+  if (col === 'courses' && !activityCountsLoaded) return; // not sortable until loaded
+  toggleSortState(activitySort, col);
+  window.renderActivityMappings();
+};
+
 window.renderActivityMappings = () => {
   const q = (document.getElementById('activity-search')?.value || '').toLowerCase();
   const filtered = cachedActivityMappings
     .filter(m => !q || (m.title_contains || '').toLowerCase().includes(q) || (m.activity || '').toLowerCase().includes(q))
     .slice()
-    .sort((a, b) => {
-      if (activityCountsLoaded) {
-        const ca = Number(activityMappingCounts[a.id]) || 0;
-        const cb = Number(activityMappingCounts[b.id]) || 0;
-        if (cb !== ca) return cb - ca;
-      }
-      const at = (a.title_contains || '').toLowerCase();
-      const bt = (b.title_contains || '').toLowerCase();
-      return at.localeCompare(bt);
-    });
+    .sort((a, b) => cmpValues(activityMappingSortValue(a, activitySort.col), activityMappingSortValue(b, activitySort.col), activitySort.dir));
   if (!filtered.length) { document.getElementById('activity-mappings-wrap').innerHTML = '<div class="loading">No mappings</div>'; return; }
+  const h = (col, label) => sortableHeader(activitySort, col, label, `window.sortActivityMappings('${col}')`);
   document.getElementById('activity-mappings-wrap').innerHTML = `
-    <table><thead><tr><th>title_contains</th><th>Activity</th><th>Courses</th><th>Created</th><th></th></tr></thead><tbody>${
+    <table><thead><tr>${h('title_contains','title_contains')}${h('activity','Activity')}${h('courses','Courses')}${h('created_at','Created')}<th></th></tr></thead><tbody>${
       filtered.map(m => {
         const editing = editingActivityMappingId === m.id;
         let countBadge;
@@ -856,24 +902,32 @@ window.loadLocationCounts = async () => {
   }
 };
 
+let locationSort = { col: 'location_raw', dir: 'asc' };
+function locationMappingSortValue(m, col) {
+  switch (col) {
+    case 'location_raw':       return m.location_raw;
+    case 'location_canonical': return m.location_canonical;
+    case 'courses':            return locationCountsLoaded ? (Number(locationMappingCounts[m.location_raw]) || 0) : null;
+    case 'created_at':         return m.created_at;
+    default:                   return null;
+  }
+}
+window.sortLocationMappings = (col) => {
+  if (col === 'courses' && !locationCountsLoaded) return;
+  toggleSortState(locationSort, col);
+  window.renderLocationMappings();
+};
+
 window.renderLocationMappings = () => {
   const q = (document.getElementById('location-search')?.value || '').toLowerCase();
   const filtered = cachedLocationMappings
     .filter(m => !q || (m.location_raw || '').toLowerCase().includes(q) || (m.location_canonical || '').toLowerCase().includes(q))
     .slice()
-    .sort((a, b) => {
-      if (locationCountsLoaded) {
-        const ca = Number(locationMappingCounts[a.location_raw]) || 0;
-        const cb = Number(locationMappingCounts[b.location_raw]) || 0;
-        if (cb !== ca) return cb - ca;
-      }
-      const ar = (a.location_raw || '').toLowerCase();
-      const br = (b.location_raw || '').toLowerCase();
-      return ar.localeCompare(br);
-    });
+    .sort((a, b) => cmpValues(locationMappingSortValue(a, locationSort.col), locationMappingSortValue(b, locationSort.col), locationSort.dir));
   if (!filtered.length) { document.getElementById('location-mappings-wrap').innerHTML = '<div class="loading">No locations</div>'; return; }
+  const h = (col, label) => sortableHeader(locationSort, col, label, `window.sortLocationMappings('${col}')`);
   document.getElementById('location-mappings-wrap').innerHTML = `
-    <table><thead><tr><th>Raw</th><th>Canonical</th><th>Courses</th><th>Created</th><th></th></tr></thead><tbody>${
+    <table><thead><tr>${h('location_raw','Raw')}${h('location_canonical','Canonical')}${h('courses','Courses')}${h('created_at','Created')}<th></th></tr></thead><tbody>${
       filtered.map(m => {
         const editing = editingLocationMappingId === m.id;
         let countBadge;
