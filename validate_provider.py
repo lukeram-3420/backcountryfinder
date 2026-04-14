@@ -77,6 +77,17 @@ def reset_flags(provider_id: str):
     )
 
 
+def is_price_exception(title: str, provider_id: str, exceptions: list) -> bool:
+    """Return True if the title matches a validator_price_exceptions entry
+    for this provider (or globally when exc_provider is None)."""
+    title_lower = (title or "").strip().lower()
+    for (contains, exc_provider) in exceptions:
+        if contains and contains in title_lower:
+            if exc_provider is None or exc_provider == provider_id:
+                return True
+    return False
+
+
 def reset_warnings(provider_id: str):
     """Delete existing validator_warnings rows for this provider (clean slate)."""
     headers = {
@@ -88,14 +99,20 @@ def reset_warnings(provider_id: str):
     resp.raise_for_status()
 
 
-def write_warnings(provider_id: str, provider_name: str, email_only: list):
-    """Write collected email-only warnings to validator_warnings table."""
+def write_warnings(provider_id: str, provider_name: str, email_only: list, price_exceptions: list):
+    """Write collected email-only warnings to validator_warnings table.
+
+    Price outlier warnings matching a validator_price_exceptions entry are
+    filtered out before writing.
+    """
     if not email_only:
         return
     rows = []
     for i in email_only:
         check_type = i.get("check_type")
         if not check_type:
+            continue
+        if check_type == "price_outlier" and is_price_exception(i.get("title", ""), provider_id, price_exceptions):
             continue
         rows.append({
             "provider_id": provider_id,
@@ -280,7 +297,7 @@ def check_activities(courses: list, auto_hidden: list) -> list:
     return email_only
 
 
-def check_prices(courses: list, auto_hidden: list) -> list:
+def check_prices(courses: list, auto_hidden: list, price_exceptions: list, provider_id: str) -> list:
     """Check 3: Price sanity."""
     email_only = []
     prices = [c["price"] for c in courses if c.get("price") and c["price"] > 0]
@@ -304,6 +321,9 @@ def check_prices(courses: list, auto_hidden: list) -> list:
         elif price is not None and median_price > 0 and price > median_price * 5:
             title_lower = c["title"].lower()
             if any(kw in title_lower for kw in ("logan", "expedition", "traverse")):
+                continue
+            if is_price_exception(c["title"], provider_id, price_exceptions):
+                logging.info(f"Skipping price exception: {c['title']}")
                 continue
             email_only.append({
                 "check": "Price sanity",
@@ -615,6 +635,18 @@ def main():
         pid = row.get("provider_id")
         whitelisted.add((title, pid if pid else None))
 
+    # Load price exceptions
+    exception_rows = []
+    try:
+        exception_rows = sb_get("validator_price_exceptions", {"select": "title_contains,provider_id"})
+    except Exception as e:
+        print(f"  ⚠ Could not load validator_price_exceptions: {e}")
+    price_exceptions = [
+        ((r.get("title_contains") or "").strip().lower(), r.get("provider_id"))
+        for r in exception_rows
+    ]
+    logging.info(f"Loaded {len(price_exceptions)} price exceptions")
+
     # Get last run count
     last_count = None
     try:
@@ -638,7 +670,7 @@ def main():
 
     email_only.extend(check_summaries(courses, auto_hidden))
     email_only.extend(check_activities(courses, auto_hidden))
-    email_only.extend(check_prices(courses, auto_hidden))
+    email_only.extend(check_prices(courses, auto_hidden, price_exceptions, provider_id))
     email_only.extend(check_dates(courses, auto_hidden))
     email_only.extend(check_availability(courses, auto_hidden))
     email_only.extend(check_duplicates(courses, auto_hidden, whitelisted, provider_id))
@@ -678,7 +710,7 @@ def main():
 
     # Write email-only warnings to validator_warnings table (replaces email report)
     try:
-        write_warnings(provider_id, provider_name, email_only)
+        write_warnings(provider_id, provider_name, email_only, price_exceptions)
     except Exception as e:
         print(f"  ⚠ Could not write validator_warnings: {e}")
 

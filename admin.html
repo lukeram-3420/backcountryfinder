@@ -374,6 +374,16 @@
   );
 
   GRANT SELECT, INSERT, DELETE ON validator_warnings TO anon, authenticated, service_role;
+
+  CREATE TABLE IF NOT EXISTS validator_price_exceptions (
+    id bigint generated always as identity primary key,
+    title_contains text not null,
+    provider_id text,
+    reason text,
+    created_at timestamptz default now()
+  );
+
+  GRANT SELECT, INSERT ON validator_price_exceptions TO anon, authenticated, service_role;
 */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -1438,6 +1448,7 @@ window.copyFixPrompt = async (sk) => {
 
 // ── Warnings (email-only validator issues persisted to validator_warnings) ───
 let warningGroups = [];
+let expandedWarningKey = null;
 
 function prettyWarning(check_type, reason) {
   switch (check_type) {
@@ -1519,12 +1530,38 @@ function renderWarnings() {
     } else if (g.check_type === 'all_sold') {
       note = `<div class="meta-line" style="color:var(--text-tertiary);margin-top:4px;">All dates currently sold out — monitor for new availability.</div>`;
     }
-    return `<tr>
+    const mainRow = `<tr>
       <td><strong>${esc(g.title)}</strong><div class="meta-line"><code>${esc(providersLabel)}</code></div>${note}</td>
       <td class="detail-snippet">${esc(prettyWarning(g.check_type, g.reason))}</td>
       <td><span class="badge ${g.occurrences > 1 ? 'badge-amber' : 'badge-grey'}">${g.occurrences} occurrence${g.occurrences === 1 ? '' : 's'}</span></td>
       <td class="row-actions">${actionBtn}</td>
     </tr>`;
+    let formRow = '';
+    if (expandedWarningKey === g.key && g.check_type === 'price_outlier') {
+      const singleProvider = g.providerIds.length === 1 ? g.providerIds[0] : '';
+      formRow = `<tr><td colspan="4" style="background:#faf9f5;padding:14px 16px;">
+        <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+          <div style="flex:2;min-width:220px;">
+            <label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-tertiary);display:block;margin-bottom:4px;">Title contains</label>
+            <input type="text" id="wpe-title-${sk}" value="${esc(g.title)}">
+          </div>
+          <div style="flex:1;min-width:170px;">
+            <label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-tertiary);display:block;margin-bottom:4px;">Scope</label>
+            <select id="wpe-scope-${sk}">
+              ${singleProvider ? `<option value="this" selected>This provider only (${esc(singleProvider)})</option>` : ''}
+              <option value="all"${singleProvider ? '' : ' selected'}>All providers</option>
+            </select>
+          </div>
+          <div style="flex:2;min-width:220px;">
+            <label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-tertiary);display:block;margin-bottom:4px;">Reason</label>
+            <input type="text" id="wpe-reason-${sk}" placeholder="e.g. legitimate multi-day expedition">
+          </div>
+          <button class="btn btn-small btn-primary" onclick="window.savePriceException('${sk}')">Save</button>
+          <button class="btn btn-small" onclick="window.cancelPriceException()">Cancel</button>
+        </div>
+      </td></tr>`;
+    }
+    return mainRow + formRow;
   }).join('');
   document.getElementById('warnings-wrap').innerHTML = `
     <table><thead><tr><th>Course</th><th>Reason</th><th>Occurrences</th><th></th></tr></thead><tbody>${html}</tbody></table>`;
@@ -1548,14 +1585,37 @@ async function deleteWarningRows(warningIds) {
 
 window.warningMarkExpected = (sk) => {
   const g = findWarningGroupBySafeKey(sk); if (!g) return;
-  confirmAction('Mark as expected', `Dismiss ${g.occurrences} price outlier warning${g.occurrences === 1 ? '' : 's'} for "${g.title}"? The warning may reappear on the next validation run until a code exception is added.`, async () => {
-    try {
-      await deleteWarningRows(g.warningIds);
-      toast(`Dismissed ${g.occurrences}`);
-      loadWarnings();
-      loadFlagsStats();
-    } catch (e) { toast('Failed: ' + e.message, true); }
-  });
+  expandedWarningKey = g.key;
+  renderWarnings();
+};
+
+window.cancelPriceException = () => { expandedWarningKey = null; renderWarnings(); };
+
+window.savePriceException = async (sk) => {
+  const g = findWarningGroupBySafeKey(sk); if (!g) return;
+  const title_contains = document.getElementById(`wpe-title-${sk}`).value.trim();
+  const scope = document.getElementById(`wpe-scope-${sk}`).value;
+  const reason = document.getElementById(`wpe-reason-${sk}`).value.trim();
+  if (!title_contains) { toast('Title contains is required', true); return; }
+  const provider_id = scope === 'this' && g.providerIds.length === 1 ? g.providerIds[0] : null;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/validator_price_exceptions`, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify([{ title_contains, provider_id, reason: reason || null }]),
+    });
+    if (!res.ok) throw new Error(`POST ${res.status}: ${await res.text()}`);
+    await deleteWarningRows(g.warningIds);
+    expandedWarningKey = null;
+    toast("Exception saved — won't re-flag after next run");
+    loadWarnings();
+    loadFlagsStats();
+  } catch (e) { toast('Failed: ' + e.message, true); }
 };
 
 window.warningRegenerate = (sk) => {
