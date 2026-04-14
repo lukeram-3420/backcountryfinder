@@ -215,7 +215,10 @@
         <div id="pending-mappings-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
       </div>
       <div class="section">
-        <h2>Approved activity mappings</h2>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h2 style="margin:0;">Approved activity mappings</h2>
+          <button class="btn" id="activity-counts-btn" onclick="loadActivityCounts()">Load counts</button>
+        </div>
         <div class="search-row"><input type="text" id="activity-search" placeholder="Search mappings…" oninput="renderActivityMappings()"></div>
         <div id="activity-mappings-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
       </div>
@@ -229,7 +232,10 @@
         <div id="pending-locations-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
       </div>
       <div class="section">
-        <h2>Approved location mappings</h2>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h2 style="margin:0;">Approved location mappings</h2>
+          <button class="btn" id="location-counts-btn" onclick="loadLocationCounts()">Load counts</button>
+        </div>
         <div class="search-row"><input type="text" id="location-search" placeholder="Search locations…" oninput="renderLocationMappings()"></div>
         <div id="location-mappings-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
       </div>
@@ -644,40 +650,63 @@ window.rejectMapping = (id) => {
   });
 };
 
-let activityCourseCounts = {}; // { activity: count }
+// Per-row course counts, keyed by mapping id. Session-cached.
+let activityMappingCounts = {}; // { mapping_id: count }
+let activityCountsLoaded = false;
 
 async function loadActivityMappings() {
   try {
     cachedActivityMappings = await sbSelect('activity_mappings', { order: { col: 'created_at', ascending: false } });
-    activityCourseCounts = {};
-    window.renderActivityMappings();
-
-    // One count=exact query per unique activity value, fired in parallel
-    const uniqueActivities = [...new Set(cachedActivityMappings.map(m => m.activity).filter(Boolean))];
-    const results = await Promise.all(uniqueActivities.map(async activity => {
-      const count = await countRows(
-        'courses',
-        `activity=eq.${encodeURIComponent(activity)}&active=eq.true&flagged=not.is.true&auto_flagged=not.is.true`
-      );
-      return [activity, count];
-    }));
-    for (const [activity, count] of results) {
-      activityCourseCounts[activity] = count;
-    }
     window.renderActivityMappings();
   } catch (e) {
     document.getElementById('activity-mappings-wrap').innerHTML = `<div class="loading">Error: ${esc(e.message)}</div>`;
   }
 }
+
+window.loadActivityCounts = async () => {
+  const btn = document.getElementById('activity-counts-btn');
+  // If already loaded in this session, just re-render with cached results
+  if (activityCountsLoaded) {
+    window.renderActivityMappings();
+    return;
+  }
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Loading…';
+  try {
+    // One count=exact query per mapping row, fired in parallel, ilike title_contains
+    const results = await Promise.all(cachedActivityMappings.map(async m => {
+      const pattern = `*${m.title_contains}*`;
+      const count = await countRows(
+        'courses',
+        `title=ilike.${encodeURIComponent(pattern)}&active=eq.true&flagged=not.is.true&auto_flagged=not.is.true`
+      );
+      return [m.id, count];
+    }));
+    for (const [id, count] of results) {
+      activityMappingCounts[id] = count;
+    }
+    activityCountsLoaded = true;
+    btn.disabled = false;
+    btn.textContent = 'Counts loaded ✓';
+    window.renderActivityMappings();
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = 'Load counts';
+    toast('Failed to load counts: ' + e.message, true);
+  }
+};
+
 window.renderActivityMappings = () => {
   const q = (document.getElementById('activity-search')?.value || '').toLowerCase();
   const filtered = cachedActivityMappings
     .filter(m => !q || (m.title_contains || '').toLowerCase().includes(q) || (m.activity || '').toLowerCase().includes(q))
     .slice()
     .sort((a, b) => {
-      const ca = activityCourseCounts[a.activity] || 0;
-      const cb = activityCourseCounts[b.activity] || 0;
-      if (cb !== ca) return cb - ca;
+      if (activityCountsLoaded) {
+        const ca = activityMappingCounts[a.id] || 0;
+        const cb = activityMappingCounts[b.id] || 0;
+        if (cb !== ca) return cb - ca;
+      }
       return (a.title_contains || '').localeCompare(b.title_contains || '');
     });
   if (!filtered.length) { document.getElementById('activity-mappings-wrap').innerHTML = '<div class="loading">No mappings</div>'; return; }
@@ -685,10 +714,15 @@ window.renderActivityMappings = () => {
     <table><thead><tr><th>title_contains</th><th>Activity</th><th>Courses</th><th>Created</th><th></th></tr></thead><tbody>${
       filtered.map(m => {
         const editing = editingActivityMappingId === m.id;
-        const count = activityCourseCounts[m.activity] || 0;
-        const countBadge = count > 0
-          ? `<span class="badge badge-green">${count} course${count === 1 ? '' : 's'}</span>`
-          : `<span class="badge badge-grey">0 courses</span>`;
+        let countBadge;
+        if (!activityCountsLoaded) {
+          countBadge = `<span class="badge badge-grey">—</span>`;
+        } else {
+          const count = activityMappingCounts[m.id] || 0;
+          countBadge = count > 0
+            ? `<span class="badge badge-green">${count} course${count === 1 ? '' : 's'}</span>`
+            : `<span class="badge badge-grey">0 courses</span>`;
+        }
         if (editing) {
           return `<tr>
             <td><input type="text" id="am-title-${m.id}" value="${esc(m.title_contains)}"></td>
@@ -775,41 +809,62 @@ window.rejectLocation = (id) => {
   });
 };
 
-let locationCourseCounts = {}; // { location_canonical: count }
+// Per-row location course counts keyed by location_raw. Session-cached.
+let locationMappingCounts = {}; // { location_raw: count }
+let locationCountsLoaded = false;
 
 async function loadLocationMappings() {
   try {
     cachedLocationMappings = await sbSelect('location_mappings', { order: { col: 'created_at', ascending: false } });
-    // Render once without counts so the UI shows immediately
-    locationCourseCounts = {};
-    window.renderLocationMappings();
-
-    // One count=exact query per unique canonical, fired in parallel
-    const uniqueCanonicals = [...new Set(cachedLocationMappings.map(m => m.location_canonical).filter(Boolean))];
-    const results = await Promise.all(uniqueCanonicals.map(async canonical => {
-      const count = await countRows(
-        'courses',
-        `location_canonical=eq.${encodeURIComponent(canonical)}&active=eq.true&flagged=not.is.true&auto_flagged=not.is.true`
-      );
-      return [canonical, count];
-    }));
-    for (const [canonical, count] of results) {
-      locationCourseCounts[canonical] = count;
-    }
     window.renderLocationMappings();
   } catch (e) {
     document.getElementById('location-mappings-wrap').innerHTML = `<div class="loading">Error: ${esc(e.message)}</div>`;
   }
 }
+
+window.loadLocationCounts = async () => {
+  const btn = document.getElementById('location-counts-btn');
+  if (locationCountsLoaded) {
+    window.renderLocationMappings();
+    return;
+  }
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Loading…';
+  try {
+    // One count=exact query per unique location_raw, fired in parallel
+    const uniqueRaws = [...new Set(cachedLocationMappings.map(m => m.location_raw).filter(Boolean))];
+    const results = await Promise.all(uniqueRaws.map(async raw => {
+      const count = await countRows(
+        'courses',
+        `location_raw=eq.${encodeURIComponent(raw)}&active=eq.true&flagged=not.is.true&auto_flagged=not.is.true`
+      );
+      return [raw, count];
+    }));
+    for (const [raw, count] of results) {
+      locationMappingCounts[raw] = count;
+    }
+    locationCountsLoaded = true;
+    btn.disabled = false;
+    btn.textContent = 'Counts loaded ✓';
+    window.renderLocationMappings();
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = 'Load counts';
+    toast('Failed to load counts: ' + e.message, true);
+  }
+};
+
 window.renderLocationMappings = () => {
   const q = (document.getElementById('location-search')?.value || '').toLowerCase();
   const filtered = cachedLocationMappings
     .filter(m => !q || (m.location_raw || '').toLowerCase().includes(q) || (m.location_canonical || '').toLowerCase().includes(q))
     .slice()
     .sort((a, b) => {
-      const ca = locationCourseCounts[a.location_canonical] || 0;
-      const cb = locationCourseCounts[b.location_canonical] || 0;
-      if (cb !== ca) return cb - ca;
+      if (locationCountsLoaded) {
+        const ca = locationMappingCounts[a.location_raw] || 0;
+        const cb = locationMappingCounts[b.location_raw] || 0;
+        if (cb !== ca) return cb - ca;
+      }
       return (a.location_raw || '').localeCompare(b.location_raw || '');
     });
   if (!filtered.length) { document.getElementById('location-mappings-wrap').innerHTML = '<div class="loading">No locations</div>'; return; }
@@ -817,10 +872,15 @@ window.renderLocationMappings = () => {
     <table><thead><tr><th>Raw</th><th>Canonical</th><th>Courses</th><th>Created</th><th></th></tr></thead><tbody>${
       filtered.map(m => {
         const editing = editingLocationMappingId === m.id;
-        const count = locationCourseCounts[m.location_canonical] || 0;
-        const countBadge = count > 0
-          ? `<span class="badge badge-green">${count} course${count === 1 ? '' : 's'}</span>`
-          : `<span class="badge badge-grey">0 courses</span>`;
+        let countBadge;
+        if (!locationCountsLoaded) {
+          countBadge = `<span class="badge badge-grey">—</span>`;
+        } else {
+          const count = locationMappingCounts[m.location_raw] || 0;
+          countBadge = count > 0
+            ? `<span class="badge badge-green">${count} course${count === 1 ? '' : 's'}</span>`
+            : `<span class="badge badge-grey">0 courses</span>`;
+        }
         if (editing) {
           return `<tr>
             <td><input type="text" id="lm-raw-${m.id}" value="${esc(m.location_raw)}"></td>
