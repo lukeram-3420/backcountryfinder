@@ -913,7 +913,7 @@ window.rejectLocation = (id) => {
 };
 
 // Per-row location course counts keyed by location_raw. Session-cached.
-let locationMappingCounts = {}; // { location_raw: count }
+let locationMappingCounts = {}; // { location_canonical: count }
 let locationCountsLoaded = false;
 
 async function loadLocationMappings() {
@@ -934,17 +934,17 @@ window.loadLocationCounts = async () => {
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>Loading…';
   try {
-    // One count=exact query per unique location_raw, fired in parallel
-    const uniqueRaws = [...new Set(cachedLocationMappings.map(m => m.location_raw).filter(Boolean))];
-    const results = await Promise.all(uniqueRaws.map(async raw => {
+    // One count=exact query per unique location_canonical, fired in parallel
+    const uniqueCanonicals = [...new Set(cachedLocationMappings.map(m => m.location_canonical).filter(Boolean))];
+    const results = await Promise.all(uniqueCanonicals.map(async canonical => {
       const count = await countRows(
         'courses',
-        `location_raw=eq.${encodeURIComponent(raw)}&active=eq.true&flagged=not.is.true&auto_flagged=not.is.true`
+        `location_canonical=eq.${encodeURIComponent(canonical)}&active=eq.true&flagged=not.is.true&auto_flagged=not.is.true`
       );
-      return [raw, count];
+      return [canonical, count];
     }));
-    for (const [raw, count] of results) {
-      locationMappingCounts[raw] = count;
+    for (const [canonical, count] of results) {
+      locationMappingCounts[canonical] = count;
     }
     locationCountsLoaded = true;
     btn.disabled = false;
@@ -962,7 +962,7 @@ function locationMappingSortValue(m, col) {
   switch (col) {
     case 'location_raw':       return m.location_raw;
     case 'location_canonical': return m.location_canonical;
-    case 'courses':            return locationCountsLoaded ? (Number(locationMappingCounts[m.location_raw]) || 0) : null;
+    case 'courses':            return locationCountsLoaded ? (Number(locationMappingCounts[m.location_canonical]) || 0) : null;
     case 'created_at':         return m.created_at;
     default:                   return null;
   }
@@ -989,7 +989,7 @@ window.renderLocationMappings = () => {
         if (!locationCountsLoaded) {
           countBadge = `<span class="badge badge-grey">—</span>`;
         } else {
-          const count = locationMappingCounts[m.location_raw] || 0;
+          const count = locationMappingCounts[m.location_canonical] || 0;
           countBadge = count > 0
             ? `<span class="badge badge-green">${count} course${count === 1 ? '' : 's'}</span>`
             : `<span class="badge badge-grey">0 courses</span>`;
