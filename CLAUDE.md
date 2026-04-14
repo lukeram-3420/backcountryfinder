@@ -337,10 +337,12 @@ One file per provider at `.github/workflows/scraper-{id}.yml`. All use `workflow
 
 ### Tabs
 1. **Providers** — stats row (providers / courses / auto-hidden / user flags), provider table with active toggle, last run, course count, status badge, per-provider "Run" button, and "Run all" button.
-2. **Mapping Review** — pending + approved activity mappings, pending + approved location mappings. Search filters on the approved lists.
-3. **Summary Review** — all `course_summaries` rows where `approved=false`. Approve / Reject / Regenerate buttons per row.
-4. **Flags** — "Copy fixable flags prompt" button (bundles wrong_price, wrong_date, bad_description, sold_out flags for Claude Code). User reports section (only `button_broken` and `other` get a Mark resolved button). Validator auto-flags section with Clear flag button.
-5. **Audit Log** — last 100 rows of `admin_log` with search filter.
+2. **Activity Mappings** — pending + approved activity mappings with inline Edit. Approved rows can be edited in place (title_contains + activity dropdown fetched dynamically from `activity_labels`).
+3. **Location Mappings** — pending + approved location mappings with inline Edit. Approved rows edit both `location_raw` and `location_canonical` in place.
+4. **Summary Review** — all `course_summaries` rows where `approved=false`. Approve / Reject / Regenerate buttons per row.
+5. **Flags** — "Copy fixable flags prompt" button (bundles wrong_price, wrong_date, bad_description, sold_out flags for Claude Code). User reports section (only `button_broken` and `other` get a Mark resolved button). Validator auto-flags section with Clear flag button.
+6. **Audit Log** — last 100 rows of `admin_log` with search filter.
+7. **Settings** — CRUD for `activity_labels` (canonical activity slugs + display labels), used as the source of truth for the dropdowns in Activity Mappings. Also a static reference for the canonical location format (`City, Province`).
 
 ### Admin-facing tables (create in Supabase if not already)
 - `admin_log` — `id bigserial, user_email text, action text, detail jsonb, created_at timestamptz default now()`
@@ -358,6 +360,7 @@ All live in `supabase/functions/admin-*/index.ts`. Every one verifies the JWT, c
 | `admin-update-mapping` | Update `activity_mappings.activity` by id |
 | `admin-approve-location` | Insert into `location_mappings`, mark `pending_location_mappings.reviewed=true` |
 | `admin-reject-location` | Mark `pending_location_mappings.reviewed=true` |
+| `admin-update-location` | Update `location_mappings.location_raw` + `location_canonical` by id |
 | `admin-approve-summary` | Approve `course_summaries` row, patch all matching `courses.summary`, clear any user flags |
 | `admin-reject-summary` | Set `course_summaries.approved=false` |
 | `admin-regenerate-summary` | Call Claude Haiku for fresh summary, write to `course_summaries` with `approved=false, pending_reason='regenerated'` |

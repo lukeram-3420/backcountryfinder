@@ -171,10 +171,12 @@
 
   <div class="tabs">
     <div class="tab active" data-tab="providers">Providers</div>
-    <div class="tab" data-tab="mappings">Mapping Review</div>
+    <div class="tab" data-tab="activity">Activity Mappings</div>
+    <div class="tab" data-tab="location">Location Mappings</div>
     <div class="tab" data-tab="summaries">Summary Review</div>
     <div class="tab" data-tab="flags">Flags</div>
     <div class="tab" data-tab="audit">Audit Log</div>
+    <div class="tab" data-tab="settings">Settings</div>
   </div>
 
   <div class="main">
@@ -196,8 +198,8 @@
       </div>
     </div>
 
-    <!-- TAB: MAPPINGS -->
-    <div class="tab-panel hidden" id="panel-mappings">
+    <!-- TAB: ACTIVITY MAPPINGS -->
+    <div class="tab-panel hidden" id="panel-activity">
       <div class="section">
         <h2>Pending activity mappings</h2>
         <div id="pending-mappings-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
@@ -207,6 +209,10 @@
         <div class="search-row"><input type="text" id="activity-search" placeholder="Search mappings…" oninput="renderActivityMappings()"></div>
         <div id="activity-mappings-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
       </div>
+    </div>
+
+    <!-- TAB: LOCATION MAPPINGS -->
+    <div class="tab-panel hidden" id="panel-location">
       <div class="section">
         <h2>Pending location mappings</h2>
         <div id="pending-locations-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
@@ -246,6 +252,35 @@
         <h2>Audit log</h2>
         <div class="search-row"><input type="text" id="audit-search" placeholder="Search actions or detail…" oninput="renderAuditLog()"></div>
         <div id="audit-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
+      </div>
+    </div>
+
+    <!-- TAB: SETTINGS -->
+    <div class="tab-panel hidden" id="panel-settings">
+      <div class="section">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h2 style="margin:0;">Canonical activity values</h2>
+          <button class="btn btn-primary" onclick="showAddActivity()">Add new</button>
+        </div>
+        <div id="add-activity-form" class="hidden" style="background:#faf9f5;border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;margin-bottom:12px;">
+          <div style="display:flex;gap:8px;align-items:flex-end;">
+            <div style="flex:1;"><label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-tertiary);display:block;margin-bottom:4px;">Activity (slug)</label><input type="text" id="new-activity-key" placeholder="via_ferrata"></div>
+            <div style="flex:1;"><label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-tertiary);display:block;margin-bottom:4px;">Label</label><input type="text" id="new-activity-label" placeholder="Via Ferrata"></div>
+            <button class="btn btn-small btn-primary" onclick="addActivityLabel()">Add</button>
+            <button class="btn btn-small" onclick="hideAddActivity()">Cancel</button>
+          </div>
+        </div>
+        <div id="activity-labels-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
+      </div>
+      <div class="section">
+        <h2>Canonical location format</h2>
+        <p style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin:0 0 12px;">Use <code>"City, Province"</code> for towns and <code>"Area Name, Province"</code> for ranges.</p>
+        <ul style="font-size:13px;color:var(--text-secondary);line-height:1.9;margin:0;padding-left:20px;">
+          <li><code>Canmore, AB</code></li>
+          <li><code>Squamish, BC</code></li>
+          <li><code>Rogers Pass, BC</code></li>
+          <li><code>Bugaboos, BC</code></li>
+        </ul>
       </div>
     </div>
   </div>
@@ -418,10 +453,12 @@ document.querySelectorAll('.tab').forEach(t => {
     document.getElementById(`panel-${t.dataset.tab}`).classList.remove('hidden');
     const loaders = {
       providers: loadProvidersTab,
-      mappings:  loadMappingsTab,
+      activity:  loadActivityTab,
+      location:  loadLocationTab,
       summaries: loadSummariesTab,
       flags:     loadFlagsTab,
       audit:     loadAuditTab,
+      settings:  loadSettingsTab,
     };
     loaders[t.dataset.tab]?.();
   });
@@ -504,14 +541,25 @@ window.triggerScraper = (workflow_id) => {
   });
 };
 
-// ── Tab 2: Mappings ──────────────────────────────
-async function loadMappingsTab() {
-  await Promise.all([
-    loadPendingMappings(),
-    loadActivityMappings(),
-    loadPendingLocations(),
-    loadLocationMappings(),
-  ]);
+// ── Activity labels cache (shared between tabs) ──
+let cachedActivityLabels = [];
+let editingActivityMappingId = null;
+let editingLocationMappingId = null;
+
+async function ensureActivityLabels() {
+  if (cachedActivityLabels.length) return cachedActivityLabels;
+  cachedActivityLabels = await sbSelect('activity_labels', { order: { col: 'activity', ascending: true } });
+  return cachedActivityLabels;
+}
+
+function activityOptionsHtml(selected) {
+  return cachedActivityLabels.map(a => `<option value="${esc(a.activity)}" ${a.activity===selected?'selected':''}>${esc(a.activity)}</option>`).join('');
+}
+
+// ── Tab 2: Activity Mappings ─────────────────────
+async function loadActivityTab() {
+  await ensureActivityLabels();
+  await Promise.all([loadPendingMappings(), loadActivityMappings()]);
 }
 
 async function loadPendingMappings() {
@@ -521,14 +569,13 @@ async function loadPendingMappings() {
       document.getElementById('pending-mappings-wrap').innerHTML = '<div class="loading">No pending mappings</div>';
       return;
     }
-    const activities = ['skiing','climbing','mountaineering','hiking','biking','fishing','heli','cat','huts','guided','glissading','rappelling','snowshoeing','via_ferrata','avalanche_safety'];
     document.getElementById('pending-mappings-wrap').innerHTML = `
       <table><thead><tr><th>Course title</th><th>Provider</th><th>Suggested</th><th></th></tr></thead><tbody>${
         rows.map(r => `<tr>
           <td><strong>${esc(r.course_title || r.title_contains || '')}</strong>
               <div class="detail-snippet">${esc((r.description || '').slice(0, 120))}</div></td>
           <td><code>${esc(r.provider_id || '')}</code></td>
-          <td><select id="pm-${r.id}">${activities.map(a => `<option value="${a}" ${a===r.suggested_activity?'selected':''}>${a}</option>`).join('')}</select></td>
+          <td><select id="pm-${r.id}">${activityOptionsHtml(r.suggested_activity)}</select></td>
           <td class="row-actions">
             <button class="btn btn-small btn-primary" onclick="window.approveMapping(${r.id}, '${esc(r.title_contains || r.course_title || '')}')">Approve</button>
             <button class="btn btn-small btn-danger" onclick="window.rejectMapping(${r.id})">Reject</button>
@@ -545,12 +592,12 @@ window.approveMapping = async (id, title_contains) => {
   try {
     await callEdge('admin-approve-mapping', { id, title_contains, activity });
     toast('Mapping approved');
-    loadMappingsTab();
+    loadActivityTab();
   } catch (e) { toast('Failed: ' + e.message, true); }
 };
 window.rejectMapping = (id) => {
   confirmAction('Reject mapping', 'This will mark the pending mapping as reviewed.', async () => {
-    try { await callEdge('admin-reject-mapping', { id }); toast('Rejected'); loadMappingsTab(); } catch (e) { toast('Failed: ' + e.message, true); }
+    try { await callEdge('admin-reject-mapping', { id }); toast('Rejected'); loadActivityTab(); } catch (e) { toast('Failed: ' + e.message, true); }
   });
 };
 
@@ -568,14 +615,46 @@ window.renderActivityMappings = () => {
   if (!filtered.length) { document.getElementById('activity-mappings-wrap').innerHTML = '<div class="loading">No mappings</div>'; return; }
   document.getElementById('activity-mappings-wrap').innerHTML = `
     <table><thead><tr><th>title_contains</th><th>Activity</th><th>Created</th><th></th></tr></thead><tbody>${
-      filtered.map(m => `<tr>
-        <td><code>${esc(m.title_contains)}</code></td>
-        <td><span class="badge badge-green">${esc(m.activity)}</span></td>
-        <td class="meta-line">${fmt(m.created_at)}</td>
-        <td></td>
-      </tr>`).join('')
+      filtered.map(m => {
+        const editing = editingActivityMappingId === m.id;
+        if (editing) {
+          return `<tr>
+            <td><input type="text" id="am-title-${m.id}" value="${esc(m.title_contains)}"></td>
+            <td><select id="am-activity-${m.id}">${activityOptionsHtml(m.activity)}</select></td>
+            <td class="meta-line">${fmt(m.created_at)}</td>
+            <td class="row-actions">
+              <button class="btn btn-small btn-primary" onclick="window.saveActivityMapping(${m.id})">Save</button>
+              <button class="btn btn-small" onclick="window.cancelEditActivityMapping()">Cancel</button>
+            </td>
+          </tr>`;
+        }
+        return `<tr>
+          <td><code>${esc(m.title_contains)}</code></td>
+          <td><span class="badge badge-green">${esc(m.activity)}</span></td>
+          <td class="meta-line">${fmt(m.created_at)}</td>
+          <td class="row-actions">
+            <button class="btn btn-small" onclick="window.editActivityMapping(${m.id})">Edit</button>
+          </td>
+        </tr>`;
+      }).join('')
     }</tbody></table>`;
 };
+window.editActivityMapping = (id) => { editingActivityMappingId = id; window.renderActivityMappings(); };
+window.cancelEditActivityMapping = () => { editingActivityMappingId = null; window.renderActivityMappings(); };
+window.saveActivityMapping = async (id) => {
+  const activity = document.getElementById(`am-activity-${id}`).value;
+  try {
+    await callEdge('admin-update-mapping', { id, activity });
+    toast('Mapping updated');
+    editingActivityMappingId = null;
+    loadActivityMappings();
+  } catch (e) { toast('Failed: ' + e.message, true); }
+};
+
+// ── Tab 3: Location Mappings ─────────────────────
+async function loadLocationTab() {
+  await Promise.all([loadPendingLocations(), loadLocationMappings()]);
+}
 
 async function loadPendingLocations() {
   try {
@@ -602,12 +681,12 @@ async function loadPendingLocations() {
 window.approveLocation = async (id, location_raw) => {
   const canonical = document.getElementById(`pl-${id}`).value.trim();
   if (!canonical) { toast('Canonical required', true); return; }
-  try { await callEdge('admin-approve-location', { id, location_raw, canonical }); toast('Location approved'); loadMappingsTab(); }
+  try { await callEdge('admin-approve-location', { id, location_raw, canonical }); toast('Location approved'); loadLocationTab(); }
   catch (e) { toast('Failed: ' + e.message, true); }
 };
 window.rejectLocation = (id) => {
   confirmAction('Reject location', 'This will mark the pending location as reviewed.', async () => {
-    try { await callEdge('admin-reject-location', { id }); toast('Rejected'); loadMappingsTab(); } catch (e) { toast('Failed: ' + e.message, true); }
+    try { await callEdge('admin-reject-location', { id }); toast('Rejected'); loadLocationTab(); } catch (e) { toast('Failed: ' + e.message, true); }
   });
 };
 
@@ -624,13 +703,43 @@ window.renderLocationMappings = () => {
   const filtered = cachedLocationMappings.filter(m => !q || (m.location_raw || '').toLowerCase().includes(q) || (m.location_canonical || '').toLowerCase().includes(q));
   if (!filtered.length) { document.getElementById('location-mappings-wrap').innerHTML = '<div class="loading">No locations</div>'; return; }
   document.getElementById('location-mappings-wrap').innerHTML = `
-    <table><thead><tr><th>Raw</th><th>Canonical</th><th>Created</th></tr></thead><tbody>${
-      filtered.map(m => `<tr>
-        <td><code>${esc(m.location_raw)}</code></td>
-        <td><span class="badge badge-green">${esc(m.location_canonical)}</span></td>
-        <td class="meta-line">${fmt(m.created_at)}</td>
-      </tr>`).join('')
+    <table><thead><tr><th>Raw</th><th>Canonical</th><th>Created</th><th></th></tr></thead><tbody>${
+      filtered.map(m => {
+        const editing = editingLocationMappingId === m.id;
+        if (editing) {
+          return `<tr>
+            <td><input type="text" id="lm-raw-${m.id}" value="${esc(m.location_raw)}"></td>
+            <td><input type="text" id="lm-canon-${m.id}" value="${esc(m.location_canonical)}"></td>
+            <td class="meta-line">${fmt(m.created_at)}</td>
+            <td class="row-actions">
+              <button class="btn btn-small btn-primary" onclick="window.saveLocationMapping(${m.id})">Save</button>
+              <button class="btn btn-small" onclick="window.cancelEditLocationMapping()">Cancel</button>
+            </td>
+          </tr>`;
+        }
+        return `<tr>
+          <td><code>${esc(m.location_raw)}</code></td>
+          <td><span class="badge badge-green">${esc(m.location_canonical)}</span></td>
+          <td class="meta-line">${fmt(m.created_at)}</td>
+          <td class="row-actions">
+            <button class="btn btn-small" onclick="window.editLocationMapping(${m.id})">Edit</button>
+          </td>
+        </tr>`;
+      }).join('')
     }</tbody></table>`;
+};
+window.editLocationMapping = (id) => { editingLocationMappingId = id; window.renderLocationMappings(); };
+window.cancelEditLocationMapping = () => { editingLocationMappingId = null; window.renderLocationMappings(); };
+window.saveLocationMapping = async (id) => {
+  const location_raw = document.getElementById(`lm-raw-${id}`).value.trim();
+  const location_canonical = document.getElementById(`lm-canon-${id}`).value.trim();
+  if (!location_raw || !location_canonical) { toast('Both fields required', true); return; }
+  try {
+    await callEdge('admin-update-location', { id, location_raw, location_canonical });
+    toast('Location updated');
+    editingLocationMappingId = null;
+    loadLocationMappings();
+  } catch (e) { toast('Failed: ' + e.message, true); }
 };
 
 // ── Tab 3: Summaries ─────────────────────────────
@@ -788,6 +897,94 @@ window.renderAuditLog = () => {
         <td class="detail-snippet"><code>${esc(JSON.stringify(r.detail || {}))}</code></td>
       </tr>`).join('')
     }</tbody></table>`;
+};
+
+// ── Tab 7: Settings ──────────────────────────────
+let editingLabelKey = null;
+
+async function loadSettingsTab() {
+  try {
+    cachedActivityLabels = await sbSelect('activity_labels', { order: { col: 'activity', ascending: true } });
+    renderActivityLabels();
+  } catch (e) {
+    document.getElementById('activity-labels-wrap').innerHTML = `<div class="loading">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderActivityLabels() {
+  if (!cachedActivityLabels.length) {
+    document.getElementById('activity-labels-wrap').innerHTML = '<div class="loading">No activity labels</div>';
+    return;
+  }
+  document.getElementById('activity-labels-wrap').innerHTML = `
+    <table><thead><tr><th>Activity (slug)</th><th>Label</th><th></th></tr></thead><tbody>${
+      cachedActivityLabels.map(a => {
+        const editing = editingLabelKey === a.activity;
+        if (editing) {
+          return `<tr>
+            <td><input type="text" id="lbl-key-${a.activity}" value="${esc(a.activity)}"></td>
+            <td><input type="text" id="lbl-label-${a.activity}" value="${esc(a.label)}"></td>
+            <td class="row-actions">
+              <button class="btn btn-small btn-primary" onclick="window.saveActivityLabel('${esc(a.activity)}')">Save</button>
+              <button class="btn btn-small" onclick="window.cancelEditActivityLabel()">Cancel</button>
+            </td>
+          </tr>`;
+        }
+        return `<tr>
+          <td><code>${esc(a.activity)}</code></td>
+          <td>${esc(a.label)}</td>
+          <td class="row-actions">
+            <button class="btn btn-small" onclick="window.editActivityLabel('${esc(a.activity)}')">Edit</button>
+            <button class="btn btn-small btn-danger" onclick="window.deleteActivityLabel('${esc(a.activity)}')">Delete</button>
+          </td>
+        </tr>`;
+      }).join('')
+    }</tbody></table>`;
+}
+
+window.showAddActivity = () => {
+  document.getElementById('add-activity-form').classList.remove('hidden');
+  document.getElementById('new-activity-key').value = '';
+  document.getElementById('new-activity-label').value = '';
+};
+window.hideAddActivity = () => {
+  document.getElementById('add-activity-form').classList.add('hidden');
+};
+window.addActivityLabel = async () => {
+  const activity = document.getElementById('new-activity-key').value.trim();
+  const label = document.getElementById('new-activity-label').value.trim();
+  if (!activity || !label) { toast('Both fields required', true); return; }
+  try {
+    const { error } = await sb.from('activity_labels').insert({ activity, label });
+    if (error) throw error;
+    toast('Activity label added');
+    window.hideAddActivity();
+    loadSettingsTab();
+  } catch (e) { toast('Failed: ' + e.message, true); }
+};
+window.editActivityLabel = (key) => { editingLabelKey = key; renderActivityLabels(); };
+window.cancelEditActivityLabel = () => { editingLabelKey = null; renderActivityLabels(); };
+window.saveActivityLabel = async (origKey) => {
+  const activity = document.getElementById(`lbl-key-${origKey}`).value.trim();
+  const label = document.getElementById(`lbl-label-${origKey}`).value.trim();
+  if (!activity || !label) { toast('Both fields required', true); return; }
+  try {
+    const { error } = await sb.from('activity_labels').update({ activity, label }).eq('activity', origKey);
+    if (error) throw error;
+    toast('Label updated');
+    editingLabelKey = null;
+    loadSettingsTab();
+  } catch (e) { toast('Failed: ' + e.message, true); }
+};
+window.deleteActivityLabel = (key) => {
+  confirmAction('Delete activity label', `Delete the '${key}' activity label? This cannot be undone.`, async () => {
+    try {
+      const { error } = await sb.from('activity_labels').delete().eq('activity', key);
+      if (error) throw error;
+      toast('Label deleted');
+      loadSettingsTab();
+    } catch (e) { toast('Failed: ' + e.message, true); }
+  });
 };
 
 // ── Init ─────────────────────────────────────────
