@@ -2064,15 +2064,27 @@ window.savePipelineRow = async (id) => {
 function updateNextScrapeCountdown() {
   const el = document.getElementById('next-scrape-countdown');
   if (!el) return;
-  const now = new Date();
-  const utcH = now.getUTCHours();
-  const nextSlotH = (Math.floor(utcH / 6) + 1) * 6; // 6, 12, 18, 24
+  // 1. current time as UTC ms
+  const nowMs = Date.now();
+  const now = new Date(nowMs);
+  // 2. current UTC hour
+  const utcHour = now.getUTCHours();
+  // 3. next 6-hour UTC boundary; wrap to next day if >= 24
+  let nextSlotUTCHour = (Math.floor(utcHour / 6) + 1) * 6;
+  let dayOffset = 0;
+  if (nextSlotUTCHour >= 24) {
+    nextSlotUTCHour = 0;
+    dayOffset = 1;
+  }
+  // 4. build Date for that next UTC slot
   const next = new Date(Date.UTC(
-    now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
-    nextSlotH, 0, 0, 0,
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() + dayOffset,
+    nextSlotUTCHour, 0, 0, 0,
   ));
-  let diffMs = next - now;
-  if (diffMs < 0) diffMs = 0;
+  // 5. compute diff and format
+  const diffMs = Math.max(0, next.getTime() - nowMs);
   const totalMin = Math.floor(diffMs / 60000);
   const h = Math.floor(totalMin / 60);
   const m = totalMin % 60;
