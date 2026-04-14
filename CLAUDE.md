@@ -26,6 +26,62 @@ Whenever CLAUDE.md is updated, output the full contents of the updated CLAUDE.md
 
 BackcountryFinder is a backcountry experience aggregator that scrapes outdoor activity listings (skiing, climbing, hiking, etc.) from multiple Canadian guide companies and booking platforms, storing them in Supabase and displaying them on a static frontend. Live at backcountryfinder.com.
 
+### Frontend Architecture
+
+The public site is a **single static file — [index.html](index.html)** — with vanilla JS/CSS, no build step, no framework. Routing is client-side page-switching via a single `showPage(name)` function; there is no hash routing and no separate HTML files. The server path is always `/` (query params are used for deep links — see below).
+
+**Four pages**, each a sibling `<div class="page" id="page-{name}">` block toggled by `.active` class via `showPage()` ([index.html:1262](index.html#L1262)). Only one is visible at a time.
+
+| Page | `#page-…` id | Trigger | Purpose |
+|------|--------------|---------|---------|
+| Search (default) | `page-search` | Logo click, `nav-search`, `mnav-search`, page load | Main course grid with filter bar |
+| My List | `page-saved` | `nav-saved` / `mnav-saved` | User's localStorage-saved courses |
+| Providers | `page-providers` | `nav-providers` / `mnav-providers` | Grid of all active providers with logo / rating / activity tags |
+| About | `page-about` | `nav-about` / `mnav-about` | Static copy, no data |
+
+Two nav components render the same four entries: **topnav** (desktop, `<nav class="topnav">` at [index.html:410](index.html#L410)) and **mobile-nav** (bottom tab bar, `<nav class="mobile-nav">` at [index.html:592](index.html#L592)). `showPage` toggles the `.active` class on both nav sets simultaneously.
+
+**Shared-list deep link:** URLs like `/?shared=id1,id2,id3` trigger a green banner (`#shared-banner`) prompting the visitor to save those courses to their list. Parsed via `URLSearchParams` in `getSharedIds()` ([index.html:1301](index.html#L1301)).
+
+**Provider deep link:** URLs like `/?provider={provider_id}` pre-apply a provider filter to the search grid and show a dismissable chip (`#provider-filter-chip`). Parsed in `initProviderFilter()` ([index.html:1229](index.html#L1229)).
+
+**Modals & overlays** (toggled by CSS `.active`, not page-switched):
+- **Notify modal** (`#notify-modal`) — "Notify me" signup for sold-out courses → inserts into `notifications` table.
+- **Email-list modal** (`#email-list-modal`) — email a copy of the user's saved list → calls `send-saved-list` edge function.
+- **Provider modal** (`#provider-modal`) — two-tab form ("suggest a provider" / "get listed") → inserts into `provider_submissions` and calls `notify-submission` edge function.
+- **Book toast** (`#book-toast`) — transient bottom-right email capture when clicking "book now" on a card; writes to `email_signups`.
+- **Micro-toast** (`#micro-toast`) — transient small confirmation for save / share actions.
+
+**Key UI components:**
+- **Course card** — built by `buildCard(c)` ([index.html:1035](index.html#L1035)). Used in the Search grid, My List grid, and the shared-list preview inside the Email-list modal.
+- **Provider card** — built inline in `loadProviders()` ([index.html:1544](index.html#L1544)). Shows logo (or text fallback), star rating (links to Google reviews when `google_place_id` present), website link, activity tags derived from the `provider_activities` view.
+- **Filter bar** — three controls at the top of `#page-search`: `#search-activity`, `#search-location`, `#search-date`. Activity → location dropdown dependency is wired through `updateLocationsForActivity(activity)` ([index.html:1016](index.html#L1016) query). Each control change calls `debouncedSearch()` → `fetchCourses()`.
+- **Save/share controls** (My List toolbar) — clear list, email my list, share list (popover with copy-link / WhatsApp / SMS / email buttons).
+
+**The six Supabase queries covered by the `flagged=not.is.true&auto_flagged=not.is.true` rule** (see "Frontend filter rule" below):
+
+| # | Section | Location | Table / filter |
+|---|---------|----------|----------------|
+| 1 | Main listing (Search grid) | [index.html:896](index.html#L896) `fetchCourses()` | `courses?select=*,providers(...)` + filters + paginated |
+| 2 | Activity dropdown | [index.html:973](index.html#L973) `loadActivitiesDropdown()` | `courses?select=activity_canonical&active=eq.true` |
+| 3 | Location dropdown (activity-scoped) | [index.html:1016](index.html#L1016) `updateLocationsForActivity()` | `courses?select=location_canonical&activity_canonical=eq.{…}` |
+| 4 | Saved courses | [index.html:1169](index.html#L1169) `renderSaved()` | `courses?select=*,providers(...)&or=(id.eq.…)` |
+| 5 | Shared-list preview in banner | [index.html:1380](index.html#L1380) `renderSharedBannerPreview()` | `courses?select=*,providers(name)&or=(id.eq.…)` |
+| 6 | Shared-list preview in Email modal | [index.html:1454](index.html#L1454) `populateEmailListPreview()` | `courses?select=*,providers(name,rating)&or=(id.eq.…)` |
+
+Additional reads that do **not** need the flagged filter (no course visibility concern):
+- `activity_labels` ([index.html:768](index.html#L768)) — canonical slug → display-label map for filter dropdowns and provider tags.
+- `location_mappings` ([index.html:993](index.html#L993)) — baseline location dropdown options when no activity filter is active.
+- `providers` ([index.html:1240](index.html#L1240)) — resolve `?provider=` deep-link label.
+- `providers` + `provider_activities` ([index.html:1549](index.html#L1549), [index.html:1558](index.html#L1558)) — Providers page grid.
+
+**Writes from the frontend** (all direct REST with anon key — no edge function for these):
+- `click_events` ([index.html:736](index.html#L736)) — book-now click telemetry.
+- `email_signups` ([index.html:1479](index.html#L1479)) — toast / modal email capture.
+- `provider_submissions` ([index.html:1510, 1531](index.html#L1510-L1531)) — suggest/get-listed form submits.
+
+Writes that trigger server-side work go through the edge functions documented elsewhere in this file (`notify-report`, `notify-submission`, `send-saved-list`, `unsubscribe-notification`, `notify-signup-confirmation`).
+
 ## Tech Stack
 
 - **Frontend:** Static `index.html` with vanilla JS/CSS (no build step, no framework)
