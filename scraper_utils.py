@@ -251,8 +251,15 @@ Respond with JSON only: {{"location_canonical": "value", "is_new": false}}"""
         )
         if result.get("location_canonical"):
             canonical = result["location_canonical"]
-            log.info(f"Claude normalised '{raw}' → '{canonical}'")
-            sb_insert("location_mappings", {"location_raw": raw, "location_canonical": canonical})
+            log.info(f"Claude normalised '{raw}' → '{canonical}' (pending admin review)")
+            # Queue for admin review — do NOT write directly to location_mappings
+            sb_insert("pending_location_mappings", {
+                "location_raw": raw,
+                "suggested_canonical": canonical,
+                "provider_id": None,
+                "course_title": None,
+                "reviewed": False,
+            })
             mappings[key] = canonical
             return canonical
     return raw
@@ -315,9 +322,17 @@ Respond with JSON only: {{"activity": "value", "label": "Human Label", "is_new":
             activity = result["activity"]
             label = result.get("label", activity.replace("_", " ").title())
             sb_upsert("activity_labels", [{"activity": activity, "label": label}])
-            sb_insert("activity_mappings", {"title_contains": title.lower()[:100], "activity": activity})
+            # Queue for admin review — do NOT write directly to activity_mappings
+            sb_insert("pending_mappings", {
+                "title_contains": title.lower()[:100],
+                "suggested_activity": activity,
+                "description": description[:500] if description else None,
+                "provider_id": None,
+                "course_title": title,
+                "reviewed": False,
+            })
             mappings.append((title.lower()[:100], activity))
-            log.info(f"Claude classified '{title}' → '{activity}'")
+            log.info(f"Claude classified '{title}' → '{activity}' (pending admin review)")
             return activity
     return detect_activity(title, description)
 

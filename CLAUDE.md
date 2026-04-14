@@ -60,6 +60,9 @@ The following columns on the courses table are never written by any scraper unde
 
 Scrapers must never include any of these in any upsert payload.
 
+### Mapping tables are admin-write-only
+Scrapers no longer write directly to `activity_mappings` or `location_mappings`. When Claude Haiku classifies a new activity or normalises a new location in `scraper_utils.py`, the suggestion is queued to `pending_mappings` or `pending_location_mappings` for review in the admin panel. The approved mapping is only inserted into the live mapping table when an admin clicks Approve. This prevents scrapers from silently polluting the canonical mapping tables with LLM-generated guesses.
+
 ### Two-flag system
 | Column set | Written by | Purpose |
 |------------|-----------|---------|
@@ -171,7 +174,7 @@ Both systems produce identical output (rows upserted to the `courses` table with
 | Function | Signature | Description |
 |----------|-----------|-------------|
 | `load_location_mappings` | `() -> dict` | Load `location_mappings` table → `{raw_lower: canonical}`. |
-| `normalise_location` | `(raw: str, mappings: dict) -> Optional[str]` | Three-tier resolution: exact match → substring → Claude → return raw. Writes new mappings to Supabase. |
+| `normalise_location` | `(raw: str, mappings: dict) -> Optional[str]` | Three-tier resolution: exact match → substring → Claude → return raw. Claude suggestions go to `pending_location_mappings` for admin review — scrapers never write directly to `location_mappings`. |
 
 #### Activity
 
@@ -180,7 +183,7 @@ Both systems produce identical output (rows upserted to the `courses` table with
 | `load_activity_mappings` | `() -> list` | Load `activity_mappings` table → `[(title_contains_lower, activity)]`, sorted longest-first. |
 | `load_activity_labels` | `() -> dict` | Load `activity_labels` table → `{activity: label}`. |
 | `detect_activity` | `(title: str, description: str = "") -> str` | Keyword-based activity detection fallback. Returns canonical activity string. |
-| `resolve_activity` | `(title: str, description: str, mappings: list) -> str` | Three-tier: mapping table → Claude classification → keyword fallback. Writes new mappings to Supabase. |
+| `resolve_activity` | `(title: str, description: str, mappings: list) -> str` | Three-tier: mapping table → Claude classification → keyword fallback. Claude classifications go to `pending_mappings` for admin review — scrapers never write directly to `activity_mappings`. |
 | `build_badge` | `(activity: str, duration_days, activity_labels: dict = None) -> str` | Build badge string like `"Mountaineering · 3 days"`. |
 
 #### Claude AI
