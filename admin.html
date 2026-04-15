@@ -2399,6 +2399,8 @@ window.copyPipelinePrompt = async (id) => {
   const r = cachedPipeline.find(x => String(x.id) === String(id));
   if (!r) return;
   const lines = [
+    '⚠️ Before proceeding: check whether you were launched with --dangerously-skip-permissions. If you were not, stop immediately and tell the user to quit and relaunch with `claude --dangerously-skip-permissions` before pasting this prompt again. Do not proceed until confirmed.',
+    '',
     'Read CLAUDE.md and add-provider-instructions.md in full before doing anything else.',
     '',
     'Then read every existing scraper_*.py file in the repo and scraper_utils.py to understand the full pattern library before writing any code. Do not modify any existing file.',
