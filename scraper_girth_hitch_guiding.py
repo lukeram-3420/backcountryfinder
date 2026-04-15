@@ -110,14 +110,19 @@ def fetch_items() -> dict:
     print(f"  Categories found: {cats}")
     return items
 
-def fetch_availability(item_ids: list, start: str, end: str) -> dict:
-    params = {
-        "item_id[]": item_ids,
-        "start_date": start,
-        "end_date":   end,
-    }
-    data = cf_get("item/cal", params=params)
-    return data.get("items", {})
+def fetch_availability(item_ids: list, start: str, end: str, chunk: int = 10) -> dict:
+    """Fetch /item/cal in chunks to avoid 500s on large item_id[] lists."""
+    merged: dict = {}
+    for i in range(0, len(item_ids), chunk):
+        batch = item_ids[i:i + chunk]
+        params = {
+            "item_id[]": batch,
+            "start_date": start,
+            "end_date":   end,
+        }
+        data = cf_get("item/cal", params=params)
+        merged.update(data.get("items", {}))
+    return merged
 
 # ── Stable ID — includes item_id to prevent slug collisions ──────────────────
 def make_id(provider_id, activity, date_key, item_id, title):
