@@ -26,6 +26,7 @@ import requests
 
 from scraper_utils import (
     sb_get, sb_upsert, sb_patch, send_email,
+    load_activity_mappings,
     SUPABASE_URL, SUPABASE_KEY,
 )
 
@@ -312,8 +313,26 @@ def check_summaries(courses: list, auto_hidden: list) -> list:
     return email_only
 
 
-def check_activities(courses: list, auto_hidden: list) -> list:
-    """Check 2: Activity mapping."""
+def _mapping_matches(title_lower: str, activity: str, activity_mappings: list) -> bool:
+    """True if an activity_mappings row has title_contains substring-matching
+    this title AND maps to this activity. Explicit mappings override keyword
+    detection — every admin 'Add mapping' action takes effect here.
+    """
+    if not activity_mappings:
+        return False
+    for pattern, mapped in activity_mappings:
+        if pattern and pattern in title_lower and mapped == activity:
+            return True
+    return False
+
+
+def check_activities(courses: list, auto_hidden: list, activity_mappings: list) -> list:
+    """Check 2: Activity mapping.
+
+    Consults `activity_mappings` before flagging. When an explicit mapping
+    matches the title and resolves to the course's current activity, the
+    mapping is treated as source of truth and the flag is skipped.
+    """
     email_only = []
 
     for c in courses:
@@ -327,6 +346,10 @@ def check_activities(courses: list, auto_hidden: list) -> list:
 
         # Skip titles that legitimately span two activity types
         if any(exc in title_lower for exc in TITLE_ACTIVITY_EXCEPTIONS):
+            continue
+
+        # Explicit mapping present and already matches → skip all mismatch checks.
+        if _mapping_matches(title_lower, activity, activity_mappings):
             continue
 
         # Title/activity mismatch → AUTO-HIDE
@@ -716,6 +739,15 @@ def main():
     _suppressions_cache = suppression_rows
     logging.info(f"Loaded {len(_suppressions_cache)} admin suppressions")
 
+    # Load activity mappings — explicit admin mappings override keyword-based
+    # mismatch detection in check_activities.
+    try:
+        activity_mappings = load_activity_mappings()
+    except Exception as e:
+        print(f"  ⚠ Could not load activity_mappings: {e}")
+        activity_mappings = []
+    logging.info(f"Loaded {len(activity_mappings)} activity mappings")
+
     # Get last run count
     last_count = None
     try:
@@ -738,7 +770,7 @@ def main():
     email_only = []
 
     email_only.extend(check_summaries(courses, auto_hidden))
-    email_only.extend(check_activities(courses, auto_hidden))
+    email_only.extend(check_activities(courses, auto_hidden, activity_mappings))
     email_only.extend(check_prices(courses, auto_hidden, price_exceptions, provider_id))
     email_only.extend(check_dates(courses, auto_hidden))
     email_only.extend(check_availability(courses, auto_hidden))
