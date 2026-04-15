@@ -16,7 +16,7 @@ import datetime
 import requests
 
 from scraper_utils import (
-    sb_upsert, send_email,
+    sb_upsert, sb_patch, send_email,
     find_place_id, update_provider_ratings,
     load_location_mappings, normalise_location,
     SUPABASE_URL, SUPABASE_KEY, RESEND_API_KEY, UTM,
@@ -167,7 +167,7 @@ def main():
     place_id = find_place_id("Girth Hitch Guiding Nordegg Alberta")
     if place_id:
         print(f"  Seeded google_place_id: {place_id}")
-        sb_upsert("providers", [{"id": PROVIDER["id"], "google_place_id": place_id}])
+        sb_patch("providers", f"id=eq.{PROVIDER['id']}", {"google_place_id": place_id})
     else:
         print("  Could not find google_place_id via explicit query")
     update_provider_ratings(PROVIDER["id"])
