@@ -242,7 +242,6 @@ def main():
                 "avail":              "open",
                 "active":             True,
                 "booking_url":        booking_url,
-                "description":        description if description else None,
                 "summary":            "",
                 "image_url":          None,
                 "badge":              None,

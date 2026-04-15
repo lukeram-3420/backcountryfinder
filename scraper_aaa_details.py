@@ -443,7 +443,7 @@ def main():
     stubs = sb_get("courses", {
         "provider_id": f"eq.{PROVIDER_ID}",
         "or": "(summary.is.null,summary.eq.)",
-        "select": "id,title,description,activity,activity_canonical",
+        "select": "id,title,activity,activity_canonical",
     })
     # Dedup by title — all dates of the same title share one summary
     by_title = {}
@@ -455,22 +455,15 @@ def main():
     print(f"    {len(stubs)} courses need summaries, {len(by_title)} unique titles")
 
     if by_title:
-        # Build generate_summaries_batch input. Prefer the description already
-        # on the course row; fall back to description from the WP match if we
-        # have one; final fallback is the title itself so generation still runs.
+        # Build generate_summaries_batch input. courses has no description
+        # column — use the title as the description seed so generation still
+        # runs. generate_summaries_batch requires a truthy description.
         inputs = []
         for title, row in by_title.items():
-            description = (row.get("description") or "").strip()
-            if not description:
-                wp_match = best_match(title, products)
-                if wp_match:
-                    description = (products[wp_match].get("description") or "").strip()
-            if not description:
-                description = title
             inputs.append({
                 "id":          title,
                 "title":       title,
-                "description": description,
+                "description": title,
                 "provider":    "Alpine Air Adventures",
                 "activity":    row.get("activity_canonical") or row.get("activity") or "",
             })
