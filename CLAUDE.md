@@ -128,6 +128,9 @@ The following columns on the courses table are never written by any scraper unde
 
 Scrapers must never include any of these in any upsert payload.
 
+### Column existence rule
+Scrapers must never reference columns in upsert payloads, SELECT queries, or PATCH calls that are not defined in the Database Schema section of this file. Before writing any database interaction code, Claude Code must verify the column exists in the schema defined here. If a column is needed that does not exist in the schema, stop and explicitly tell the user — never assume the column exists or write code that depends on it without confirmation. Never add ALTER TABLE statements to migration files or print them as suggestions without flagging this to the user first.
+
 ### Mapping tables are admin-write-only
 Scrapers must never write directly to `activity_mappings` or `location_mappings`. When Claude Haiku classifies a new activity or normalises a new location in `scraper_utils.py`, the suggestion is queued to `pending_mappings` or `pending_location_mappings` for review in the admin panel. The approved mapping is only inserted into the live mapping table when an admin clicks Approve. This prevents scrapers from silently polluting the canonical mapping tables with LLM-generated guesses.
 
