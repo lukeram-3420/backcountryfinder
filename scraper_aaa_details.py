@@ -18,6 +18,7 @@ from bs4 import BeautifulSoup
 from scraper_utils import (
     sb_get, sb_patch, sb_upsert,
     find_place_id, get_place_details, send_email,
+    generate_summaries_batch,
     SUPABASE_URL, SUPABASE_KEY, RESEND_API_KEY,
     GOOGLE_PLACES_API_KEY, ANTHROPIC_API_KEY,
 )
@@ -399,13 +400,9 @@ def main():
         # Find the correct WP product match and re-scrape its page
         match = best_match(fix_title, products)
         if not match:
-            # Clear the wrong summary if no match found
-            sb_patch(
-                "courses",
-                f"provider_id=eq.{PROVIDER_ID}&title=eq.{requests.utils.quote(fix_title)}",
-                {"summary": ""},
-            )
-            print(f"      No WP match — summary cleared")
+            # No WP match — leave existing summary alone. The fallback pass
+            # at the end of main() will regenerate it if still null.
+            print(f"      No WP match — leaving existing summary untouched")
             continue
 
         wp_data = products[match]
@@ -413,7 +410,9 @@ def main():
         description = scrape_product_page(wp_data["url"])
         patch = {}
 
-        # Regenerate summary from fresh description
+        # Regenerate summary from fresh description. Never clear — the
+        # fallback pass at end of main() will attempt regeneration for any
+        # courses still missing a summary.
         if description:
             items = [{"title": fix_title, "description": description[:200]}]
             result = generate_summaries(items)
@@ -422,11 +421,9 @@ def main():
                 patch["summary"] = new_summary
                 print(f"      Summary: {new_summary[:60]}")
             else:
-                patch["summary"] = ""
-                print(f"      Summary generation failed — cleared")
+                print(f"      Summary generation failed — leaving existing summary untouched")
         else:
-            patch["summary"] = ""
-            print(f"      No description found — summary cleared")
+            print(f"      No description found — leaving existing summary untouched")
 
         # Patch price from the WP product page
         if wp_data.get("price") is not None:
@@ -440,6 +437,62 @@ def main():
                 patch,
             )
         time.sleep(0.3)
+
+    # 8. Fallback: regenerate summaries for any AAA courses still missing one
+    print("\n  Fallback summary pass — finding courses with null/empty summary…")
+    stubs = sb_get("courses", {
+        "provider_id": f"eq.{PROVIDER_ID}",
+        "or": "(summary.is.null,summary.eq.)",
+        "select": "id,title,description,activity,activity_canonical",
+    })
+    # Dedup by title — all dates of the same title share one summary
+    by_title = {}
+    for c in stubs:
+        t = (c.get("title") or "").strip()
+        if not t or t in by_title:
+            continue
+        by_title[t] = c
+    print(f"    {len(stubs)} courses need summaries, {len(by_title)} unique titles")
+
+    if by_title:
+        # Build generate_summaries_batch input. Prefer the description already
+        # on the course row; fall back to description from the WP match if we
+        # have one; final fallback is the title itself so generation still runs.
+        inputs = []
+        for title, row in by_title.items():
+            description = (row.get("description") or "").strip()
+            if not description:
+                wp_match = best_match(title, products)
+                if wp_match:
+                    description = (products[wp_match].get("description") or "").strip()
+            if not description:
+                description = title
+            inputs.append({
+                "id":          title,
+                "title":       title,
+                "description": description,
+                "provider":    "Alpine Air Adventures",
+                "activity":    row.get("activity_canonical") or row.get("activity") or "",
+            })
+
+        try:
+            summaries = generate_summaries_batch(inputs)
+            print(f"    Generated {len(summaries)} summaries")
+        except Exception as e:
+            print(f"    ⚠ generate_summaries_batch failed: {e}")
+            summaries = {}
+
+        regen_patched = 0
+        for title, summary in summaries.items():
+            if not summary:
+                continue
+            sb_patch(
+                "courses",
+                f"provider_id=eq.{PROVIDER_ID}&title=eq.{requests.utils.quote(title)}",
+                {"summary": summary},
+            )
+            regen_patched += 1
+        print(f"    ✅ Patched {regen_patched} titles with regenerated summaries")
 
     print(f"\n  Done — updated: {updated} · overridden: {overridden} · no match: {no_match} · no price: {no_price}")
     # EMAILS OFF
