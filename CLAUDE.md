@@ -352,6 +352,28 @@ Post-scrape validation script. Runs after any provider scraper completes. Read-o
 
 **Exceptions:** "Ski Mountaineering" titles accept either skiing or mountaineering. Price outliers skip courses with "Logan", "Expedition", or "Traverse" in the title.
 
+### Validator priority stack
+Admin decisions always take precedence over automated validator rules.
+The validator checks admin decisions first in this order before running
+any keyword or automated checks:
+
+1. `validator_suppressions` — explicit admin "ignore this" decision.
+   If a suppression matches (provider_id + title_contains + flag_reason),
+   skip the check entirely. Highest priority.
+2. `activity_mappings` — explicit admin activity assignment. If a mapping
+   matches the course title AND the mapped activity equals the course's
+   current activity, skip the mismatch check. Admin mapping trumps all
+   keyword detection.
+3. `validator_price_exceptions` — explicit admin "this price is correct"
+   decision. Skip the outlier check for matching titles.
+4. `validator_whitelist` — explicit admin "this duplicate is intentional"
+   decision. Skip the duplicate check for matching titles.
+
+The validator is a safety net for unreviewed courses only. Once an admin
+has made any explicit decision about a course, the validator must respect
+it permanently. Keyword rules and automated checks only fire when no admin
+decision exists for that course and check type.
+
 ### How to add a new provider — checklist
 
 1. **Create `scraper_{id}.py`** importing from `scraper_utils`:

@@ -107,6 +107,18 @@ def is_suppressed(title: str, reason: str) -> bool:
     return False
 
 
+def any_check_suppressed(title: str, categories) -> bool:
+    """True if an admin suppression matches this title for ANY of the given
+    flag-reason categories. Used at the top of each check's per-course loop
+    so admin decisions short-circuit the whole check — not just the final
+    flag_course() write.
+    """
+    for cat in categories:
+        if is_suppressed(title, cat):
+            return True
+    return False
+
+
 def flag_course(course_id: str, reason: str, auto_hidden: list, title: str = ""):
     """Patch a single course row as auto_flagged and record it — unless the
     (title, reason-category) combo has been suppressed via admin 'Clear all'.
@@ -259,11 +271,19 @@ def auto_clear_user_flags(provider_id: str, courses: list) -> tuple:
 # ── Checks ───────────────────────────────────────────────────────────────────
 
 def check_summaries(courses: list, auto_hidden: list) -> list:
-    """Check 1: Summary quality."""
+    """Check 1: Summary quality.
+
+    Priority stack per course:
+      1. Admin suppression (validator_suppressions for 'summary mismatch')
+         → skip the whole check.
+      2. Empty-summary / contradiction / bleed automated checks.
+    """
     email_only = []
 
     # Empty summaries → EMAIL ONLY
     for c in courses:
+        if any_check_suppressed(c.get("title", ""), ["summary mismatch"]):
+            continue
         if not c.get("summary"):
             email_only.append({
                 "check": "Summary quality",
@@ -276,6 +296,8 @@ def check_summaries(courses: list, auto_hidden: list) -> list:
 
     # Cross-activity contradiction → AUTO-HIDE
     for c in courses:
+        if any_check_suppressed(c.get("title", ""), ["summary mismatch"]):
+            continue
         summary = (c.get("summary") or "").lower()
         activity = c.get("activity") or c.get("activity_canonical") or ""
         if not summary or not activity:
@@ -300,6 +322,8 @@ def check_summaries(courses: list, auto_hidden: list) -> list:
         if len(titles) <= 1:
             continue  # same title — intentional reuse
         for c in group:
+            if any_check_suppressed(c.get("title", ""), ["summary mismatch"]):
+                continue
             other_titles = [t for t in titles if t != c["title"]]
             email_only.append({
                 "check": "Summary quality",
@@ -329,58 +353,84 @@ def _mapping_matches(title_lower: str, activity: str, activity_mappings: list) -
 def check_activities(courses: list, auto_hidden: list, activity_mappings: list) -> list:
     """Check 2: Activity mapping.
 
-    Consults `activity_mappings` before flagging. When an explicit mapping
-    matches the title and resolves to the course's current activity, the
-    mapping is treated as source of truth and the flag is skipped.
+    Priority stack per course (highest wins, short-circuits the check):
+      1. validator_suppressions matching 'null activity' or 'activity mismatch'
+         → skip entire check.
+      2. activity_mappings — if an explicit mapping matches the title AND the
+         mapped activity equals the course's current activity, skip entire
+         check. Admin mapping trumps all keyword detection.
+      3. TITLE_ACTIVITY_EXCEPTIONS list (crevasse / ski mountaineering / AST).
+      4. TITLE_ACTIVITY_RULES keyword lists.
+      5. TITLE_ACTIVITY_RULES_WORD_BOUNDARY regex rules.
     """
     email_only = []
 
     for c in courses:
+        title = c.get("title", "")
+
+        # 1. Admin suppression — skip the check entirely.
+        if any_check_suppressed(title, ["null activity", "activity mismatch"]):
+            continue
+
         activity = c.get("activity") or c.get("activity_canonical") or ""
-        title_lower = c["title"].lower()
+        title_lower = title.lower()
 
-        # Null activity → AUTO-HIDE
-        if not activity:
-            flag_course(c["id"], "null activity", auto_hidden, title=c.get("title",""))
-            continue
-
-        # Skip titles that legitimately span two activity types
-        if any(exc in title_lower for exc in TITLE_ACTIVITY_EXCEPTIONS):
-            continue
-
-        # Explicit mapping present and already matches → skip all mismatch checks.
+        # 2. Explicit mapping present and matches → skip. Runs BEFORE the
+        #    null-activity check and BEFORE any keyword rules so admin
+        #    mappings trump all automated detection.
         if _mapping_matches(title_lower, activity, activity_mappings):
             continue
 
-        # Title/activity mismatch → AUTO-HIDE
+        # Null activity → AUTO-HIDE (only fires if no mapping justified it)
+        if not activity:
+            flag_course(c["id"], "null activity", auto_hidden, title=title)
+            continue
+
+        # 3. Skip titles that legitimately span two activity types
+        if any(exc in title_lower for exc in TITLE_ACTIVITY_EXCEPTIONS):
+            continue
+
+        # 4. Title/activity mismatch via keyword rules → AUTO-HIDE
         matched = False
         for keywords, expected in TITLE_ACTIVITY_RULES:
             if any(kw in title_lower for kw in keywords):
                 if activity != expected:
                     reason = f"activity mismatch: title suggests {expected} but got {activity}"
-                    flag_course(c["id"], reason, auto_hidden, title=c.get("title",""))
+                    flag_course(c["id"], reason, auto_hidden, title=title)
                 matched = True
                 break
 
+        # 5. Word-boundary rules
         if not matched:
             for pattern, expected in TITLE_ACTIVITY_RULES_WORD_BOUNDARY:
                 if re.search(pattern, title_lower):
                     if activity != expected:
                         reason = f"activity mismatch: title suggests {expected} but got {activity}"
-                        flag_course(c["id"], reason, auto_hidden, title=c.get("title",""))
+                        flag_course(c["id"], reason, auto_hidden, title=title)
                     break
 
     return email_only
 
 
 def check_prices(courses: list, auto_hidden: list, price_exceptions: list, provider_id: str) -> list:
-    """Check 3: Price sanity."""
+    """Check 3: Price sanity.
+
+    Priority stack per course:
+      1. validator_suppressions matching 'invalid price' → skip entire check.
+      2. validator_price_exceptions → skip the >5x median outlier warning
+         (runs just before the outlier branch, below).
+      3. Automated null-price / zero-or-negative / outlier checks.
+    """
     email_only = []
     prices = [c["price"] for c in courses if c.get("price") and c["price"] > 0]
     has_prices = len(prices) > 0
     median_price = statistics.median(prices) if prices else 0
 
     for c in courses:
+        # 1. Admin suppression — skip entire check.
+        if any_check_suppressed(c.get("title", ""), ["invalid price"]):
+            continue
+
         price = c.get("price")
 
         if price is None and has_prices:
@@ -414,12 +464,20 @@ def check_prices(courses: list, auto_hidden: list, price_exceptions: list, provi
 
 
 def check_dates(courses: list, auto_hidden: list) -> list:
-    """Check 4: Date sanity."""
+    """Check 4: Date sanity.
+
+    Priority stack per course:
+      1. validator_suppressions matching 'past date still active'
+         → skip entire check.
+      2. Automated past-date auto-hide + future-date warning.
+    """
     email_only = []
     today = date.today()
     two_years = today + timedelta(days=730)
 
     for c in courses:
+        if any_check_suppressed(c.get("title", ""), ["past date still active"]):
+            continue
         ds = c.get("date_sort")
         if not ds:
             continue
@@ -476,19 +534,32 @@ def check_availability(courses: list, auto_hidden: list) -> list:
 def check_duplicates(courses: list, auto_hidden: list, whitelisted: set, provider_id: str) -> list:
     """Check 6: Duplicates — auto-hide all but first occurrence.
 
-    Skips titles present in validator_whitelist for this provider (or globally).
+    Priority stack per course:
+      1. validator_suppressions matching 'duplicate' → skip entire check.
+      2. validator_whitelist → title known-safe for this provider (or global)
+         → skip, but still record the (title,date) in `seen` so other rows
+         with the same title+date also skip.
+      3. Automated first-occurrence-wins duplicate detection.
     """
     email_only = []
     seen = {}
 
     for c in courses:
         title = c.get("title") or ""
+        # 1. Admin suppression — skip entire check.
+        if any_check_suppressed(title, ["duplicate"]):
+            seen[(c["title"], c.get("date_sort"))] = c["id"]
+            continue
+
         title_key = title.strip().lower()
+        # 2. Whitelist
         if (title_key, provider_id) in whitelisted or (title_key, None) in whitelisted:
             if (c["title"], c.get("date_sort")) in seen:
                 logging.info(f"Skipping whitelisted duplicate: {title} ({provider_id})")
             seen[(c["title"], c.get("date_sort"))] = c["id"]
             continue
+
+        # 3. Automated duplicate detection
         key = (c["title"], c.get("date_sort"))
         if key in seen:
             flag_course(c["id"], "duplicate: same title and date", auto_hidden, title=c.get("title",""))
