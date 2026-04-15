@@ -120,6 +120,39 @@ def fetch_availability(item_ids: list, start: str, end: str,
     Per-item calendars from overlapping responses are merged into a single
     date-keyed dict per item.
     """
+    # ── DIAGNOSTIC ──────────────────────────────────────────────────────────
+    # Single-item, 7-day probe to see exactly what the endpoint returns.
+    # Prints status + body before any raise, so even a 5xx is visible.
+    if item_ids:
+        diag_start = start
+        diag_end = (
+            datetime.datetime.strptime(start, "%Y%m%d").date()
+            + datetime.timedelta(days=7)
+        ).strftime("%Y%m%d")
+        diag_params = {
+            "item_id[]": [item_ids[0]],
+            "start_date": diag_start,
+            "end_date":   diag_end,
+        }
+        try:
+            diag_resp = requests.get(
+                f"{CF_BASE}/item/cal",
+                params=diag_params,
+                headers=CF_HEADERS,
+                timeout=20,
+            )
+            print(f"  ── DIAG item/cal probe: item_id={item_ids[0]} {diag_start}→{diag_end}")
+            print(f"  ── DIAG final URL: {diag_resp.url}")
+            print(f"  ── DIAG status:    {diag_resp.status_code}")
+            body = diag_resp.text or ""
+            print(f"  ── DIAG body ({len(body)} bytes):")
+            print(body[:2000])
+            if len(body) > 2000:
+                print(f"  ── DIAG body truncated; full length {len(body)} bytes")
+        except Exception as e:
+            print(f"  ── DIAG request failed: {e}")
+    # ── END DIAGNOSTIC ──────────────────────────────────────────────────────
+
     start_d = datetime.datetime.strptime(start, "%Y%m%d").date()
     end_d   = datetime.datetime.strptime(end,   "%Y%m%d").date()
 
