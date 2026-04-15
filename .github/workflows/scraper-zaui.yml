@@ -1,0 +1,49 @@
+name: Zaui Scrapers
+
+# Dedicated cron for Zaui-platform providers. Runs every 6h, but each scraper
+# only covers one quarter of its catalogue per run (selected by --group),
+# so a full refresh of any given provider takes 24h.
+#
+# Group number is derived from the current UTC hour:
+#   $(( $(date -u +%H) / 6 % 4 ))
+#   00–05 UTC → group 0
+#   06–11 UTC → group 1
+#   12–17 UTC → group 2
+#   18–23 UTC → group 3
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL:          ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY:  ${{ secrets.SUPABASE_SERVICE_KEY }}
+      RESEND_API_KEY:        ${{ secrets.RESEND_API_KEY }}
+      GOOGLE_PLACES_API_KEY: ${{ secrets.GOOGLE_PLACES_API_KEY }}
+      ANTHROPIC_API_KEY:     ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4 anthropic
+
+      - name: Vancouver Mountain Guides
+        run: python scraper_vanmtnguides.py --group $(( $(date -u +%H) / 6 % 4 ))
+        continue-on-error: true
+      - name: Validate Vancouver Mountain Guides
+        run: python validate_provider.py vanmtnguides
+        continue-on-error: true
+
+      # ── Future Zaui providers — uncomment + rename as added ─────────────────
+      # - name: Provider Name
+      #   run: python scraper_PROVIDER.py --group $(( $(date -u +%H) / 6 % 4 ))
+      #   continue-on-error: true
+      # - name: Validate Provider Name
+      #   run: python validate_provider.py PROVIDER
+      #   continue-on-error: true
