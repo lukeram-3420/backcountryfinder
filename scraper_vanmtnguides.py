@@ -170,7 +170,7 @@ def main():
             image_url = f"https://{PROVIDER['tenant_slug']}.zaui.net{image_url}"
 
         # Activity classification (three-tier via scraper_utils)
-        activity_canonical = resolve_activity(title, description, activity_maps, PROVIDER["name"]) or "guided"
+        activity_canonical = resolve_activity(title, description, activity_maps) or "guided"
 
         # Location: title keyword → raw → canonical via scraper_utils
         loc_raw = resolve_location_raw(title)
