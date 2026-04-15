@@ -17,6 +17,7 @@ import requests
 
 from scraper_utils import (
     sb_upsert, send_email,
+    find_place_id, update_provider_ratings,
     load_location_mappings, normalise_location,
     SUPABASE_URL, SUPABASE_KEY, RESEND_API_KEY, UTM,
 )
@@ -110,18 +111,40 @@ def fetch_items() -> dict:
     print(f"  Categories found: {cats}")
     return items
 
-def fetch_availability(item_ids: list, start: str, end: str, chunk: int = 10) -> dict:
-    """Fetch /item/cal in chunks to avoid 500s on large item_id[] lists."""
+def fetch_availability(item_ids: list, start: str, end: str,
+                       chunk: int = 10, window_days: int = 30) -> dict:
+    """Fetch /item/cal in chunks of items × time windows.
+
+    Checkfront returns 500 on large item_id[] lists AND on wide date ranges.
+    Each request covers up to `chunk` items and `window_days` days.
+    Per-item calendars from overlapping responses are merged into a single
+    date-keyed dict per item.
+    """
+    start_d = datetime.datetime.strptime(start, "%Y%m%d").date()
+    end_d   = datetime.datetime.strptime(end,   "%Y%m%d").date()
+
+    windows: list = []
+    cur = start_d
+    while cur <= end_d:
+        w_end = min(cur + datetime.timedelta(days=window_days - 1), end_d)
+        windows.append((cur.strftime("%Y%m%d"), w_end.strftime("%Y%m%d")))
+        cur = w_end + datetime.timedelta(days=1)
+
     merged: dict = {}
-    for i in range(0, len(item_ids), chunk):
-        batch = item_ids[i:i + chunk]
-        params = {
-            "item_id[]": batch,
-            "start_date": start,
-            "end_date":   end,
-        }
-        data = cf_get("item/cal", params=params)
-        merged.update(data.get("items", {}))
+    for w_start, w_end in windows:
+        for i in range(0, len(item_ids), chunk):
+            batch = item_ids[i:i + chunk]
+            params = {
+                "item_id[]": batch,
+                "start_date": w_start,
+                "end_date":   w_end,
+            }
+            data = cf_get("item/cal", params=params)
+            for iid, cal in data.get("items", {}).items():
+                if iid in merged:
+                    merged[iid].update(cal)
+                else:
+                    merged[iid] = dict(cal)
     return merged
 
 # ── Stable ID — includes item_id to prevent slug collisions ──────────────────
@@ -138,6 +161,16 @@ def main():
     start_s    = today.strftime("%Y%m%d")
     end_s      = end_date.strftime("%Y%m%d")
     scraped_at = datetime.datetime.utcnow().isoformat()
+
+    # Seed Google Place ID with an explicit name+location query before the
+    # generic update_provider_ratings lookup (which uses just name+city).
+    place_id = find_place_id("Girth Hitch Guiding Nordegg Alberta")
+    if place_id:
+        print(f"  Seeded google_place_id: {place_id}")
+        sb_upsert("providers", [{"id": PROVIDER["id"], "google_place_id": place_id}])
+    else:
+        print("  Could not find google_place_id via explicit query")
+    update_provider_ratings(PROVIDER["id"])
 
     # Load location mappings for canonical resolution
     loc_mappings = load_location_mappings()
