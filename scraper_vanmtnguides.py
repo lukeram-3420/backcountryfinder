@@ -176,7 +176,51 @@ def main():
         loc_raw = resolve_location_raw(title)
         loc_canonical = normalise_location(loc_raw, loc_mappings)
 
-        # Walk unavailability 7 days at a time across the full lookahead window
+        # Booking URL with UTM in query + hash route for the Vue SPA
+        booking_url = BOOKING_URL_PATTERN.format(utm=UTM, id=aid)
+
+        duration_days = act.get("durationDays") or None
+        if duration_days == 0:
+            duration_days = None
+        badge = build_badge(activity_canonical, duration_days)
+
+        category_name = act.get("_category_name") or ""
+
+        # Private Guiding courses don't run on a schedule — guides are booked
+        # on-demand. Emit one flexible-dates card instead of dated rows.
+        if category_name == "Private Guiding":
+            log.info(f"  [{aid}] {title!r}: private-guiding → 1 flexible-dates row")
+            course_id = make_id(PROVIDER["id"], activity_canonical, "flex", aid, title)
+            rows.append({
+                "id":                 course_id,
+                "title":              title,
+                "provider_id":        PROVIDER["id"],
+                "activity":           activity_canonical,
+                "activity_raw":       category_name,
+                "activity_canonical": activity_canonical,
+                "badge":              badge,
+                "badge_canonical":    badge,
+                "location_raw":       loc_raw,
+                "location_canonical": loc_canonical,
+                "date_sort":          None,
+                "date_display":       "Flexible dates",
+                "duration_days":      duration_days,
+                "price":              price,
+                "spots_remaining":    None,
+                "avail":              "open",
+                "active":             True,
+                "custom_dates":       True,
+                "booking_url":        booking_url,
+                "image_url":          image_url,
+                "summary":            "",
+                "description":        description or None,
+                "scraped_at":         scraped_at,
+            })
+            continue
+
+        # All other categories — walk unavailability 7 days at a time across
+        # the full lookahead window, then compute bookable dates from the
+        # weekly availability template minus blackouts.
         blackouts = set()
         cur = today
         while cur <= end_date:
@@ -196,14 +240,6 @@ def main():
         if not bookable:
             continue
 
-        # Booking URL with UTM in query + hash route for the Vue SPA
-        booking_url = BOOKING_URL_PATTERN.format(utm=UTM, id=aid)
-
-        duration_days = act.get("durationDays") or None
-        if duration_days == 0:
-            duration_days = None
-        badge = build_badge(activity_canonical, duration_days)
-
         # Emit one row per bookable date
         for d in bookable:
             date_iso = d.isoformat()
@@ -213,7 +249,7 @@ def main():
                 "title":              title,
                 "provider_id":        PROVIDER["id"],
                 "activity":           activity_canonical,
-                "activity_raw":       act.get("_category_name") or "",
+                "activity_raw":       category_name,
                 "activity_canonical": activity_canonical,
                 "badge":              badge,
                 "badge_canonical":    badge,
