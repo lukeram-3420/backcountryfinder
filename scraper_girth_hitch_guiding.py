@@ -12,6 +12,7 @@ scraper_utils.normalise_location per CLAUDE.md hard constraint.
 
 import os
 import re
+import time
 import datetime
 import requests
 
@@ -112,47 +113,14 @@ def fetch_items() -> dict:
     return items
 
 def fetch_availability(item_ids: list, start: str, end: str,
-                       chunk: int = 10, window_days: int = 30) -> dict:
-    """Fetch /item/cal in chunks of items × time windows.
+                       window_days: int = 30) -> dict:
+    """Fetch /item/cal one item at a time in 30-day windows.
 
-    Checkfront returns 500 on large item_id[] lists AND on wide date ranges.
-    Each request covers up to `chunk` items and `window_days` days.
-    Per-item calendars from overlapping responses are merged into a single
-    date-keyed dict per item.
+    Checkfront returns HTTP 500 on larger multi-item batches when any item
+    has no availability in the window. Per-item calls return a JSON body
+    whose request.status == 'ERROR' with error.id == 'not_found' when empty
+    — treated as empty and skipped rather than raised.
     """
-    # ── DIAGNOSTIC ──────────────────────────────────────────────────────────
-    # Single-item, 7-day probe to see exactly what the endpoint returns.
-    # Prints status + body before any raise, so even a 5xx is visible.
-    if item_ids:
-        diag_start = start
-        diag_end = (
-            datetime.datetime.strptime(start, "%Y%m%d").date()
-            + datetime.timedelta(days=7)
-        ).strftime("%Y%m%d")
-        diag_params = {
-            "item_id[]": [item_ids[0]],
-            "start_date": diag_start,
-            "end_date":   diag_end,
-        }
-        try:
-            diag_resp = requests.get(
-                f"{CF_BASE}/item/cal",
-                params=diag_params,
-                headers=CF_HEADERS,
-                timeout=20,
-            )
-            print(f"  ── DIAG item/cal probe: item_id={item_ids[0]} {diag_start}→{diag_end}")
-            print(f"  ── DIAG final URL: {diag_resp.url}")
-            print(f"  ── DIAG status:    {diag_resp.status_code}")
-            body = diag_resp.text or ""
-            print(f"  ── DIAG body ({len(body)} bytes):")
-            print(body[:2000])
-            if len(body) > 2000:
-                print(f"  ── DIAG body truncated; full length {len(body)} bytes")
-        except Exception as e:
-            print(f"  ── DIAG request failed: {e}")
-    # ── END DIAGNOSTIC ──────────────────────────────────────────────────────
-
     start_d = datetime.datetime.strptime(start, "%Y%m%d").date()
     end_d   = datetime.datetime.strptime(end,   "%Y%m%d").date()
 
@@ -165,19 +133,36 @@ def fetch_availability(item_ids: list, start: str, end: str,
 
     merged: dict = {}
     for w_start, w_end in windows:
-        for i in range(0, len(item_ids), chunk):
-            batch = item_ids[i:i + chunk]
+        for iid in item_ids:
             params = {
-                "item_id[]": batch,
+                "item_id[]": [iid],
                 "start_date": w_start,
                 "end_date":   w_end,
             }
-            data = cf_get("item/cal", params=params)
-            for iid, cal in data.get("items", {}).items():
-                if iid in merged:
-                    merged[iid].update(cal)
+            try:
+                r = requests.get(
+                    f"{CF_BASE}/item/cal",
+                    params=params,
+                    headers=CF_HEADERS,
+                    timeout=20,
+                )
+                data = r.json() if r.content else {}
+            except Exception as e:
+                print(f"  item/cal {iid} {w_start}→{w_end} request failed: {e}")
+                time.sleep(0.5)
+                continue
+
+            if (data.get("request") or {}).get("status") == "ERROR":
+                # Empty result for this item×window — not a real error
+                time.sleep(0.5)
+                continue
+
+            for rid, cal in (data.get("items") or {}).items():
+                if rid in merged:
+                    merged[rid].update(cal)
                 else:
-                    merged[iid] = dict(cal)
+                    merged[rid] = dict(cal)
+            time.sleep(0.5)
     return merged
 
 # ── Stable ID — includes item_id to prevent slug collisions ──────────────────
