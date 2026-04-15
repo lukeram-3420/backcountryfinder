@@ -67,8 +67,52 @@ TITLE_ACTIVITY_RULES_WORD_BOUNDARY = [
 
 # ── Flag helpers ─────────────────────────────────────────────────────────────
 
-def flag_course(course_id: str, reason: str, auto_hidden: list):
-    """Patch a single course row as auto_flagged and record it."""
+# Module-level suppression cache populated by main() for each run. Kept as a
+# module global so every check function's existing flag_course calls honour
+# it without signature threading.
+_current_provider_id: str = ""
+_suppressions_cache: list = []
+
+
+def _reason_category(reason: str) -> str:
+    """Top-level category of a flag_reason string — portion before the first
+    ':'. e.g. 'activity mismatch: ...' -> 'activity mismatch'."""
+    return (reason or "").split(":", 1)[0].strip().lower()
+
+
+def is_suppressed(title: str, reason: str) -> bool:
+    """True if an admin 'Clear all' suppression exists for this title+reason.
+
+    Matches when:
+      - suppression.provider_id is null (global) OR matches current provider
+      - suppression.title_contains (lowercased) is a substring of title
+      - the proposed reason's category matches the suppression's reason category
+    """
+    if not _suppressions_cache:
+        return False
+    t = (title or "").lower()
+    proposed_cat = _reason_category(reason)
+    if not proposed_cat:
+        return False
+    for s in _suppressions_cache:
+        s_pid = s.get("provider_id")
+        if s_pid and s_pid != _current_provider_id:
+            continue
+        s_tc = (s.get("title_contains") or "").strip().lower()
+        if not s_tc or s_tc not in t:
+            continue
+        if _reason_category(s.get("flag_reason") or "") == proposed_cat:
+            return True
+    return False
+
+
+def flag_course(course_id: str, reason: str, auto_hidden: list, title: str = ""):
+    """Patch a single course row as auto_flagged and record it — unless the
+    (title, reason-category) combo has been suppressed via admin 'Clear all'.
+    """
+    if title and is_suppressed(title, reason):
+        logging.info(f"Suppressed flag (admin-cleared): {title!r} / {reason!r}")
+        return
     sb_patch("courses", f"id=eq.{course_id}", {
         "auto_flagged": True,
         "flag_reason": reason[:200],
@@ -239,7 +283,7 @@ def check_summaries(courses: list, auto_hidden: list) -> list:
         for kw in contradictions:
             if kw in summary:
                 reason = f"summary mismatch: '{kw}' on {activity} course"
-                flag_course(c["id"], reason, auto_hidden)
+                flag_course(c["id"], reason, auto_hidden, title=c.get("title",""))
                 break
 
     # Duplicate summaries across different titles → EMAIL ONLY
@@ -278,7 +322,7 @@ def check_activities(courses: list, auto_hidden: list) -> list:
 
         # Null activity → AUTO-HIDE
         if not activity:
-            flag_course(c["id"], "null activity", auto_hidden)
+            flag_course(c["id"], "null activity", auto_hidden, title=c.get("title",""))
             continue
 
         # Skip titles that legitimately span two activity types
@@ -291,7 +335,7 @@ def check_activities(courses: list, auto_hidden: list) -> list:
             if any(kw in title_lower for kw in keywords):
                 if activity != expected:
                     reason = f"activity mismatch: title suggests {expected} but got {activity}"
-                    flag_course(c["id"], reason, auto_hidden)
+                    flag_course(c["id"], reason, auto_hidden, title=c.get("title",""))
                 matched = True
                 break
 
@@ -300,7 +344,7 @@ def check_activities(courses: list, auto_hidden: list) -> list:
                 if re.search(pattern, title_lower):
                     if activity != expected:
                         reason = f"activity mismatch: title suggests {expected} but got {activity}"
-                        flag_course(c["id"], reason, auto_hidden)
+                        flag_course(c["id"], reason, auto_hidden, title=c.get("title",""))
                     break
 
     return email_only
@@ -326,7 +370,7 @@ def check_prices(courses: list, auto_hidden: list, price_exceptions: list, provi
                 "id": c["id"],
             })
         elif price is not None and price <= 0:
-            flag_course(c["id"], f"invalid price: {price}", auto_hidden)
+            flag_course(c["id"], f"invalid price: {price}", auto_hidden, title=c.get("title",""))
         elif price is not None and median_price > 0 and price > median_price * 5:
             title_lower = c["title"].lower()
             if any(kw in title_lower for kw in ("logan", "expedition", "traverse")):
@@ -362,7 +406,7 @@ def check_dates(courses: list, auto_hidden: list) -> list:
             continue
 
         if d < today and c.get("active") is True:
-            flag_course(c["id"], "past date still active", auto_hidden)
+            flag_course(c["id"], "past date still active", auto_hidden, title=c.get("title",""))
 
         if d > two_years:
             email_only.append({
@@ -424,7 +468,7 @@ def check_duplicates(courses: list, auto_hidden: list, whitelisted: set, provide
             continue
         key = (c["title"], c.get("date_sort"))
         if key in seen:
-            flag_course(c["id"], "duplicate: same title and date", auto_hidden)
+            flag_course(c["id"], "duplicate: same title and date", auto_hidden, title=c.get("title",""))
         else:
             seen[key] = c["id"]
 
@@ -655,6 +699,22 @@ def main():
         for r in exception_rows
     ]
     logging.info(f"Loaded {len(price_exceptions)} price exceptions")
+
+    # Load admin suppressions (from "Clear all" in the Flags tab). A suppression
+    # row prevents the validator from re-flagging the same (title, flag_reason
+    # category) combo on subsequent runs.
+    global _current_provider_id, _suppressions_cache
+    _current_provider_id = provider_id
+    suppression_rows = []
+    try:
+        suppression_rows = sb_get("validator_suppressions", {
+            "select": "provider_id,title_contains,flag_reason",
+            "or": f"(provider_id.eq.{provider_id},provider_id.is.null)",
+        })
+    except Exception as e:
+        print(f"  ⚠ Could not load validator_suppressions: {e}")
+    _suppressions_cache = suppression_rows
+    logging.info(f"Loaded {len(_suppressions_cache)} admin suppressions")
 
     # Get last run count
     last_count = None

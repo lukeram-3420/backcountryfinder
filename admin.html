@@ -432,6 +432,24 @@
 
   CREATE POLICY "authenticated can update provider_pipeline"
     ON provider_pipeline FOR UPDATE TO authenticated USING (true);
+
+  -- For the Flags tab "Clear all" (admin suppressions — validate_provider.py
+  -- consumes this table at start of run and skips flagging matching rows).
+  CREATE TABLE IF NOT EXISTS validator_suppressions (
+    id bigserial PRIMARY KEY,
+    provider_id text,
+    title_contains text,
+    flag_reason text,
+    created_at timestamptz DEFAULT now()
+  );
+
+  GRANT SELECT, INSERT ON validator_suppressions TO anon, authenticated, service_role;
+
+  -- For the Flags tab "Add mapping" — lets authenticated update courses so the
+  -- admin can patch activity/activity_canonical immediately after saving a
+  -- mapping, preventing the validator from re-flagging on the next run.
+  CREATE POLICY "authenticated can update courses"
+    ON courses FOR UPDATE TO authenticated USING (true);
 */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -1568,16 +1586,48 @@ window.resolveFlag = (course_id) => {
   });
 };
 
+// Mirrors ACTIVITY_CONTRADICTIONS in validate_provider.py. Keep in sync.
+const ADMIN_ACTIVITY_CONTRADICTIONS = {
+  climbing: ['splitboard', 'ski touring', 'ski resort', 'ski lift', 'backcountry skiing', 'downhill ski'],
+  skiing:   ['rock climbing', 'ice climbing', 'trad climbing', 'sport climbing'],
+  hiking:   ['splitboard', 'ski touring', 'rock climbing', 'ice climbing'],
+};
+
+async function insertSuppressions(g) {
+  // One row per provider in the group
+  const rows = (g.providerIds && g.providerIds.length ? g.providerIds : [null]).map(pid => ({
+    provider_id: pid || null,
+    title_contains: g.title,
+    flag_reason: g.flag_reason || '',
+  }));
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/validator_suppressions`, {
+    method: 'POST',
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${session.access_token}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=minimal',
+    },
+    body: JSON.stringify(rows),
+  });
+  if (!res.ok) throw new Error(`Suppression insert ${res.status}: ${await res.text()}`);
+}
+
 window.clearGroup = (sk) => {
   const g = findGroupBySafeKey(sk); if (!g) return;
-  confirmAction('Clear flags', `Clear auto-flag on ${g.occurrences} course${g.occurrences === 1 ? '' : 's'}?`, async () => {
-    try {
-      await clearGroupCourseIds(g.courseIds);
-      toast(`Cleared ${g.occurrences}`);
-      removeAutoFlagGroup(g.key);
-      loadFlagsStats();
-    } catch (e) { toast('Failed: ' + e.message, true); }
-  });
+  confirmAction(
+    'Clear flags',
+    `Clear auto-flag on ${g.occurrences} course${g.occurrences === 1 ? '' : 's'} and suppress this (title + reason) permanently?`,
+    async () => {
+      try {
+        await insertSuppressions(g);
+        await clearGroupCourseIds(g.courseIds);
+        toast(`Cleared ${g.occurrences} · suppression recorded`);
+        removeAutoFlagGroup(g.key);
+        loadFlagsStats();
+      } catch (e) { toast('Failed: ' + e.message, true); }
+    }
+  );
 };
 
 window.expandAddMapping = (sk) => {
@@ -1587,6 +1637,34 @@ window.expandAddMapping = (sk) => {
 };
 window.cancelAddMapping = () => { expandedAutoFlagKey = null; renderAutoFlags(); };
 
+async function patchCoursesActivityForMapping(providerIds, title_contains, activity) {
+  // PATCH every course matching the provider + ilike title to the mapped
+  // activity so the validator does not re-flag on the next run.
+  const ilike = `*${title_contains}*`;
+  let total = 0;
+  for (const pid of providerIds) {
+    const url = `${SUPABASE_URL}/rest/v1/courses`
+      + `?provider_id=eq.${encodeURIComponent(pid)}`
+      + `&title=ilike.${encodeURIComponent(ilike)}`;
+    const res = await fetch(url, {
+      method: 'PATCH',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation',
+      },
+      body: JSON.stringify({ activity, activity_canonical: activity }),
+    });
+    if (!res.ok) throw new Error(`courses PATCH ${pid} ${res.status}: ${await res.text()}`);
+    try {
+      const updated = await res.json();
+      total += Array.isArray(updated) ? updated.length : 0;
+    } catch { /* ignore parse errors */ }
+  }
+  return total;
+}
+
 window.saveAddMapping = async (sk) => {
   const g = findGroupBySafeKey(sk); if (!g) return;
   const title_contains = document.getElementById(`afm-title-${sk}`).value.trim();
@@ -1594,29 +1672,82 @@ window.saveAddMapping = async (sk) => {
   if (!title_contains || !activity) { toast('Both fields required', true); return; }
   try {
     await callEdge('admin-approve-mapping', { title_contains, activity });
+    // Permanently update every matching course so the validator can't re-flag.
+    let patched = 0;
+    try {
+      patched = await patchCoursesActivityForMapping(g.providerIds || [], title_contains, activity);
+    } catch (e) {
+      toast('Mapping saved but courses PATCH failed: ' + e.message, true);
+    }
     await clearGroupCourseIds(g.courseIds);
-    toast(`Mapping added, ${g.occurrences} flag${g.occurrences === 1 ? '' : 's'} cleared`);
+    toast(`Mapping added · ${patched} course${patched === 1 ? '' : 's'} updated · ${g.occurrences} flag${g.occurrences === 1 ? '' : 's'} cleared`);
     removeAutoFlagGroup(g.key);
     loadFlagsStats();
   } catch (e) { toast('Failed: ' + e.message, true); }
 };
 
+function summaryStillContradicts(summary, activity, flagReason) {
+  const s = (summary || '').toLowerCase();
+  // 1. Keyword from the original mismatch reason, if parseable
+  const mm = (flagReason || '').match(/^summary mismatch:\s*'([^']+)'/i);
+  if (mm) {
+    const kw = mm[1].toLowerCase();
+    if (s.includes(kw)) return kw;
+  }
+  // 2. Full contradiction list for this activity
+  const list = ADMIN_ACTIVITY_CONTRADICTIONS[activity] || [];
+  for (const kw of list) {
+    if (s.includes(kw)) return kw;
+  }
+  return null;
+}
+
 window.regenerateGroup = (sk) => {
   const g = findGroupBySafeKey(sk); if (!g) return;
-  confirmAction('Regenerate summaries', `Regenerate summary for ${g.occurrences} course${g.occurrences === 1 ? '' : 's'} via Claude Haiku?`, async () => {
+  confirmAction('Regenerate summaries', `Regenerate summary for ${g.occurrences} course${g.occurrences === 1 ? '' : 's'} via Claude Haiku? If the new text still contradicts the activity, the flag stays and you'll be told why.`, async () => {
     try {
+      const regenerated = [];          // [{id, provider_id, summary, activity}]
+      const stillBad = [];             // [{id, kw, summary}]
       for (const id of g.courseIds) {
-        const { data } = await sb.from('courses').select('provider_id,description').eq('id', id).limit(1);
+        const { data } = await sb.from('courses').select('provider_id,description,activity,activity_canonical').eq('id', id).limit(1);
         const row = data?.[0];
         if (!row) continue;
-        await callEdge('admin-regenerate-summary', {
+        const resp = await callEdge('admin-regenerate-summary', {
           provider_id: row.provider_id,
           title: g.title,
           description: row.description || g.title,
         });
+        const newSummary = resp?.summary || '';
+        const activity = row.activity_canonical || row.activity || '';
+        const bad = summaryStillContradicts(newSummary, activity, g.flag_reason);
+        if (bad) {
+          stillBad.push({ id, kw: bad, summary: newSummary });
+        } else {
+          regenerated.push({ id, provider_id: row.provider_id, summary: newSummary, activity });
+        }
+      }
+
+      if (stillBad.length) {
+        const kws = [...new Set(stillBad.map(x => `"${x.kw}"`))].join(', ');
+        toast(
+          `⚠ ${stillBad.length}/${g.courseIds.length} regenerated summaries still contain ${kws}. Flag NOT cleared. Try again or edit manually in Summary Review.`,
+          true,
+        );
+        return;
+      }
+
+      // All clean — publish each summary via admin-approve-summary (which
+      // patches courses.summary via service role) then clear auto-flags.
+      for (const r of regenerated) {
+        await callEdge('admin-approve-summary', {
+          provider_id: r.provider_id,
+          title: g.title,
+          summary: r.summary,
+          course_id: r.id,
+        });
       }
       await clearGroupCourseIds(g.courseIds);
-      toast(`Regenerated and cleared ${g.occurrences}`);
+      toast(`Regenerated · published · ${g.occurrences} flag${g.occurrences === 1 ? '' : 's'} cleared`);
       removeAutoFlagGroup(g.key);
       loadFlagsStats();
     } catch (e) { toast('Failed: ' + e.message, true); }
