@@ -173,7 +173,7 @@ def scrape_skaha() -> list:
                 "date_sort": None, "duration_days": None, "price": price,
                 "spots_remaining": None, "avail": "open", "image_url": None,
                 "booking_url": f"{base_url}{course_meta['path']}?{utm}",
-                "description": description, "summary": "", "custom_dates": True, "scraped_at": scraped_at,
+                "description": description, "summary": "", "search_document": "", "custom_dates": True, "scraped_at": scraped_at,
             })
         else:
             open_count = sum(1 for e in date_entries if e["avail"] == "open")
@@ -191,7 +191,7 @@ def scrape_skaha() -> list:
                     "date_sort": entry["date_iso"], "duration_days": None, "price": price,
                     "spots_remaining": None, "avail": entry["avail"], "image_url": None,
                     "booking_url": entry["booking_url"], "description": description,
-                    "summary": "", "custom_dates": False, "scraped_at": scraped_at,
+                    "summary": "", "search_document": "", "custom_dates": False, "scraped_at": scraped_at,
                 })
         if i < len(SKAHA_COURSE_PAGES) - 1:
             delay = random.uniform(2, 7)
@@ -244,6 +244,7 @@ def main():
             "active":             c.get("avail") != "sold",
             "custom_dates":       c.get("custom_dates", False),
             "summary":            "",
+            "search_document":    "",
             "description":        c.get("description", ""),
             "scraped_at":         c["scraped_at"],
         })

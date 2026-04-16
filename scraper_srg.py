@@ -183,6 +183,7 @@ def scrape_srg(provider):
                         "booking_url":  booking_url,
                         "description":  description,
                         "summary":      "",
+                        "search_document": "",
                         "avail":        "open",
                         "scraped_at":   datetime.utcnow().isoformat(),
                     })
@@ -210,6 +211,7 @@ def scrape_srg(provider):
                         "booking_url":  booking_url,
                         "description":  description,
                         "summary":      "",
+                        "search_document": "",
                         "avail":        "open",
                         "scraped_at":   datetime.utcnow().isoformat(),
                     })
@@ -268,6 +270,7 @@ def main():
             "active":             True,
             "custom_dates":       c.get("custom_dates", False),
             "summary":            "",
+            "search_document":    "",
             "description":        c.get("description", ""),
             "scraped_at":         c["scraped_at"],
         })

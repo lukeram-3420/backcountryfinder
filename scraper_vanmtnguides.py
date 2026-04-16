@@ -214,6 +214,7 @@ def main():
                 "booking_url":        booking_url,
                 "image_url":          image_url,
                 "summary":            "",
+                "search_document":    "",
                 "description":        description or None,
                 "scraped_at":         scraped_at,
             })
@@ -267,6 +268,7 @@ def main():
                 "booking_url":        booking_url,
                 "image_url":          image_url,
                 "summary":            "",
+                "search_document":    "",
                 "description":        description or None,
                 "scraped_at":         scraped_at,
             })

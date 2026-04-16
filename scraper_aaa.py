@@ -243,6 +243,7 @@ def main():
                 "active":             True,
                 "booking_url":        booking_url,
                 "summary":            "",
+                "search_document":    "",
                 "image_url":          None,
                 "badge":              None,
                 "badge_canonical":    None,

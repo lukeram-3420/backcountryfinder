@@ -454,6 +454,7 @@ def scrape_summit(provider):
                     "image_url":     image_url,
                     "booking_url":   booking_url,
                     "summary":       "",
+                    "search_document": "",
                     "description":   description,
                     "custom_dates":  False,
                     "scraped_at":    datetime.utcnow().isoformat(),
@@ -525,6 +526,7 @@ def main():
             "active":             True,
             "custom_dates":       False,
             "summary":            "",
+            "search_document":    "",
             "description":        c.get("description", ""),
             "scraped_at":         c["scraped_at"],
         })

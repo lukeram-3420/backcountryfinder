@@ -456,6 +456,7 @@ def main():
             "active":             active,
             "custom_dates":       custom_dates,
             "summary":            "",
+            "search_document":    "",
             "description":        page_description,
             "scraped_at":         c["scraped_at"],
         })

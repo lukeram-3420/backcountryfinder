@@ -260,6 +260,7 @@ def scrape_iag_style(provider):
                     "booking_url":  booking_url,
                     "description":  full_description,
                     "summary":      "",
+                    "search_document": "",
                     "custom_dates": False,
                     "scraped_at":   datetime.utcnow().isoformat(),
                 })
@@ -324,6 +325,7 @@ def main():
             "active":             True,
             "custom_dates":       c.get("custom_dates", False),
             "summary":            "",
+            "search_document":    "",
             "description":        c.get("description", ""),
             "scraped_at":         c["scraped_at"],
         })

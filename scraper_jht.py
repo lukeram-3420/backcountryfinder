@@ -302,6 +302,7 @@ def scrape_page(path, default_activity, default_location):
                 "image_url":          None,
                 "booking_url":        booking_url,
                 "summary":            "",
+                "search_document":    "",
                 "description":        description,
                 "badge":              None,
                 "badge_canonical":    None,

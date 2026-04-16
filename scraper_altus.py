@@ -925,6 +925,7 @@ def scrape_website_course(url: str) -> list:
                 "booking_url":   booking_url,
                 "description":   description,
                 "summary":       "",
+                "search_document": "",
                 "avail":         "open",
                 "custom_dates":  False,
                 "scraped_at":    scraped_at,
@@ -945,6 +946,7 @@ def scrape_website_course(url: str) -> list:
             "booking_url":   booking_url,
             "description":   description,
             "summary":       "",
+            "search_document": "",
             "avail":         "open",
             "custom_dates":  True,
             "scraped_at":    scraped_at,
@@ -1109,6 +1111,7 @@ def main():
                 "active":             True,
                 "custom_dates":       c.get("custom_dates", False),
                 "summary":            "",
+                "search_document":    "",
                 "description":        c.get("description", ""),
                 "scraped_at":         c["scraped_at"],
             })

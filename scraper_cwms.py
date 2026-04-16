@@ -334,6 +334,7 @@ def scrape_cwms(provider):
                     "image_url":     image_url,
                     "booking_url":   booking_url,
                     "summary":       "",
+                    "search_document": "",
                     "description":   desc_text,
                     "scraped_at":    datetime.utcnow().isoformat(),
                 })
@@ -508,7 +509,8 @@ def main():
             "price": c.get("price"), "spots_remaining": None, "avail": "open",
             "image_url": c.get("image_url"), "booking_url": booking_url,
             "active": active, "custom_dates": custom_dates,
-            "summary": "", "description": c.get("description", ""),
+            "summary": "", "search_document": "",
+            "description": c.get("description", ""),
             "scraped_at": c["scraped_at"],
         })
     # For each CWMS course, visit the page and create one row per date

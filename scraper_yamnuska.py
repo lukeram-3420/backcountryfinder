@@ -447,6 +447,7 @@ def scrape_yamnuska() -> list:
                     "activity_raw":  "",
                     "duration_days": None,
                     "summary":       "",
+                    "search_document": "",
                     "scraped_at":    scraped_at,
                 })
             if i < len(PROVIDER["courses"]) - 1:
@@ -532,6 +533,7 @@ def main():
             "active":             c.get("avail") != "sold",
             "custom_dates":       c.get("custom_dates", False),
             "summary":            "",
+            "search_document":    "",
             "description":        c.get("description", ""),
             "scraped_at":         c["scraped_at"],
         })
