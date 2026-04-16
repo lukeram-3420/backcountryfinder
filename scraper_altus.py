@@ -1061,6 +1061,7 @@ def main():
             "active":             active,
             "custom_dates":       custom_dates,
             "summary":            c.get("summary", ""),
+            "search_document":    c.get("search_document", ""),
             "description":        page_description or c.get("description", ""),
             "scraped_at":         c["scraped_at"],
         })
