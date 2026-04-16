@@ -1,0 +1,23 @@
+name: Sync Algolia
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      ALGOLIA_APP_ID:       ${{ secrets.ALGOLIA_APP_ID }}
+      ALGOLIA_ADMIN_KEY:    ${{ secrets.ALGOLIA_ADMIN_KEY }}
+      ALGOLIA_INDEX_NAME:   courses_v2
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install requests algoliasearch
+      - name: Sync to Algolia
+        run: python algolia_sync.py

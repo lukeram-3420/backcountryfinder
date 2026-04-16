@@ -493,8 +493,33 @@ Builds the `discovery_cloud` table from live course and provider data. Runs befo
 
 **Search surface grows automatically:** As new providers and courses are added, the refresh script discovers new bigrams and location terms. Manual terms added via the admin Settings tab are preserved and never overwritten.
 
+### Algolia sync workflow — sync-algolia.yml
+- **Trigger:** `workflow_dispatch` only (manual)
+- Runs: `python algolia_sync.py`
+- Dependencies: `requests algoliasearch`
+- Uses 4 secrets: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `ALGOLIA_APP_ID`, `ALGOLIA_ADMIN_KEY`
+- Hardcoded: `ALGOLIA_INDEX_NAME=courses_v2`
+
+### algolia_sync.py
+
+Pushes V2 courses from Supabase to Algolia index. Reads all active, non-flagged V2 courses with provider join, maps to Algolia records, configures index settings, and pushes via `save_objects` (upsert by objectID). Idempotent — safe to re-run.
+
+**Usage:** `python algolia_sync.py` or `python algolia_sync.py --dry-run` or `python algolia_sync.py --skip-settings`
+
+**Flags:** `--dry-run` (log records, no push), `--skip-settings` (skip index config, just push records)
+
+**Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `ALGOLIA_APP_ID`, `ALGOLIA_ADMIN_KEY`, `ALGOLIA_INDEX_NAME` (default: `courses_v2`)
+
+**Supabase query:** `courses?active=eq.true&flagged=not.is.true&auto_flagged=not.is.true&activity_canonical=is.null` with provider join.
+
+**Algolia record schema:** `objectID` (courses.id), `title`, `search_document`, `summary`, `activity`, `location_canonical`, `location_raw`, `date_sort` (unix timestamp), `date_display`, `duration_days`, `price`, `currency`, `avail`, `badge`, `image_url`, `booking_url`, `custom_dates`, `provider_id`, `provider_name`, `provider_rating`, `provider_logo_url`.
+
+**Index settings:** Searchable attributes (ordered): `title`, `search_document`, `provider_name`, `location_canonical`. Facets: `activity`, `location_canonical`, `provider_name`, `avail`. Custom ranking: `asc(date_sort)`. Flex-date courses use far-future timestamp (2100-01-01) to sort to end.
+
+**Synonyms:** skiing/backcountry skiing/ski touring/splitboarding, climbing/rock climbing/sport climbing/trad climbing, hiking/backpacking/trekking, mountaineering/alpine climbing/glacier travel, avalanche safety/AST/AST 1/AST 2/avy, BC/British Columbia, AB/Alberta.
+
 ### Secrets used by all workflows
-`SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `RESEND_API_KEY`, `GOOGLE_PLACES_API_KEY`, `ANTHROPIC_API_KEY`
+`SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `RESEND_API_KEY`, `GOOGLE_PLACES_API_KEY`, `ANTHROPIC_API_KEY`, `ALGOLIA_APP_ID`, `ALGOLIA_ADMIN_KEY`
 
 ## Admin page
 
@@ -787,8 +812,10 @@ All existing V1 courses backfilled with `currency='CAD'`. All existing providers
 
 No backfill needed — V1 rows are deleted on cutover, and all new scraper runs generate both fields. Algolia (Phase 3) goes live after cutover, so there is no consumer for `search_document` on pre-cutover rows.
 
+### V2 Phase 3 — Algolia index bootstrap (implemented)
+`algolia_sync.py` pushes V2 courses to Algolia index `courses_v2`. Configured with searchable attributes, facets, custom ranking, and activity/location synonyms. Triggered manually via `sync-algolia.yml` workflow. Index is populated for testing — the live frontend does not read from Algolia until Phase 4.
+
 ### V2 phases remaining (not yet implemented)
-- **Phase 3:** Algolia index bootstrap (geo-enrichment, record push, synonym config)
 - **Phase 4:** V2 frontend (Algolia InstantSearch replaces Supabase dropdown queries)
 - **Phase 5:** Velocity signal calculation (fill rate, price trend — needs 4+ weeks of log data)
 - **Phase 6:** Validator simplification (4 checks, admin tabs removed)
