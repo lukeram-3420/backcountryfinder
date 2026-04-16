@@ -18,7 +18,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,700&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/algoliasearch@5/dist/lite/builds/browser.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/algoliasearch@4/dist/algoliasearch-lite.umd.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/instantsearch.js@4/dist/instantsearch.production.min.js"></script>
 <style>
   :root {
@@ -1714,7 +1714,7 @@ const customInfiniteHits = instantsearch.connectors.connectInfiniteHits(
 );
 
 // ── Date + provider filter via configure connector ──
-let _configRefine = null;
+var _configRefine = null;
 const customConfigure = instantsearch.connectors.connectConfigure(
   ({ refine }, isFirstRender) => {
     _configRefine = refine;
