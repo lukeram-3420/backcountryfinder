@@ -787,6 +787,20 @@ Unique index on `(lower(term), type)`. Populated by `refresh_discovery_cloud.py`
 
 V2 is an incremental migration on the live system. V1 and V2 coexist in the same database. The V1 frontend continues working throughout the transition. Changes below are already shipped and active.
 
+### V2 phase status
+| Phase | Name | Status |
+|-------|------|--------|
+| 0 | Schema additions | Complete |
+| 1 | Haiku two-field summaries (`display_summary` + `search_document`) | Complete |
+| 2 | Intelligence logging (`course_availability_log`, `course_price_log`) | Complete |
+| — | V2 stable ID migration (all 14 scrapers) | Complete |
+| 3 | Algolia index bootstrap | Complete |
+| 4 | V2 frontend (Algolia InstantSearch) | Complete |
+| 4.5 | `index.html` modularisation | Not started |
+| 5 | Velocity signals (fill rate, price trend) | Not started — needs 4+ weeks of log data |
+| 6 | Validator simplification (4 checks) | Not started |
+| 7 | Drop V1 columns + tables post-cutover | Not started |
+
 ### V2 stable ID format
 All 14 standalone scrapers now emit V2 IDs via `stable_id_v2()` in `scraper_utils.py`:
 ```
@@ -831,10 +845,19 @@ All existing V1 courses backfilled with `currency='CAD'`. All existing providers
 No backfill needed — V1 rows are deleted on cutover, and all new scraper runs generate both fields. Algolia (Phase 3) goes live after cutover, so there is no consumer for `search_document` on pre-cutover rows.
 
 ### V2 Phase 3 — Algolia index bootstrap (implemented)
-`algolia_sync.py` pushes V2 courses to Algolia index `courses_v2`. Uses `replace_all_objects` for atomic full replacement — stale records are automatically removed. Configured with searchable attributes, facets, custom ranking, and activity/location synonyms. Runs automatically after every `scraper-all.yml` run (every 6 hours) with `--skip-settings`. Also available as standalone `sync-algolia.yml` workflow for manual triggers or settings reconfiguration. The live frontend does not read from Algolia until Phase 4.
+`algolia_sync.py` pushes V2 courses to Algolia index `courses_v2`. Uses `replace_all_objects` for atomic full replacement — stale records are automatically removed. Configured with searchable attributes, facets, custom ranking, and activity/location synonyms. Runs automatically after every `scraper-all.yml` run (every 6 hours) with `--skip-settings`. Also available as standalone `sync-algolia.yml` workflow for manual triggers or settings reconfiguration.
+
+### V2 Phase 4 — V2 frontend (implemented)
+Algolia InstantSearch is live in `index.html` and replaces the Supabase-backed search stack on the Search page:
+- **Search box** wired via `connectSearchBox`
+- **Activity dropdown + Location dropdown** replaced with Algolia `connectMenu` widgets (the old `loadActivitiesDropdown` / `updateLocationsForActivity` / `loadLocationsDropdown` Supabase queries are no longer called)
+- **Date filter** converted to a unix-timestamp `numericFilter` against `date_sort`
+- **Provider deep link** (`?provider=`) now applies as an Algolia `facetFilters` constraint rather than a Supabase `eq.` filter
+- Old Supabase search functions are commented out (not deleted) as a fallback reference until V1 cutover
+- `courses_v2` is the single source of truth for the search grid, synced every 6 hours by `scraper-all.yml`'s final step and on-demand via `sync-algolia.yml`
 
 ### V2 phases remaining (not yet implemented)
-- **Phase 4:** V2 frontend (Algolia InstantSearch replaces Supabase dropdown queries)
+- **Phase 4.5:** `index.html` modularisation — split the single static file into logical modules now that the search stack is no longer Supabase-bound
 - **Phase 5:** Velocity signal calculation (fill rate, price trend — needs 4+ weeks of log data)
 - **Phase 6:** Validator simplification (4 checks, admin tabs removed)
 - **Phase 7:** Drop V1 columns + tables after cutover
