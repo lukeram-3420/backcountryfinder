@@ -872,9 +872,10 @@ JS extracted into `/js/` modules. Classic script tags, not ES modules — functi
 
 **Rules for future changes:**
 - All new JS goes into the relevant `/js/` module — never back into `index.html` inline
-- Script tags in `<head>` (order matters for globals-via-classic-script): `cards.js`, `saved.js`, `ui.js`, `providers.js`, `search.js`
+- Script tags in `<head>` use `defer` and load in order: `cards.js`, `saved.js`, `ui.js`, `providers.js`, `search.js`. `defer` means modules execute *after* HTML parsing (including the body `<script>` that defines constants) but before `DOMContentLoaded`, so top-level code in a module can reference body-script constants (`ALGOLIA_APP_ID`, `SUPABASE_URL`, etc.) safely — no need to defer instantiation into `initXxx()` functions for ordering reasons
 - Shared mutable state (`currentCourses`, `currentFilters`, `ACTIVITY_LABELS`, `totalCount` etc.) lives as top-level `let` in `index.html`; modules read/write by name
 - Credentials/URLs (`SUPABASE_URL`, `ALGOLIA_APP_ID` etc.) stay in `index.html`; modules reference them as globals
+- Never drop `defer` from a module tag without migrating any body-script dependencies into `<head>` first — it is the load-order guarantee that keeps this pattern stable
 
 ### Card redesign (scheduled post-Phase 4.5)
 New card design discussed and approved. Claude Code to build against `/js/cards.js` only. No other files touched during card redesign.
