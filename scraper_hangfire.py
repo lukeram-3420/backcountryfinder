@@ -473,7 +473,9 @@ def main():
             summaries = generate_summaries_batch(summary_inputs)
             for c in processed:
                 if c["id"] in summaries:
-                    c["summary"] = summaries[c["id"]]
+                    result = summaries.get(c["id"], {})
+                    c["summary"] = result.get("summary", "") if isinstance(result, dict) else result
+                    c["search_document"] = result.get("search_document", "") if isinstance(result, dict) else ""
             log.info(f"Summaries generated: {len(summaries)}")
 
     # Dedup by stable ID

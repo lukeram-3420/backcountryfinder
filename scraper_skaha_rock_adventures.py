@@ -257,9 +257,14 @@ def main():
                 unique_inputs.append({"id": c["id"], "title": c["title"], "description": c.get("description", ""), "provider": SKAHA_PROVIDER["name"], "activity": c.get("activity_canonical", "climbing")})
         if unique_inputs:
             summaries = generate_summaries_batch(unique_inputs)
-            title_to_summary = {c["title"]: summaries.get(c["id"], "") for c in unique_inputs}
+            title_to_summary = {}
+            for c in unique_inputs:
+                result = summaries.get(c["id"], {})
+                title_to_summary[c["title"]] = result if isinstance(result, dict) else {"summary": result, "search_document": ""}
             for c in processed:
-                c["summary"] = title_to_summary.get(c["title"], "")
+                result = title_to_summary.get(c["title"], {})
+                c["summary"] = result.get("summary", "") if isinstance(result, dict) else result
+                c["search_document"] = result.get("search_document", "") if isinstance(result, dict) else ""
             log.info(f"Summaries generated: {len(summaries)}")
 
     for c in processed:

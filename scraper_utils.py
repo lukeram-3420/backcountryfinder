@@ -549,8 +549,9 @@ Respond with valid JSON only — an array of objects:
     # ── Upsert to course_summaries table (both fields) ──
     _upsert_course_summaries(expanded, id_to_course, desc_to_ids, desc_to_course, provider_id)
 
-    # Return backward-compatible {course_id: summary_text}
-    return {cid: fields["display_summary"] for cid, fields in expanded.items()}
+    # Return {course_id: {"summary": str, "search_document": str}}
+    return {cid: {"summary": fields["display_summary"], "search_document": fields.get("search_document", "")}
+            for cid, fields in expanded.items()}
 
 
 def _upsert_course_summaries(expanded: dict, id_to_course: dict,
