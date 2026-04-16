@@ -697,6 +697,8 @@ All existing V1 courses backfilled with `currency='CAD'`. All existing providers
 - `display_summary`: 2 sentences for course card (user-facing, admin-editable)
 - `search_document`: keyword-rich text for Algolia (read-only, never shown to users)
 
+**All 14 scrapers consolidated**: every scraper imports `generate_summaries_batch` from `scraper_utils.py`. Local copies in altus, cwms, summit, hangfire were deleted. Single-course `generate_summary` in bsa and jht was replaced with the batch pattern. Some scrapers (altus, cwms, summit, hangfire) still have local copies of other helpers (`claude_classify`, `parse_date_sort`, etc.) — lower priority consolidation.
+
 **Backward-compatible return**: callers still receive `{course_id: summary_text}`. Both fields are upserted to `course_summaries` internally. `admin-approve-summary` copies both to `courses.summary` + `courses.search_document`. `admin-regenerate-summary` uses the two-field prompt. Summary Review tab shows both fields (card description editable, search document read-only).
 
 No backfill needed — V1 rows are deleted on cutover, and all new scraper runs generate both fields. Algolia (Phase 3) goes live after cutover, so there is no consumer for `search_document` on pre-cutover rows.
