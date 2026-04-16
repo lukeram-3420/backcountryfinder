@@ -1,3 +1,206 @@
+let _searchTimer = null;
+function debouncedSearch() {
+  // Legacy stub — kept so any remaining onchange="debouncedSearch()" doesn't throw
+  clearTimeout(_searchTimer);
+}
+
+// V1 SUPABASE SEARCH FUNCTIONS — commented out, replaced by Algolia connectors above.
+// Kept for rollback if needed. Delete once Algolia is confirmed working.
+/*
+function getCached() {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const { data, ts, filters, sort } = JSON.parse(raw);
+    if (Date.now() - ts > CACHE_TTL) return null;
+    if (JSON.stringify(filters) !== JSON.stringify(currentFilters)) return null;
+    if (sort !== currentSort) return null;
+    return data;
+  } catch(e) { return null; }
+}
+
+function setCache(data) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({
+      data, ts: Date.now(),
+      filters: currentFilters,
+      sort: currentSort
+    }));
+  } catch(e) {}
+}
+
+async function fetchCourses(page = 0, append = false) {
+  if (isLoading) return;
+  isLoading = true;
+
+  const cached = page === 0 ? getCached() : null;
+  if (cached) {
+    currentCourses = cached;
+    renderCards(cached, false);
+    isLoading = false;
+    fetchFromSupabase(page, append, true);
+    return;
+  }
+
+  if (!append) showSkeleton();
+  await fetchFromSupabase(page, append, false);
+}
+
+async function fetchFromSupabase(page = 0, append = false, background = false) {
+  try {
+    const from = page * PAGE_SIZE;
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const defaultDate = tomorrow.toISOString().split('T')[0];
+
+    const filters = ['active=eq.true', 'flagged=not.is.true', 'auto_flagged=not.is.true'];
+    if (currentFilters.activity) filters.push(`activity_canonical=eq.${encodeURIComponent(currentFilters.activity)}`);
+    if (currentFilters.provider) filters.push(`provider_id=eq.${encodeURIComponent(currentFilters.provider)}`);
+    if (currentFilters.location) {
+      filters.push(`location_canonical=eq.${encodeURIComponent(currentFilters.location)}`);
+    }
+    if (currentFilters.date) {
+      filters.push(`or=(date_sort.gte.${currentFilters.date},custom_dates.eq.true)`);
+    }
+
+    let order = 'order=date_sort.asc.nullslast';
+    if (currentSort === 'price')        order = 'order=price.asc';
+    if (currentSort === 'availability') order = 'order=avail.asc';
+
+    const queryString = filters.join('&');
+    const url = `${SUPABASE_URL}/rest/v1/courses?select=*,providers(name,rating,review_count)&${queryString}&${order}&limit=${PAGE_SIZE}&offset=${from}`;
+
+    const res = await fetch(url, {
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Prefer': 'count=exact',
+      }
+    });
+
+    if (!res.ok) throw new Error(`Supabase error: ${res.status}`);
+
+    const contentRange = res.headers.get('content-range');
+    if (contentRange) {
+      const match = contentRange.match(/\/(\d+)$/);
+      if (match) totalCount = parseInt(match[1]);
+    }
+
+    const courses = await res.json();
+
+    if (append) {
+      currentCourses = [...currentCourses, ...courses];
+    } else {
+      currentCourses = courses;
+      if (!background) setCache(courses);
+    }
+
+    renderCards(courses, append);
+
+  } catch(err) {
+    console.error('Fetch error:', err);
+    if (!background) showError();
+  } finally {
+    isLoading = false;
+    if (!append) hideSkeleton();
+  }
+}
+*/
+
+// V1 ACTIVITY/LOCATION DROPDOWN FUNCTIONS — commented out, replaced by Algolia connectors
+/*
+async function loadActivitiesDropdown() {
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/courses?select=activity_canonical&active=eq.true&flagged=not.is.true&auto_flagged=not.is.true`,
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+    );
+    const rows = await res.json();
+    const activities = new Set();
+    rows.forEach(r => { if (r.activity_canonical) activities.add(r.activity_canonical); });
+    const select = document.getElementById('search-activity');
+    const currentVal = select.value || currentFilters.activity;
+    select.innerHTML = '<option value="">Everything backcountry</option>' +
+      [...activities].sort().map(a => `<option value="${a}">${ACTIVITY_LABELS[a] || a}</option>`).join('');
+    if (currentVal) select.value = currentVal;
+  } catch(e) {}
+}
+
+async function loadLocationsDropdown() {
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/location_mappings?select=location_canonical`,
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+    );
+    const rows = await res.json();
+    const locations = new Set();
+    rows.forEach(r => {
+      if (r.location_canonical) locations.add(r.location_canonical);
+    });
+    const select = document.getElementById('search-location');
+    const currentVal = select.value || currentFilters.location;
+    select.innerHTML = '<option value="">Anywhere</option>' +
+      [...locations].sort().map(l => `<option value="${l}">${l}</option>`).join('');
+    if (currentVal) select.value = currentVal;
+  } catch(e) {}
+}
+
+async function updateLocationsForActivity(activity) {
+  if (!activity) { loadLocationsDropdown(); return; }
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/courses?select=location_canonical&active=eq.true&flagged=not.is.true&auto_flagged=not.is.true&activity_canonical=eq.${encodeURIComponent(activity)}`,
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Range': '0-9999' } }
+    );
+    const rows = await res.json();
+    const locations = new Set();
+    rows.forEach(r => { if (r.location_canonical) locations.add(r.location_canonical); });
+    const select = document.getElementById('search-location');
+    const sorted = [...locations].sort();
+    select.innerHTML = '<option value="">Anywhere</option>' +
+      sorted.map(l => `<option value="${l}">${l}</option>`).join('');
+    if (currentFilters.location && !sorted.includes(currentFilters.location)) {
+      currentFilters.location = '';
+      select.value = '';
+    } else if (currentFilters.location) {
+      select.value = currentFilters.location;
+    }
+  } catch(e) { loadLocationsDropdown(); }
+}
+*/
+
+// V1 SEARCH HELPERS — commented out, replaced by Algolia connectors
+/*
+function loadMore(){
+  currentPage++;
+  fetchCourses(currentPage, true);
+}
+function sortBy(el,val){
+  document.querySelectorAll('.sort-btn').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  currentSort=val;
+  currentPage=0;
+  fetchCourses(0, false);
+}
+*/
+
+// V1 runSearch — commented out, replaced by Algolia connectors
+/*
+function runSearch(){
+  const prevActivity = currentFilters.activity;
+  currentFilters.activity = document.getElementById('search-activity').value;
+  currentFilters.location = document.getElementById('search-location').value;
+  currentFilters.date = document.getElementById('search-date').value;
+  currentPage=0;
+  fetchCourses(0, false);
+  if (currentFilters.activity !== prevActivity) {
+    updateLocationsForActivity(currentFilters.activity);
+  }
+  if (currentFilters.activity) document.getElementById('search-activity').value = currentFilters.activity;
+  if (currentFilters.location) document.getElementById('search-location').value = currentFilters.location;
+}
+*/
+
 function setProviderFilter(providerId, providerName) {
   currentFilters.provider = providerId;
   const chip = document.getElementById('provider-filter-chip');

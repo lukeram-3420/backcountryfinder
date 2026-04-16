@@ -172,3 +172,188 @@ function showMicroToast() {
   toast.classList.add('show');
   microToastTimer = setTimeout(() => toast.classList.remove('show'), 3000);
 }
+
+// ── SKELETON / LOADING ──
+function showSkeleton() {
+  const grid = document.getElementById('card-grid');
+  const overlay = document.getElementById('loading-overlay');
+  grid.innerHTML = Array(6).fill(0).map(() => `
+    <div class="skel-card">
+      <div class="skel skel-img"></div>
+      <div class="skel-body">
+        <div class="skel skel-title" style="width:85%;"></div>
+        <div class="skel skel-meta" style="width:65%;"></div>
+        <div class="skel skel-meta" style="width:45%;"></div>
+      </div>
+      <div class="skel-footer">
+        <div><div class="skel skel-price"></div><div class="skel skel-avail"></div></div>
+        <div class="skel skel-btn"></div>
+      </div>
+    </div>`).join('');
+  if (overlay) overlay.style.display = 'flex';
+}
+
+function hideSkeleton() {
+  const overlay = document.getElementById('loading-overlay');
+  if (overlay) {
+    overlay.style.opacity = '0';
+    overlay.style.transition = 'opacity 0.3s ease';
+    setTimeout(() => { overlay.style.display = 'none'; overlay.style.opacity = '1'; }, 300);
+  }
+}
+
+function showError() {
+  const grid = document.getElementById('card-grid');
+  grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="empty-icon">⚠</div><h3>couldn't load experiences</h3><p>Check your connection and try again.</p></div>`;
+  hideSkeleton();
+}
+
+// REMOVE-READY
+function addRemoveReadyListeners() {
+  document.querySelectorAll('.save-btn.saved').forEach(btn => {
+    if (!btn.dataset.removeListening) {
+      btn.dataset.removeListening = '1';
+      btn.classList.add('remove-ready');
+    }
+  });
+}
+
+// ── REPORT STRIP ──
+let activeReportCard = null;
+
+const reportObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (!entry.isIntersecting && activeReportCard === entry.target) {
+      resetReport(activeReportCard);
+      reportObserver.unobserve(activeReportCard);
+      activeReportCard = null;
+    }
+  });
+}, { threshold: 0.5 });
+
+function openReport(strip) {
+  event.stopPropagation();
+  const card = strip.closest('.course-card');
+  if (activeReportCard && activeReportCard !== card) {
+    resetReport(activeReportCard);
+    reportObserver.unobserve(activeReportCard);
+  }
+  card.querySelector('.report-panel').style.display = 'block';
+  strip.style.display = 'none';
+  activeReportCard = card;
+  reportObserver.observe(card);
+}
+
+function selectChip(btn) {
+  const panel = btn.closest('.report-panel');
+  const already = btn.classList.contains('sel');
+  panel.querySelectorAll('.chip').forEach(c => c.classList.remove('sel'));
+  if (!already) {
+    btn.classList.add('sel');
+    panel.querySelector('.btn-send').disabled = false;
+  } else {
+    panel.querySelector('.btn-send').disabled = true;
+  }
+  const note = panel.querySelector('.report-note');
+  note.style.display = (!already && btn.dataset.reason === 'other') ? 'block' : 'none';
+}
+
+function closeReport(btn) {
+  event.stopPropagation();
+  const card = btn.closest('.course-card');
+  resetReport(card);
+  if (activeReportCard === card) {
+    reportObserver.unobserve(card);
+    activeReportCard = null;
+  }
+}
+
+function resetReport(card) {
+  const panel = card.querySelector('.report-panel');
+  const strip = card.querySelector('.report-strip');
+  if (!panel || !strip) return;
+  panel.style.display = 'none';
+  panel.querySelectorAll('.chip').forEach(c => c.classList.remove('sel'));
+  panel.querySelector('.btn-send').disabled = true;
+  panel.querySelector('.report-note').style.display = 'none';
+  panel.querySelector('.report-note').value = '';
+  strip.style.display = 'flex';
+}
+
+async function submitReport(btn) {
+  event.stopPropagation();
+  const card      = btn.closest('.course-card');
+  const panel     = card.querySelector('.report-panel');
+  const strip     = card.querySelector('.report-strip');
+  const courseId  = strip.dataset.courseId;
+  const reasonBtn = panel.querySelector('.chip.sel');
+  if (!reasonBtn) return;
+
+  const reason = reasonBtn.dataset.reason;
+  const note   = panel.querySelector('.report-note').value.trim();
+
+  let sessionId = sessionStorage.getItem('bcf_session');
+  if (!sessionId) {
+    sessionId = crypto.randomUUID();
+    sessionStorage.setItem('bcf_session', sessionId);
+  }
+
+  btn.disabled = true;
+  btn.textContent = '...';
+
+  try {
+    const res = await fetch('https://owzrztaguehebkatnatc.supabase.co/functions/v1/notify-report', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer sb_publishable_lqIyTGAgCn09Yfh1eacSPg_tcs9SJcB',
+      },
+      body: JSON.stringify({ course_id: courseId, reason, note, session_id: sessionId }),
+    });
+    console.log('report response:', res.status);
+  } catch(err) {
+    console.error('report error:', err);
+  }
+
+  if (activeReportCard === card) {
+    reportObserver.unobserve(card);
+    activeReportCard = null;
+  }
+
+  panel.style.display   = 'none';
+  strip.textContent     = 'Cheers — we\'ll sort that out, eh.';
+  strip.style.opacity   = '0.45';
+  strip.style.fontStyle = 'italic';
+  strip.style.cursor    = 'default';
+  strip.style.display   = 'flex';
+  strip.onclick         = null;
+}
+
+// Wire logo hover + tagline animation — called from DOMContentLoaded init in index.html
+function initUI() {
+  // LOGO HOVER
+  const logoBtn = document.getElementById('logo-btn');
+  if (logoBtn) {
+    logoBtn.addEventListener('mouseenter', () => { logoBtn.classList.remove('replaying'); void logoBtn.offsetWidth; logoBtn.classList.add('replaying'); });
+    logoBtn.addEventListener('mouseleave', () => { setTimeout(() => logoBtn.classList.remove('replaying'), 2500); });
+  }
+
+  // TAGLINE ANIMATION
+  let idx1 = 0, idx2 = 0;
+  const track1 = document.getElementById('track1');
+  const track2 = document.getElementById('track2');
+  const words1 = ['course','line','summit','trip','route','powder','hut','guide','drift','run','cast','secret','stash','beta','zone'];
+  const words2 = ['adventure','peak','people','escape','wild','silence','horizon','freedom','solitude','calling','tracks','flow','crew','way out','next chapter'];
+
+  if (track1) setInterval(() => {
+    idx1 = (idx1 + 1) % words1.length;
+    if (idx1 >= words1.length - 1) { setTimeout(() => { track1.style.transition = 'none'; track1.style.transform = 'translateY(0)'; idx1 = 0; setTimeout(() => { track1.style.transition = 'transform 0.55s cubic-bezier(0.4,0,0.2,1)'; }, 50); }, 600); }
+    else { track1.style.transform = `translateY(-${idx1 * 1.25}em)`; }
+  }, 2800);
+
+  if (track2) setInterval(() => {
+    idx2 = (idx2 + 1) % words2.length;
+    if (idx2 >= words2.length - 1) { setTimeout(() => { track2.style.transition = 'none'; track2.style.transform = 'translateY(0)'; idx2 = 0; setTimeout(() => { track2.style.transition = 'transform 0.55s cubic-bezier(0.4,0,0.2,1)'; }, 50); }, 600); }
+    else { track2.style.transform = `translateY(-${idx2 * 1.25}em)`; }
+  }, 3700);
+}

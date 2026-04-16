@@ -1,3 +1,35 @@
+function utmUrl(url) {
+  if (!url || url === '#') return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}utm_source=backcountryfinder&utm_medium=referral`;
+}
+
+function renderCards(courses, append=false){
+  const grid=document.getElementById('card-grid');
+  const wrap=document.getElementById('load-more-wrap');
+  const count=document.getElementById('results-count');
+  if(!grid)return;
+  if(!courses||courses.length===0){
+    if(!append){
+      const noFiltersActive = !currentFilters.activity && !currentFilters.location && !currentFilters.provider;
+      if (noFiltersActive) {
+        grid.innerHTML=`<div class="empty-state" style="grid-column:1/-1;"><div class="empty-icon" style="font-size:52px;">🏔</div><h3>Updating course listings</h3><p>We're pulling in fresh data. Check back in about 45 minutes.</p><div class="status-pill"><span class="status-dot"></span><span>Scraper running now</span></div></div>`;
+      } else {
+        grid.innerHTML=`<div class="empty-state" style="grid-column:1/-1;"><div class="empty-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="20" rx="6" ry="2.5" stroke="#ccc" stroke-width="1.5" fill="none"/><ellipse cx="12" cy="14.5" rx="4.5" ry="2" stroke="#ccc" stroke-width="1.5" fill="none"/><ellipse cx="12" cy="9.5" rx="3" ry="1.8" stroke="#ccc" stroke-width="1.5" fill="none"/></svg></div><h3>no experiences found</h3><p>Try adjusting your filters.</p></div>`;
+      }
+      if(count)count.textContent='0 results';
+    }
+    if(wrap)wrap.style.display='none';
+    return;
+  }
+  const cards=courses.map(c=>buildCard(c)).join('');
+  if(append){grid.innerHTML+=cards;}else{grid.innerHTML=cards;}
+  const showing=grid.querySelectorAll('.course-card').length;
+  if(count)count.textContent=`${totalCount||showing} results`;
+  if(wrap)wrap.style.display=showing<totalCount?'block':'none';
+  addRemoveReadyListeners();
+}
+
 function buildCard(c) {
   const saved = isSaved(c.id);
   const spots = c.spots_remaining;
