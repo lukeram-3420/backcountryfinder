@@ -80,8 +80,6 @@ function toggleSave(id){
     }
   }
   if(wasUnsaved){
-    const course = currentCourses.find(c => c.id === id);
-    if (course) trackAlgoliaClick(id, course._queryID, course._position, 'Course Saved');
     showMicroToast();
     requestAnimationFrame(()=>{
       const newBtn=document.querySelector(`[onclick="toggleSave('${id}')"]`);

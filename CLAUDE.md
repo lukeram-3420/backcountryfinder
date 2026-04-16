@@ -864,20 +864,20 @@ Event tracking is wired so the Analytics tab in the Algolia dashboard accumulate
 - `initAlgoliaInsights()` in `/js/search.js` calls `aa('init', ...)` + sets a persistent anonymous `userToken` (UUID stored in `localStorage` as `bcf_algolia_user`) so returning visitors are recognised across sessions
 - `instantsearch({ insights: true })` middleware auto-fires `viewedObjectIDsAfterSearch` when results render, and decorates each hit with `__queryID` + `__position` which `mapHit()` propagates onto the course object as `_queryID` / `_position`
 
-**Events fired:**
+**Events fired:** the funnel is deliberately tight — Search → Book Now (or Notify Me for flex/sold courses). Save-to-list is not tracked; it's engagement, not conversion intent, and adding it to the dataset dilutes the signal Algolia uses for ranking and personalisation.
+
 | Event | Trigger | Algolia call | Name |
 |-------|---------|--------------|------|
 | View | Results render | auto (middleware) | `Hits Viewed` |
-| Click | User saves course to My List (first time, not on unsave) | `trackAlgoliaClick(id, queryID, position, 'Course Saved')` in [js/saved.js](js/saved.js) `toggleSave` | `Course Saved` |
 | Conversion | User clicks Book Now | `trackAlgoliaConversion(id, queryID, 'Course Booking Initiated')` in [js/cards.js](js/cards.js) `buildCard` onclick | `Course Booking Initiated` |
 | Conversion | User submits Notify Me form | `trackAlgoliaConversion(_notifyCourseId, _notifyQueryID, 'Notify Me Signed Up')` in [js/ui.js](js/ui.js) `submitNotify` | `Notify Me Signed Up` |
 
-**Helpers** live in `/js/search.js`: `trackAlgoliaClick(objectID, queryID, position, eventName)` and `trackAlgoliaConversion(objectID, queryID, eventName)`. Both no-op silently if `aa` isn't loaded or the objectID is missing — they never block UI or throw.
+**Helpers** live in `/js/search.js`: `trackAlgoliaClick(objectID, queryID, position, eventName)` and `trackAlgoliaConversion(objectID, queryID, eventName)`. Both no-op silently if `aa` isn't loaded or the objectID is missing — they never block UI or throw. `trackAlgoliaClick` is defined but currently unused; kept as the symmetric half of the helper pair for when a new engagement signal is introduced.
 
 **Overlap with Supabase `click_events`:** the Book Now click currently fires BOTH `logClick()` (Supabase) and `trackAlgoliaConversion()` (Algolia). Double-instrumented by design during V2 transition — Phase 5 velocity-signals work will pick whichever source is more reliable and deprecate the other.
 
 **Rules for future changes:**
-- New user-facing interactions on course cards should fire an Algolia event where possible; use `trackAlgoliaClick` for engagement (save, share), `trackAlgoliaConversion` for booking intent (Book Now, Notify)
+- Keep the event surface narrow. Only fire an Algolia event when the action is booking intent (Book Now, Notify Me, future "Contact Provider" etc.). Engagement signals (save, share, hover) stay out of Algolia.
 - `_queryID` + `_position` must be threaded through any new onclick/handler that acts on a course — read from the `currentCourses` entry, or serialise into the onclick payload like Book Now does
 - Never depend on `aa` being defined — always guard with `if (typeof aa !== 'function') return;` inside the helper (already done)
 
