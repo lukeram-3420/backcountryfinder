@@ -683,6 +683,7 @@ Every scraper calls these after upsert:
 - `log_price_change(course)` — appends to `course_price_log` only when `price` differs from the last logged value. Queries by `(provider_id, title_hash, date_sort)`.
 - Both are safe to call on every run — they no-op when values haven't changed.
 - Both use `title_hash()` for grouping, NOT `course_id` — so log continuity is preserved across the V1→V2 ID format change.
+- **2026-04-16:** Both log tables were purged (only contained 1 test run with V1 IDs from 2 providers). All data from this point forward uses V2 stable IDs exclusively.
 
 ### V2 schema additions (live in Supabase)
 New columns on `courses`: `search_document`, `currency` (default 'CAD'), `lat`, `lng`, `booking_mode` (default 'instant'), `cancellation_policy`, `cancellation_policy_hash`, `policy_updated_at`.
