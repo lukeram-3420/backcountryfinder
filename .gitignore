@@ -1,2 +1,4 @@
 __pycache__/
 .vscode/
+audit_report*.md
+audit_report*.json
