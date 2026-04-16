@@ -21,6 +21,7 @@ from scraper_utils import (
     sb_get, sb_upsert, sb_insert,
     normalise_location,
     send_email, send_scraper_summary,
+    generate_summaries_batch,
     SUPABASE_URL, SUPABASE_KEY, RESEND_API_KEY, ANTHROPIC_API_KEY,
     GOOGLE_PLACES_API_KEY, UTM, CLAUDE_MODEL, NOTIFY_EMAIL, FROM_EMAIL,
     stable_id_v2,
@@ -240,62 +241,6 @@ def is_future(date_sort: Optional[str]) -> bool:
         return datetime.strptime(date_sort, "%Y-%m-%d").date() >= date.today()
     except ValueError:
         return True
-
-
-def generate_summaries_batch(courses: list) -> dict:
-    """
-    Batch generate 2-sentence summaries for a list of courses.
-    courses: list of dicts with keys: id, title, description, provider, activity
-    Returns dict: {course_id: summary_text}
-    """
-    if not ANTHROPIC_API_KEY:
-        return {}
-
-    # Filter to courses that have descriptions
-    to_summarise = [c for c in courses if c.get("description", "").strip()]
-    if not to_summarise:
-        return {}
-
-    results = {}
-    BATCH_SIZE = 12
-
-    for i in range(0, len(to_summarise), BATCH_SIZE):
-        batch = to_summarise[i:i + BATCH_SIZE]
-        items = ""
-        for c in batch:
-            desc = c["description"][:600].strip()
-            items += f"""---
-ID: {c["id"]}
-Provider: {c["provider"]}
-Activity: {c["activity"]}
-Title: {c["title"]}
-Description: {desc}
-"""
-
-        prompt = f"""You are writing 2-sentence summaries for backcountry experience listings on a booking aggregator.
-
-For each course below, write exactly 2 sentences. Be specific and enticing. Use plain language, no marketing fluff. Do not start with the provider name or course title. Do not use the word "perfect". Write in third person.
-
-{items}
-
-Respond with JSON only — an array of objects with "id" and "summary" keys. Example:
-[{{"id": "cwms-hiking-abc123", "summary": "Two sentences here."}}]"""
-
-        try:
-            result = claude_classify(prompt, max_tokens=1500)
-            if isinstance(result, list):
-                for item in result:
-                    if item.get("id") and item.get("summary"):
-                        results[item["id"]] = item["summary"]
-                log.info(f"Batch summaries: generated {len(result)} summaries (batch {i//BATCH_SIZE + 1})")
-            else:
-                log.warning(f"Unexpected summary batch response format")
-        except Exception as e:
-            log.warning(f"Batch summary generation failed: {e}")
-
-        time.sleep(0.5)
-
-    return results
 
 
 # ── Scraping functions ────────────────────────────────────────────────────────

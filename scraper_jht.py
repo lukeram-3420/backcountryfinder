@@ -6,12 +6,12 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from bs4 import BeautifulSoup
 from datetime import datetime
-from anthropic import Anthropic
 
 from scraper_utils import (
     log_availability_change, log_price_change,
     stable_id_v2,
     sb_upsert, sb_patch, send_email,
+    generate_summaries_batch,
     SUPABASE_URL, SUPABASE_KEY, RESEND_API_KEY, ANTHROPIC_API_KEY,
     GOOGLE_PLACES_API_KEY,
 )
@@ -198,24 +198,6 @@ def avail_value(spots):
         return "low"
     return "open"
 
-# ── Summary generation ────────────────────────────────────────────────────────
-def generate_summary(title, description):
-    client = Anthropic(api_key=ANTHROPIC_API_KEY)
-    try:
-        msg = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=80,
-            messages=[{"role": "user", "content":
-                f"Write a 1-sentence summary (max 20 words) for this outdoor course: '{title}'. "
-                f"Context: {description[:300]}"
-            }],
-        )
-        summary = msg.content[0].text.strip()
-        summary = re.sub(r'^#+\s*', '', summary).strip()
-        return summary
-    except Exception:
-        return description[:100] if description else title
-
 # ── Page scraper ──────────────────────────────────────────────────────────────
 def scrape_page(path, default_activity, default_location):
     url = WEBSITE + path
@@ -285,7 +267,6 @@ def scrape_page(path, default_activity, default_location):
             activity = "guided"
 
         description = re.sub(r'\s+', ' ', section_text).strip()
-        summary = generate_summary(title, description)
 
         for (start, end, display) in dates:
             course_id = stable_id_v2(PROVIDER_ID, start, title)
@@ -320,7 +301,8 @@ def scrape_page(path, default_activity, default_location):
                 "avail":              avail,
                 "image_url":          None,
                 "booking_url":        booking_url,
-                "summary":            summary,
+                "summary":            "",
+                "description":        description,
                 "badge":              None,
                 "badge_canonical":    None,
                 "custom_dates":       False,
@@ -385,6 +367,24 @@ def main():
                 seen.add(key)
                 deduped.append(c)
         all_courses = deduped
+
+        # Batch summaries — deduplicate by title
+        seen_titles = {}
+        unique_inputs = []
+        for c in all_courses:
+            if c.get("description") and c["title"] not in seen_titles:
+                seen_titles[c["title"]] = c["id"]
+                unique_inputs.append({"id": c["id"], "title": c["title"], "description": c.get("description", ""), "provider": PROVIDER_NAME, "activity": c.get("activity", "")})
+        if unique_inputs:
+            summaries = generate_summaries_batch(unique_inputs, provider_id=PROVIDER_ID)
+            title_to_summary = {c["title"]: summaries.get(c["id"], "") for c in unique_inputs}
+            for c in all_courses:
+                c["summary"] = title_to_summary.get(c["title"], "")
+
+        # Strip description before upsert (not a courses column)
+        for c in all_courses:
+            c.pop("description", None)
+
         sb_upsert("courses", all_courses)
         # Log intelligence (V2 — append-only, change-detected)
         for c in all_courses:

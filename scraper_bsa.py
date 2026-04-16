@@ -20,6 +20,7 @@ from scraper_utils import (
     stable_id_v2,
     sb_upsert, sb_patch, sb_get,
     send_email, append_utm,
+    generate_summaries_batch,
     SUPABASE_URL, SUPABASE_KEY, RESEND_API_KEY, ANTHROPIC_API_KEY,
     GOOGLE_PLACES_API_KEY, UTM,
 )
@@ -203,45 +204,6 @@ def deactivate_missing(seen_ids: set[str]):
 
 # ── Claude Haiku summary ──────────────────────────────────────────────────────
 
-_summary_cache: dict[str, str] = {}
-
-
-def generate_summary(title: str, description: str) -> str:
-    key = title.strip().lower()
-    if key in _summary_cache:
-        return _summary_cache[key]
-    if not ANTHROPIC_API_KEY or not description:
-        return ""
-    try:
-        r = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": ANTHROPIC_API_KEY,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": "claude-haiku-4-5-20251001",
-                "max_tokens": 120,
-                "messages": [{
-                    "role": "user",
-                    "content": (
-                        f"Write a 1–2 sentence plain-English summary of this outdoor course for a booking aggregator. "
-                        f"No marketing fluff. Course: {title}. Details: {description[:600]}"
-                    ),
-                }],
-            },
-            timeout=20,
-        )
-        summary = r.json()["content"][0]["text"].strip()
-        summary = re.sub(r"^#+\s*", "", summary)
-        _summary_cache[key] = summary
-        return summary
-    except Exception as e:
-        log.warning(f"Summary generation failed: {e}")
-        return ""
-
-
 # ── HTML fetch ────────────────────────────────────────────────────────────────
 
 def fetch(url: str) -> BeautifulSoup | None:
@@ -357,8 +319,6 @@ def scrape_course_page(url: str) -> list[dict]:
 
     activity = resolve_activity(title, url)
     location = resolve_location(title, description)
-    summary  = generate_summary(title, description)
-    log.info(f"Summary for '{title}': {'generated' if summary else 'empty'}")
     booking_url = append_utm(url)
 
     rows = []
@@ -378,7 +338,8 @@ def scrape_course_page(url: str) -> list[dict]:
                 "avail":            d["avail"],
                 "price":            price,
                 "image_url":        image_url,
-                "summary":          summary,
+                "summary":          "",
+                "description":      description,
                 "booking_url":      booking_url,
                 "active":           d["avail"] != "sold",
                 "spots_remaining":  None,
@@ -398,7 +359,8 @@ def scrape_course_page(url: str) -> list[dict]:
             "avail":            "open",
             "price":            price,
             "image_url":        image_url,
-            "summary":          summary,
+            "summary":          "",
+            "description":      description,
             "booking_url":      booking_url,
             "active":           True,
             "spots_remaining":  None,
@@ -474,6 +436,24 @@ def main():
         if row["id"] not in seen_ids:
             seen_ids.add(row["id"])
             deduplicated_rows.append(row)
+
+    # Batch summaries — deduplicate by title
+    if deduplicated_rows:
+        seen_titles = {}
+        unique_inputs = []
+        for c in deduplicated_rows:
+            if c.get("description") and c["title"] not in seen_titles:
+                seen_titles[c["title"]] = c["id"]
+                unique_inputs.append({"id": c["id"], "title": c["title"], "description": c.get("description", ""), "provider": PROVIDER["name"], "activity": c.get("activity", "")})
+        if unique_inputs:
+            summaries = generate_summaries_batch(unique_inputs, provider_id=PROVIDER["id"])
+            title_to_summary = {c["title"]: summaries.get(c["id"], "") for c in unique_inputs}
+            for c in deduplicated_rows:
+                c["summary"] = title_to_summary.get(c["title"], "")
+
+    # Strip description before upsert (not a courses column)
+    for c in deduplicated_rows:
+        c.pop("description", None)
 
     upsert_courses(deduplicated_rows)
     deactivate_missing(seen_ids)
