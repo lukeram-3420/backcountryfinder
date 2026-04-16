@@ -426,6 +426,35 @@ One file per provider at `.github/workflows/scraper-{id}.yml`. All use `workflow
 - **Trigger:** push to `supabase/functions/**`
 - Deploys all edge functions with `--no-verify-jwt`
 
+### Discovery workflow — discover-providers.yml
+- **Triggers:** `schedule` (cron `0 6 * * 0` — every Sunday 06:00 UTC) + `workflow_dispatch`
+- Runs: `python discover_providers.py`
+- Dependencies: `requests` only (no beautifulsoup4/playwright needed)
+- Uses 4 secrets: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `GOOGLE_PLACES_API_KEY`, `ANTHROPIC_API_KEY`
+
+### discover_providers.py
+
+Automated provider discovery script. Searches the web for Canadian backcountry guide companies using activity keywords from `activity_labels`, deduplicates against `providers` + `provider_pipeline` + `provider_submissions`, analyses new finds with Claude Haiku + Google Places, and inserts candidates to `provider_pipeline`.
+
+**Usage:** `python discover_providers.py` or `python discover_providers.py --dry-run`
+
+**Flow:**
+1. Load `activity_labels` from Supabase (15 canonical activities)
+2. Load known domains from `providers`, `provider_pipeline`, `provider_submissions`
+3. Generate ~75 search queries (15 activities x 5 Canadian regions, one query template per pair)
+4. For each query: Claude Haiku with `web_search` tool → extract company URLs + course types
+5. Deduplicate against known domains + skip social media / aggregator domains
+6. For each new find: analyse with Haiku (name, location, platform, complexity, priority, notes including course types) + Google Places (rating, review count) — same logic as `admin-analyse-provider` edge function, inlined in Python
+7. Insert to `provider_pipeline` with `status='candidate'`, `discovered_by='auto'`
+
+**Pipeline columns used by discovery** (add to Supabase if not present):
+- `discovered_by` (text) — `'manual'` (default/null for admin-added) or `'auto'` (script-found)
+- `discovery_query` (text) — which search query found this provider (debugging)
+
+**Rate limiting:** ~1.5s between search queries, ~2s between analysis calls. Total run time ~10-15 minutes for a full sweep.
+
+**Cost:** ~75 Haiku web_search calls + ~10-20 analysis calls per run. Roughly $0.50-1.00/week.
+
 ### Secrets used by all workflows
 `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `RESEND_API_KEY`, `GOOGLE_PLACES_API_KEY`, `ANTHROPIC_API_KEY`
 
