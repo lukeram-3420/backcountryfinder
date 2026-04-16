@@ -62,30 +62,44 @@ SYNONYMS = [
 # ── Supabase helpers ─────────────────────────────────────────────────────────
 
 def fetch_courses():
-    """Fetch all active, non-flagged V2 courses with provider join."""
-    params = {
-        "select": "*,providers(name,rating,logo_url)",
-        "active": "eq.true",
-        "flagged": "not.is.true",
-        "auto_flagged": "not.is.true",
-        "activity_canonical": "is.null",
-        "limit": "50000",
-    }
-    headers = {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-        "Content-Type": "application/json",
-        "Range": "0-49999",
-    }
-    r = requests.get(
-        f"{SUPABASE_URL}/rest/v1/courses",
-        headers=headers,
-        params=params,
-    )
-    r.raise_for_status()
-    courses = r.json()
-    log.info(f"Fetched {len(courses)} V2 courses from Supabase")
-    return courses
+    """Fetch all active, non-flagged V2 courses with provider join.
+    Paginates in chunks of 1000 to avoid PostgREST default limit."""
+    all_courses = []
+    offset = 0
+    PAGE_SIZE = 1000
+
+    while True:
+        params = {
+            "select": "*,providers(name,rating,logo_url)",
+            "active": "eq.true",
+            "flagged": "not.is.true",
+            "auto_flagged": "not.is.true",
+            "activity_canonical": "is.null",
+            "limit": str(PAGE_SIZE),
+            "offset": str(offset),
+            "order": "id",
+        }
+        headers = {
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+            "Content-Type": "application/json",
+        }
+        r = requests.get(
+            f"{SUPABASE_URL}/rest/v1/courses",
+            headers=headers,
+            params=params,
+        )
+        r.raise_for_status()
+        page = r.json()
+        all_courses.extend(page)
+        log.info(f"  Fetched page {offset // PAGE_SIZE + 1}: {len(page)} rows")
+
+        if len(page) < PAGE_SIZE:
+            break
+        offset += PAGE_SIZE
+
+    log.info(f"Fetched {len(all_courses)} V2 courses from Supabase")
+    return all_courses
 
 
 # ── Record mapping ───────────────────────────────────────────────────────────
