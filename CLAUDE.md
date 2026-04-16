@@ -414,9 +414,11 @@ One file per provider at `.github/workflows/scraper-{id}.yml`. All use `workflow
 
 ### Master workflow — scraper-all.yml
 - **Triggers:** `schedule` (cron `0 */6 * * *` — every 6 hours) + `workflow_dispatch`
-- Installs all dependencies including Playwright + Chromium
+- Installs all dependencies including Playwright + Chromium + `algoliasearch`
 - One named step per provider with `continue-on-error: true`
 - A `Validate {Provider}` step after each scraper step
+- Final step: `python algolia_sync.py --skip-settings` — syncs all V2 courses to Algolia after every run
+- Uses 7 secrets: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `RESEND_API_KEY`, `GOOGLE_PLACES_API_KEY`, `ANTHROPIC_API_KEY`, `ALGOLIA_APP_ID`, `ALGOLIA_ADMIN_KEY`
 
 ### Validate workflow — validate-provider.yml
 - **Trigger:** `workflow_dispatch` with required `provider_id` input
@@ -813,7 +815,7 @@ All existing V1 courses backfilled with `currency='CAD'`. All existing providers
 No backfill needed — V1 rows are deleted on cutover, and all new scraper runs generate both fields. Algolia (Phase 3) goes live after cutover, so there is no consumer for `search_document` on pre-cutover rows.
 
 ### V2 Phase 3 — Algolia index bootstrap (implemented)
-`algolia_sync.py` pushes V2 courses to Algolia index `courses_v2`. Configured with searchable attributes, facets, custom ranking, and activity/location synonyms. Triggered manually via `sync-algolia.yml` workflow. Index is populated for testing — the live frontend does not read from Algolia until Phase 4.
+`algolia_sync.py` pushes V2 courses to Algolia index `courses_v2`. Uses `replace_all_objects` for atomic full replacement — stale records are automatically removed. Configured with searchable attributes, facets, custom ranking, and activity/location synonyms. Runs automatically after every `scraper-all.yml` run (every 6 hours) with `--skip-settings`. Also available as standalone `sync-algolia.yml` workflow for manual triggers or settings reconfiguration. The live frontend does not read from Algolia until Phase 4.
 
 ### V2 phases remaining (not yet implemented)
 - **Phase 4:** V2 frontend (Algolia InstantSearch replaces Supabase dropdown queries)
