@@ -338,7 +338,7 @@
 
     <!-- TAB: SETTINGS -->
     <div class="tab-panel hidden" id="panel-settings">
-      <details class="instructions"><summary>How to use this tab</summary><p>Manage canonical activity values used across all scrapers and filters. Changes here affect how activities are labelled on the site. Add new canonical values when adding a new activity type. <strong>Discovery Cloud</strong> controls the search terms used by the weekly automated provider discovery script. Activity terms are extracted from course titles (bigrams across 2+ providers); location terms are derived from provider locations and location mappings. Toggle terms on/off to control what gets searched. Add manual terms to search for niches not yet in your data. Weight shows how many providers use that term. Last used shows when the term last generated a discovery run.</p></details>
+      <details class="instructions"><summary>How to use this tab</summary><p>Manage canonical activity values used across all scrapers and filters. Changes here affect how activities are labelled on the site. Add new canonical values when adding a new activity type. <strong>Discovery Cloud</strong> controls the search terms used by the weekly automated provider discovery script. Activity terms are extracted from course titles (bigrams across 2+ providers); location terms are derived from provider locations and location mappings. Toggle terms on/off to control what gets searched. Add manual terms to search for niches not yet in your data. Weight shows how many providers use that term. <strong>Quality</strong> shows "X found / Y skipped" — terms where &gt;80% of candidates get filtered (with 5+ total) show a warning indicator, meaning the term generates noise not signal. Consider disabling low-quality terms. Last used shows when the term last generated a discovery run.</p></details>
       <div class="section">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
           <h2 style="margin:0;">Canonical activity values</h2>
@@ -2312,9 +2312,24 @@ function renderCloudList(type) {
     const toggleLabel = r.active ? 'Disable' : 'Enable';
     const toggleClass = r.active ? 'btn-small' : 'btn-small btn-primary';
     const sourceTag = r.source === 'manual' ? ' <span style="font-size:10px;color:var(--text-tertiary);font-weight:600;">MANUAL</span>' : '';
+    // Hit/skip quality indicator
+    const hits = r.hit_count || 0;
+    const skips = r.skip_count || 0;
+    const total = hits + skips;
+    let qualityHtml = '';
+    if (total > 0) {
+      const qualityPct = total > 0 ? Math.round((skips / total) * 100) : 0;
+      const isLowQuality = total >= 5 && qualityPct > 80;
+      const qualityColor = isLowQuality ? 'color:#c0392b;font-weight:600;' : 'color:var(--text-tertiary);';
+      const warn = isLowQuality ? ' ⚠' : '';
+      qualityHtml = `<span style="font-size:11px;${qualityColor}">${hits} found / ${skips} skipped${warn}</span>`;
+    } else {
+      qualityHtml = '<span style="font-size:11px;color:var(--text-tertiary);">—</span>';
+    }
     return `<tr${activeClass}>
       <td><span style="${weightStyle}"></span>${esc(r.term)}${sourceTag}</td>
       <td style="text-align:center;font-size:12px;color:var(--text-tertiary);">${r.weight || 1}</td>
+      <td style="text-align:center;">${qualityHtml}</td>
       <td style="text-align:center;font-size:12px;color:var(--text-tertiary);">${lastUsed}</td>
       <td class="row-actions">
         <button class="${toggleClass}" onclick="toggleCloudTerm(${r.id}, ${!r.active})">${toggleLabel}</button>
@@ -2323,7 +2338,7 @@ function renderCloudList(type) {
     </tr>`;
   }).join('');
   document.getElementById(wrapId).innerHTML = `
-    <table><thead><tr><th>Term</th><th style="width:60px;text-align:center;">Weight</th><th style="width:90px;text-align:center;">Last used</th><th style="width:140px;"></th></tr></thead>
+    <table><thead><tr><th>Term</th><th style="width:60px;text-align:center;">Weight</th><th style="width:130px;text-align:center;">Quality</th><th style="width:90px;text-align:center;">Last used</th><th style="width:140px;"></th></tr></thead>
     <tbody>${rows}</tbody></table>`;
 }
 

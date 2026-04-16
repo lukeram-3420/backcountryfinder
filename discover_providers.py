@@ -3,13 +3,14 @@
 discover_providers.py — Automated provider discovery for BackcountryFinder.
 
 Runs weekly via GitHub Actions cron. Uses Claude Haiku with web_search to find
-Canadian backcountry guide companies based on activity keywords, deduplicates
-against known providers/pipeline/submissions, analyses new finds, and appends
-them to provider_pipeline as candidates.
+Canadian backcountry guide companies, applies tiered cost controls, learns skip
+patterns from pipeline history, and appends candidates to provider_pipeline.
 
 Usage:
     python discover_providers.py
-    python discover_providers.py --dry-run   # search + dedup only, no inserts
+    python discover_providers.py --dry-run
+    python discover_providers.py --dry-run --max-candidates 10
+    python discover_providers.py --max-queries 50 --max-candidates 30
 """
 
 import os
@@ -18,6 +19,7 @@ import json
 import time
 import logging
 import argparse
+from collections import Counter
 from urllib.parse import urlparse
 
 import requests
@@ -37,12 +39,38 @@ GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "")
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 PLACES_API_URL = "https://maps.googleapis.com/maps/api/place"
 
+# Haiku cost estimates (USD) for logging
+COST_SEARCH_CALL = 0.001   # ~$0.001 per web_search call
+COST_ANALYSIS_CALL = 0.005  # ~$0.005 per analysis call (web_search + longer output)
+
 # Query templates — {activity} and {region} are substituted
 QUERY_TEMPLATES = [
     "{activity} guides {region} Canada",
     "{activity} courses {region} Canada book online",
     "{activity} tours adventures {region} Canada",
 ]
+
+# ── Tier 1: Free string filters (post-search, pre-analysis) ─────────────────
+
+# Domains to always skip — social media, aggregators, travel platforms
+SKIP_DOMAINS = {
+    "facebook.com", "instagram.com", "youtube.com", "twitter.com",
+    "linkedin.com", "tripadvisor.com", "yelp.com", "google.com",
+    "wikipedia.org", "alltrails.com", "backcountryfinder.com",
+    "reddit.com", "tiktok.com", "eventbrite.com",
+    "57hours.com", "10adventures.com", "backroads.com",
+    "viator.com", "getyourguide.com",
+    "expedia.com", "booking.com", "airbnb.com",
+}
+
+# URL/domain keywords that indicate non-guide companies
+# Checked against domain + URL path ONLY, never against provider name
+SKIP_URL_KEYWORDS = [
+    "shop", "store", "lodge", "firearms", "wildlife-federation",
+    "university", "association", "federation",
+    "directory", "listing", "resort", "hotel", "hostel",
+]
+
 
 # ── Supabase helpers ─────────────────────────────────────────────────────────
 
@@ -57,7 +85,9 @@ def _sb_headers():
 def sb_get(table, params=None):
     if params is None:
         params = {}
-    r = requests.get(f"{SUPABASE_URL}/rest/v1/{table}", headers=_sb_headers(), params=params)
+    headers = _sb_headers()
+    headers["Range"] = "0-49999"
+    r = requests.get(f"{SUPABASE_URL}/rest/v1/{table}", headers=headers, params=params)
     r.raise_for_status()
     return r.json()
 
@@ -74,6 +104,26 @@ def sb_insert_pipeline(row):
         log.error(f"  Pipeline insert error {r.status_code}: {r.text[:300]}")
         return False
     return True
+
+
+def sb_increment_cloud(term_id, field):
+    """Increment hit_count or skip_count on a discovery_cloud term.
+    Uses raw SQL via RPC to do atomic increment. Falls back to read-then-write."""
+    try:
+        headers = _sb_headers()
+        headers["Prefer"] = "return=minimal"
+        # Read current value
+        rows = sb_get("discovery_cloud", {"id": f"eq.{term_id}", "select": f"id,{field}"})
+        if not rows:
+            return
+        current = rows[0].get(field) or 0
+        requests.patch(
+            f"{SUPABASE_URL}/rest/v1/discovery_cloud?id=eq.{term_id}",
+            headers=headers,
+            json={field: current + 1},
+        )
+    except Exception:
+        pass  # Non-critical — don't fail the run over stats
 
 
 # ── Domain normalization ─────────────────────────────────────────────────────
@@ -95,19 +145,16 @@ def load_known_domains():
     """Load all domains from providers, provider_pipeline, and provider_submissions."""
     known = set()
 
-    # Active + inactive providers
     providers = sb_get("providers", {"select": "website"})
     for p in providers:
         if p.get("website"):
             known.add(normalize_domain(p["website"]))
 
-    # Pipeline candidates
     pipeline = sb_get("provider_pipeline", {"select": "website"})
     for p in pipeline:
         if p.get("website"):
             known.add(normalize_domain(p["website"]))
 
-    # User submissions
     try:
         submissions = sb_get("provider_submissions", {"select": "website"})
         for s in submissions:
@@ -123,8 +170,7 @@ def load_known_domains():
 # ── Load discovery cloud ─────────────────────────────────────────────────────
 
 def load_discovery_cloud():
-    """Load active terms from discovery_cloud table.
-    Returns {activity_terms: [str], location_terms: [str]}."""
+    """Load active terms from discovery_cloud table."""
     rows = sb_get("discovery_cloud", {"active": "eq.true", "select": "id,term,type,weight"})
     activity_terms = sorted(
         [r["term"] for r in rows if r["type"] == "activity"],
@@ -157,15 +203,106 @@ def update_last_used(term_ids):
             pass
 
 
+# ── Part 3: Skip pattern learning ───────────────────────────────────────────
+
+def load_skip_patterns():
+    """Learn skip patterns from provider_pipeline rows with status='skip'.
+    Returns {domains: set, keywords: set}."""
+    try:
+        skip_rows = sb_get("provider_pipeline", {
+            "status": "eq.skip",
+            "select": "website,notes",
+        })
+    except Exception:
+        log.info("Could not load skip patterns — continuing without")
+        return {"domains": set(), "keywords": set()}
+
+    # Extract domains
+    domains = set()
+    for r in skip_rows:
+        if r.get("website"):
+            domains.add(normalize_domain(r["website"]))
+
+    # Extract keywords from notes — require 2+ skip rows to mention same keyword
+    # Minimum 4 chars to filter noise
+    word_counts = Counter()
+    for r in skip_rows:
+        notes = (r.get("notes") or "").lower()
+        words = set(re.findall(r"[a-z]{4,}", notes))
+        for w in words:
+            word_counts[w] += 1
+
+    # Only keywords appearing in 2+ skip rows become patterns
+    keywords = {w for w, count in word_counts.items() if count >= 2}
+
+    # Remove common words that would cause false positives
+    false_positive_words = {
+        "this", "that", "with", "from", "their", "they", "have", "been",
+        "some", "also", "more", "most", "very", "about", "offers",
+        "website", "booking", "courses", "trips", "guides", "company",
+        "adventure", "outdoor", "backcountry", "mountain", "canada",
+        "platform", "custom", "wordpress", "squarespace",
+        "academy", "school", "training", "institute",
+    }
+    keywords -= false_positive_words
+
+    log.info(f"Loaded skip patterns: {len(domains)} domains, {len(keywords)} keywords from {len(skip_rows)} skip rows")
+    if keywords:
+        log.info(f"  Skip keywords: {sorted(keywords)}")
+    return {"domains": domains, "keywords": keywords}
+
+
+def matches_skip_pattern(url, name, skip_patterns):
+    """Check if a candidate matches learned skip patterns.
+    URL keywords checked against domain only, never provider name.
+    Returns (matched: bool, reason: str or None)."""
+    domain = normalize_domain(url)
+
+    # Check domain against skip pattern domains
+    if domain in skip_patterns["domains"]:
+        return True, "known skip domain"
+
+    # Check URL/domain against skip keywords (domain + path only, not name)
+    url_text = url.lower()
+    for keyword in skip_patterns["keywords"]:
+        if keyword in domain or keyword in url_text:
+            return True, f"skip keyword: {keyword}"
+
+    return False, None
+
+
+# ── Tier 1: String-based filtering ──────────────────────────────────────────
+
+def tier1_filter(url, known_domains):
+    """Tier 1 — free string checks. Returns (pass: bool, reason: str or None)."""
+    domain = normalize_domain(url)
+
+    if not domain:
+        return False, "empty domain"
+
+    if domain in known_domains:
+        return False, "known provider"
+
+    if any(skip in domain for skip in SKIP_DOMAINS):
+        return False, "skip domain"
+
+    # Check URL keywords against domain only (never provider name)
+    for kw in SKIP_URL_KEYWORDS:
+        if kw in domain:
+            return False, f"url keyword: {kw}"
+
+    return True, None
+
+
 # ── Generate search queries ──────────────────────────────────────────────────
 
-def generate_queries(cloud):
-    """Generate search queries from discovery cloud: activity terms x location terms x templates."""
+def generate_queries(cloud, max_queries):
+    """Generate search queries from discovery cloud, capped at max_queries."""
     activity_terms = cloud["activity"]
     location_terms = cloud["location"]
     if not activity_terms or not location_terms:
         log.warning("Discovery cloud is empty — run refresh_discovery_cloud.py first")
-        return []
+        return [], set()
 
     queries = []
     used_term_ids = set()
@@ -173,11 +310,9 @@ def generate_queries(cloud):
 
     for activity in activity_terms:
         for region in location_terms:
-            # Rotate templates for variety across combinations
             template_idx = hash(activity + region) % len(QUERY_TEMPLATES)
             q = QUERY_TEMPLATES[template_idx].format(activity=activity, region=region)
             queries.append({"query": q, "activity": activity, "region": region})
-            # Track which terms were used
             act_row = cloud_rows_by_term.get((activity.lower(), "activity"))
             loc_row = cloud_rows_by_term.get((region.lower(), "location"))
             if act_row:
@@ -185,7 +320,13 @@ def generate_queries(cloud):
             if loc_row:
                 used_term_ids.add(loc_row["id"])
 
-    log.info(f"Generated {len(queries)} search queries from {len(activity_terms)} activities x {len(location_terms)} locations")
+    total_possible = len(queries)
+    if len(queries) > max_queries:
+        queries = queries[:max_queries]
+        log.info(f"Generated {total_possible} possible queries, capped to {max_queries}")
+    else:
+        log.info(f"Generated {len(queries)} search queries from {len(activity_terms)} activities x {len(location_terms)} locations")
+
     return queries, used_term_ids
 
 
@@ -234,7 +375,6 @@ def haiku_web_search(query):
             return []
         data = r.json()
         blocks = data.get("content", [])
-        # Find text blocks containing JSON
         text = "\n".join(
             b["text"] for b in blocks if b.get("type") == "text" and isinstance(b.get("text"), str)
         ).strip()
@@ -270,7 +410,6 @@ ANALYSE_SYSTEM_PROMPT = (
 
 def analyse_provider(url):
     """Analyse a provider URL with Haiku + Google Places. Returns a pipeline row dict or None."""
-    # Step 1 — Haiku analysis
     parsed = None
     try:
         r = requests.post(
@@ -302,7 +441,6 @@ def analyse_provider(url):
     except Exception as e:
         log.warning(f"  Haiku analysis failed for {url}: {e}")
 
-    # Fallback from URL if Haiku failed
     if not parsed:
         try:
             domain = urlparse(url).hostname.replace("www.", "")
@@ -319,10 +457,8 @@ def analyse_provider(url):
     priority = int(parsed.get("priority", 3)) if str(parsed.get("priority", "")).isdigit() else 3
     notes = parsed.get("notes") or ""
 
-    # Step 2 — Google Places lookup
     places = google_places_lookup(name, location)
 
-    # Step 3 — Build slug ID
     slug = slugify(name)
 
     return {
@@ -345,10 +481,10 @@ def slugify(name):
     s = name.lower().strip()
     s = re.sub(r"[^a-z0-9]+", "-", s)
     s = s.strip("-")
-    return s[:50]  # cap length
+    return s[:50]
 
 
-# ── Google Places lookup (Python port of edge function logic) ────────────────
+# ── Google Places lookup (null-safe review_count) ────────────────────────────
 
 def name_similarity(a, b):
     """Character overlap similarity between two names (alphanumeric only)."""
@@ -365,9 +501,10 @@ NULL_PLACES = {"google_place_id": None, "rating": None, "review_count": None}
 
 
 def google_places_lookup(name, location):
-    """Look up Google Places for a provider. Returns {google_place_id, rating, review_count}."""
+    """Look up Google Places for a provider.
+    Returns {google_place_id, rating, review_count, _low_reviews: bool}."""
     if not GOOGLE_PLACES_API_KEY:
-        return NULL_PLACES
+        return {**NULL_PLACES, "_low_reviews": False}
 
     query = f"{name} {location or ''}".strip()
     try:
@@ -382,26 +519,32 @@ def google_places_lookup(name, location):
             timeout=10,
         )
         if not r.ok:
-            return NULL_PLACES
+            return {**NULL_PLACES, "_low_reviews": False}
         candidate = (r.json().get("candidates") or [None])[0]
     except Exception:
-        return NULL_PLACES
+        return {**NULL_PLACES, "_low_reviews": False}
 
     if not candidate:
-        return NULL_PLACES
+        return {**NULL_PLACES, "_low_reviews": False}
 
     # Check 1 — name similarity
     places_name = candidate.get("name", "")
     sim = name_similarity(name, places_name)
     if sim < 0.4:
         log.info(f"  Places name mismatch: searched '{name}' got '{places_name}' (sim={sim:.2f}) — rejected")
-        return NULL_PLACES
+        return {**NULL_PLACES, "_low_reviews": False}
 
-    # Check 2 — review count sanity (exclude chains)
-    review_count = candidate.get("user_ratings_total", 0)
-    if review_count > 2000:
+    # Check 2 — review count sanity (exclude chains, null-safe)
+    review_count = candidate.get("user_ratings_total")  # None if not returned
+    if review_count is not None and review_count > 2000:
         log.info(f"  Places review count too high ({review_count}) for '{name}' — rejected")
-        return NULL_PLACES
+        return {**NULL_PLACES, "_low_reviews": False}
+
+    # Soft signal: low review count (not a hard skip)
+    low_reviews = False
+    if review_count is not None and review_count < 5:
+        low_reviews = True
+        log.info(f"  Low review count ({review_count}) for '{name}' — flagged as low priority")
 
     # Check 3 — duplicate place_id
     place_id = candidate.get("place_id")
@@ -417,14 +560,15 @@ def google_places_lookup(name, location):
             )
             if conflict:
                 log.info(f"  Places ID {place_id} already assigned to '{conflict['name']}' — rejected for '{name}'")
-                return NULL_PLACES
+                return {**NULL_PLACES, "_low_reviews": False}
         except Exception:
-            pass  # Don't reject on infra failure
+            pass
 
     return {
         "google_place_id": place_id,
         "rating": candidate.get("rating"),
-        "review_count": candidate.get("user_ratings_total"),
+        "review_count": review_count,
+        "_low_reviews": low_reviews,
     }
 
 
@@ -433,6 +577,8 @@ def google_places_lookup(name, location):
 def main():
     parser = argparse.ArgumentParser(description="Discover new backcountry providers")
     parser.add_argument("--dry-run", action="store_true", help="Search + dedup only, no inserts")
+    parser.add_argument("--max-queries", type=int, default=100, help="Max search queries to fire (default 100)")
+    parser.add_argument("--max-candidates", type=int, default=50, help="Max candidates to analyse (default 50)")
     args = parser.parse_args()
 
     if not SUPABASE_URL or not SUPABASE_KEY:
@@ -442,86 +588,163 @@ def main():
         log.error("ANTHROPIC_API_KEY must be set")
         return
 
-    # 1. Load inputs
+    # Cost tracking
+    costs = {"search": 0.0, "analysis": 0.0}
+    filter_stats = {"tier1": 0, "tier2": 0, "tier3_known": 0}
+
+    # ── Step 1: Load inputs ──────────────────────────────────────────────
     cloud = load_discovery_cloud()
     known_domains = load_known_domains()
+    skip_patterns = load_skip_patterns()
 
-    # 2. Generate search queries
-    result = generate_queries(cloud)
-    if not result:
+    # Build term lookup for hit/skip tracking
+    cloud_rows_by_term = {(r["term"].lower(), r["type"]): r for r in cloud["rows"]}
+
+    def term_ids_for_query(q):
+        """Get cloud term IDs that contributed to a query."""
+        ids = set()
+        act_row = cloud_rows_by_term.get((q["activity"].lower(), "activity"))
+        loc_row = cloud_rows_by_term.get((q["region"].lower(), "location"))
+        if act_row:
+            ids.add(act_row["id"])
+        if loc_row:
+            ids.add(loc_row["id"])
+        return ids
+
+    # ── Step 2: Generate + cap search queries ────────────────────────────
+    queries, used_term_ids = generate_queries(cloud, args.max_queries)
+    if not queries:
         return
-    queries, used_term_ids = result
 
-    # 3. Search and collect candidates
-    raw_finds = {}  # domain -> {url, name, courses, query}
+    # ── Step 3: Search phase (Tier 3 — Haiku web_search calls) ───────────
+    # Each query returns a list of {url, name, courses} candidates
+    raw_finds = {}  # domain -> {url, name, courses, query_obj, _term_ids}
+
     for i, q in enumerate(queries):
         log.info(f"[{i + 1}/{len(queries)}] Searching: {q['query'][:70]}")
         results = haiku_web_search(q["query"])
+        costs["search"] += COST_SEARCH_CALL
+        q_term_ids = term_ids_for_query(q)
+
         for r in results:
-            domain = normalize_domain(r["url"])
-            if not domain:
+            url = r.get("url", "")
+            domain = normalize_domain(url)
+
+            # Tier 1 — free string filter
+            passed, reason = tier1_filter(url, known_domains)
+            if not passed:
+                filter_stats["tier1"] += 1
+                # Increment skip_count on the terms that produced this filtered candidate
+                for tid in q_term_ids:
+                    sb_increment_cloud(tid, "skip_count")
                 continue
-            # Skip known providers
-            if domain in known_domains:
+
+            # Tier 2 — skip pattern learning
+            matched, skip_reason = matches_skip_pattern(url, r.get("name", ""), skip_patterns)
+            if matched:
+                filter_stats["tier2"] += 1
+                log.info(f"  Skipping \"{r.get('name', domain)}\" — {skip_reason}")
+                for tid in q_term_ids:
+                    sb_increment_cloud(tid, "skip_count")
                 continue
-            # Skip non-company domains
-            if any(skip in domain for skip in [
-                "facebook.com", "instagram.com", "youtube.com", "twitter.com",
-                "linkedin.com", "tripadvisor.com", "yelp.com", "google.com",
-                "wikipedia.org", "alltrails.com", "backcountryfinder.com",
-                "reddit.com", "tiktok.com", "eventbrite.com",
-            ]):
-                continue
-            # First find wins — keep the richest info
+
+            # Passed Tier 1 + 2 — collect as candidate
             if domain not in raw_finds:
                 raw_finds[domain] = {
-                    "url": r["url"],
+                    "url": url,
                     "name": r.get("name", ""),
                     "courses": r.get("courses", ""),
                     "query": q["query"],
+                    "_term_ids": q_term_ids,
                 }
-        # Rate limit between searches
+            else:
+                # Merge term IDs from additional queries that found the same domain
+                raw_finds[domain]["_term_ids"] |= q_term_ids
+
+        # Also count known-domain hits that were filtered in the dedup check
+        for r in results:
+            domain = normalize_domain(r.get("url", ""))
+            if domain and domain in known_domains:
+                filter_stats["tier3_known"] += 1
+
         time.sleep(1.5)
 
     log.info(f"Found {len(raw_finds)} new unique domains after dedup")
+
+    # ── Cost + filter summary after search phase ─────────────────────────
+    log.info(f"Tier 1 (post-search string filter): eliminated {filter_stats['tier1']} candidates (free)")
+    log.info(f"Tier 2 (skip patterns): eliminated {filter_stats['tier2']} candidates (free)")
+    log.info(f"Tier 3 (search phase): {len(queries)} queries fired (~${costs['search']:.2f})")
 
     if args.dry_run:
         log.info("=== DRY RUN — would analyse and insert these: ===")
         for domain, info in sorted(raw_finds.items()):
             log.info(f"  {domain} — {info['name']} — courses: {info['courses']}")
+        log.info(f"Total estimated cost (search only): ~${costs['search']:.2f}")
         return
 
-    # 4. Analyse and insert each new find
-    inserted = 0
-    for domain, info in sorted(raw_finds.items()):
+    # ── Step 4: Analysis phase (Tier 4 — expensive) ─────────────────────
+    # Sort candidates: all get analysed but capped at max_candidates
+    candidates = sorted(raw_finds.items())
+    if len(candidates) > args.max_candidates:
+        log.info(f"Capping analysis to {args.max_candidates} candidates (from {len(candidates)})")
+        candidates = candidates[:args.max_candidates]
+
+    # First pass: analyse all candidates, tag with _discovery_priority
+    analysed = []
+    for domain, info in candidates:
         log.info(f"Analysing: {info['url']} ({info['name']})")
         row = analyse_provider(info["url"])
+        costs["analysis"] += COST_ANALYSIS_CALL
         if not row:
             continue
 
-        # Append course types from the search phase to notes if not already covered
+        # Tag discovery priority based on review count
+        low_reviews = row.pop("_low_reviews", False)
+        row["_discovery_priority"] = "low" if low_reviews else "normal"
+        row["_domain"] = domain
+        row["_info"] = info
+
+        # Increment hit_count on contributing terms
+        for tid in info.get("_term_ids", set()):
+            sb_increment_cloud(tid, "hit_count")
+
+        analysed.append(row)
+        time.sleep(2)
+
+    # Sort: normal priority first, then low priority
+    analysed.sort(key=lambda r: (0 if r["_discovery_priority"] == "normal" else 1))
+
+    # Insert
+    inserted = 0
+    for row in analysed:
+        info = row.pop("_info")
+        domain = row.pop("_domain")
+        dp = row.pop("_discovery_priority")
+
+        # Append course types from search phase to notes
         if info.get("courses"):
             search_courses = info["courses"].strip()
             if search_courses and search_courses.lower() not in (row.get("notes") or "").lower():
                 existing_notes = (row.get("notes") or "").rstrip(".")
                 row["notes"] = f"{existing_notes}. Courses observed: {search_courses}." if existing_notes else f"Courses observed: {search_courses}."
 
-        # Record which query found this provider
         row["discovery_query"] = info["query"]
 
         if sb_insert_pipeline(row):
             inserted += 1
-            log.info(f"  Inserted: {row['name']} ({row['id']}) — {row.get('location', '?')}")
-            # Add domain to known set so later queries don't re-process
+            priority_tag = f" [low priority]" if dp == "low" else ""
+            log.info(f"  Inserted: {row['name']} ({row['id']}) — {row.get('location', '?')}{priority_tag}")
             known_domains.add(domain)
 
-        # Rate limit between analysis calls
-        time.sleep(2)
-
-    # 5. Stamp last_used_at on discovery cloud terms
+    # ── Step 5: Final bookkeeping ────────────────────────────────────────
     update_last_used(used_term_ids)
 
-    log.info(f"Discovery complete: {len(raw_finds)} candidates found, {inserted} new rows inserted")
+    # Cost summary
+    total_cost = costs["search"] + costs["analysis"]
+    log.info(f"Tier 4 (analysis): {len(analysed)} candidates analysed (~${costs['analysis']:.2f})")
+    log.info(f"Total estimated cost: ~${total_cost:.2f}")
+    log.info(f"Discovery complete: {len(raw_finds)} candidates found, {len(analysed)} analysed, {inserted} new rows inserted")
 
 
 if __name__ == "__main__":

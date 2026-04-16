@@ -434,27 +434,40 @@ One file per provider at `.github/workflows/scraper-{id}.yml`. All use `workflow
 
 ### discover_providers.py
 
-Automated provider discovery script. Searches the web for Canadian backcountry guide companies using terms from `discovery_cloud` table, deduplicates against `providers` + `provider_pipeline` + `provider_submissions`, analyses new finds with Claude Haiku + Google Places, and inserts candidates to `provider_pipeline`.
+Automated provider discovery script. Searches the web for Canadian backcountry guide companies using terms from `discovery_cloud` table, applies tiered cost controls, learns skip patterns from pipeline history, and inserts candidates to `provider_pipeline`.
 
 **Usage:** `python discover_providers.py` or `python discover_providers.py --dry-run`
 
-**Flow:**
-1. Load active terms from `discovery_cloud` table (activity terms + location terms)
-2. Load known domains from `providers`, `provider_pipeline`, `provider_submissions`
-3. Generate search queries (activity terms x location terms, one query template per pair)
-4. For each query: Claude Haiku with `web_search` tool → extract company URLs + course types
-5. Deduplicate against known domains + skip social media / aggregator domains
-6. For each new find: analyse with Haiku (name, location, platform, complexity, priority, notes including course types) + Google Places (rating, review count) — same logic as `admin-analyse-provider` edge function, inlined in Python
-7. Insert to `provider_pipeline` with `status='candidate'`, `discovered_by='auto'`
-8. Stamp `last_used_at` on all cloud terms that generated queries
+**Flags:** `--max-queries N` (default 100) caps search phase queries. `--max-candidates N` (default 50) caps analysis phase candidates.
 
-**Pipeline columns used by discovery** (add to Supabase if not present):
+**Tiered cost controls:**
+| Tier | When | Cost | What |
+|------|------|------|------|
+| 1 | Post-search | Free | `SKIP_DOMAINS` (social media, aggregators, travel platforms) + `SKIP_URL_KEYWORDS` (checked against domain/URL only, never provider name) |
+| 2 | Post-search | Free | Skip pattern learning from `provider_pipeline` rows with `status='skip'` — domains + keywords extracted from notes (2+ skip rows must mention same keyword, min 4 chars) |
+| 3 | Search phase | ~$0.001/query | Haiku web_search calls, capped by `--max-queries` |
+| 4 | Analysis phase | ~$0.005/candidate | Full Haiku analysis + Google Places, capped by `--max-candidates`. Normal-priority candidates sorted first; low-priority (review_count < 5) fills remaining slots |
+
+**Flow:**
+1. Load active terms from `discovery_cloud` table
+2. Load known domains from `providers`, `provider_pipeline`, `provider_submissions`
+3. Load skip patterns from `provider_pipeline` (status='skip')
+4. Generate + cap search queries (activity terms x location terms)
+5. Search phase: Haiku web_search → Tier 1 filter → Tier 2 filter → collect candidates
+6. Analysis phase: sort by priority (normal first, low-review last) → analyse top N → Google Places (null-safe review_count) → insert to pipeline
+7. Increment `hit_count`/`skip_count` on contributing `discovery_cloud` terms
+8. Stamp `last_used_at` on all cloud terms that generated queries
+9. Log per-tier cost breakdown
+
+**Null-safe review_count:** `review_count < 5` is a soft signal (low priority), not a hard skip. `review_count is None` (Places API failure) → keep candidate at normal priority.
+
+**Pipeline columns used by discovery:**
 - `discovered_by` (text) — `'manual'` (default/null for admin-added) or `'auto'` (script-found)
 - `discovery_query` (text) — which search query found this provider (debugging)
 
 **Rate limiting:** ~1.5s between search queries, ~2s between analysis calls.
 
-**Cost:** Scales with number of active cloud terms. Roughly $0.50-1.00/week at current volume.
+**Cost:** Target under $0.50/week with default caps (100 queries + 50 candidates).
 
 ### refresh_discovery_cloud.py
 
@@ -496,7 +509,7 @@ Three tables (Providers, Activity Mappings, Location Mappings) use a shared sort
 5. **Flags** — Stats row (User reports / Auto-hidden / Warnings). Header buttons: "Reload flags" (re-runs `loadFlagsTab`), "Re-validate all ↗" (loops `admin-trigger-scraper` over all active providers with 500ms spacing), "Copy fixable flags prompt" (bundles wrong_price, wrong_date, bad_description, sold_out flags for Claude Code). User reports section (only `button_broken` and `other` get a Mark resolved button). Validator auto-flags section is **grouped by `(title, flag_reason)`** so 20 identical mismatch rows collapse to one row with an occurrences badge. Each group offers a root-cause fix action based on the reason: `activity mismatch:` / `null activity` → **Add mapping** (inline form, pre-fills title + suggested activity, calls `admin-approve-mapping` then bulk-clears the group's auto-flags); `summary mismatch:` / `summary bleed` → **Regenerate** (calls `admin-regenerate-summary` per course id then bulk-clears); `invalid price:` → **Mark as expected** (bulk-clear with note that next run may re-flag unless a code-level exception is added); A third **Warnings** subsection below auto-flags surfaces the `validator_warnings` table (email-only issues persisted by `validate_provider.py`): grouped by `(title, check_type)`, actions per type — `price_outlier` → Mark as expected (opens inline form for `title_contains`, scope, reason → writes a permanent row to `validator_price_exceptions` and deletes the warning rows; future runs skip the outlier check for matching titles); `summary_empty` → Regenerate (loops `admin-regenerate-summary` then deletes); `null_price` / `null_avail` / `future_date` → View (opens booking URL); `count_drop` → View provider (switches to Providers tab); `all_sold` → informational only. `duplicate:` → **Diagnose** (calls `admin-diagnose-duplicate` which sends the rows to Claude Haiku and returns `{verdict, reason, claude_code_prompt}`). Whitelist verdict → **Whitelist** button records one row per provider in `validator_whitelist` then bulk-clears. Fix-scraper verdict → **Copy fix prompt ↗** copies the Claude Code instruction to clipboard. Haiku failure falls back to a "Diagnosis unavailable" note. `validator_whitelist` is not yet consumed by `validate_provider.py` — that is a future wiring step. **Clear all** is always present as a secondary option and loops `admin-clear-auto-flag` over every course id in the group.
 6. **Audit Log** — last 100 rows of `admin_log` with search filter.
 7. **Pipeline** — Provider onboarding tracker backed by `provider_pipeline` table. Header has an **"Add provider"** button that opens an inline URL-only form: `admin-analyse-provider` runs Haiku web_search + Google Places lookup, slugifies the returned name, then POSTs to `provider_pipeline` (status='candidate', `id` = slug). Each non-live row (candidate/scouted/scraper_built) has a **"Copy prompt ↗"** button that copies a Claude Code instruction to the clipboard for building the scraper. **Client-side hide of already-live providers:** on every tab load, `loadPipelineTab` fetches active providers alongside pipeline rows and builds `activeProviderKeys = {domains, names}`. `renderPipelineTable` hides any pipeline row whose normalised website domain or lowercase name is in those sets. Domain comparison uses `domainOf()` which normalises via lowercase → strip `https?://` → strip `www.` → strip trailing `/`. No PATCH writes happen during display — the pipeline's own `status` column is not updated by the UI's filter logic; the status PATCH only fires via the inline Edit form. Excludes `status='skip'` from display. Columns: Name (linked to website), Location, **Rating** (`★ X.X (N)` / `★ —` / `—`), Platform, Complexity, Status (coloured badge: candidate=grey, scouted=blue, scraper_built=yellow, live=green, skip=faded), Priority (1/2/3), Notes (truncated to ~60 chars with full-text tooltip), Edit + Copy prompt. Inline edit lets you change status/platform/priority/notes plus the Google enrichment fields (`google_place_id`, `rating`, `review_count`). Name/Platform/Status/Priority headers are sortable. Pipeline `id` is a text slug — onclick handlers must quote it (`editPipelineRow('${id}')`) or it will be evaluated as a global variable.
-8. **Settings** — CRUD for `activity_labels` (canonical activity slugs + display labels), used as the source of truth for the dropdowns in Activity Mappings. Static reference for the canonical location format (`City, Province`). **Discovery Cloud** — two lists (activity terms + location terms) that drive the weekly automated provider discovery search queries. Each term shows a weight bar (how many providers use it), last-used date, and an active toggle. Admin can add manual terms or disable auto-generated ones. Populated by `refresh_discovery_cloud.py`, consumed by `discover_providers.py`.
+8. **Settings** — CRUD for `activity_labels` (canonical activity slugs + display labels), used as the source of truth for the dropdowns in Activity Mappings. Static reference for the canonical location format (`City, Province`). **Discovery Cloud** — two lists (activity terms + location terms) that drive the weekly automated provider discovery search queries. Each term shows a weight bar, quality indicator (X found / Y skipped — warning at >80% skip rate with 5+ total), last-used date, and an active toggle. Admin can add manual terms or disable auto-generated ones. Populated by `refresh_discovery_cloud.py`, consumed by `discover_providers.py`.
 
 ### Admin-facing tables (create in Supabase if not already)
 - `admin_log` — `id bigserial, user_email text, action text, detail jsonb, created_at timestamptz default now()`
@@ -506,7 +519,7 @@ Three tables (Providers, Activity Mappings, Location Mappings) use a shared sort
 - `validator_price_exceptions` — persistent price-outlier exceptions populated from the Flags tab Warnings "Mark as expected" inline form. Columns: `id bigserial, title_contains text not null, provider_id text, reason text, created_at timestamptz default now()`. A row means: if a course title contains `title_contains` (case-insensitive substring) and matches the scope (`provider_id` or null = global), skip the >5x median price outlier warning. **Consumed by `validate_provider.py`'s Check 3 and `write_warnings()`** — outlier warnings matching an exception are never written to `validator_warnings`. Zero/negative price auto-hides ignore this table.
 - `validator_warnings` — persists email-only validator issues (replaces the old email report). Columns: `id bigserial, provider_id text not null, course_id text, title text, check_type text not null, reason text not null, run_at timestamptz default now()`. `check_type` is one of: `price_outlier`, `null_price`, `null_avail`, `all_sold`, `future_date`, `count_drop`, `summary_empty`. `validate_provider.py` deletes all rows for the provider at the start of each run then writes fresh warnings at the end. Consumed by the Flags tab Warnings subsection in admin.
 - `validator_whitelist` — records duplicate-flag groups that admin marked as safe to whitelist. Columns: `id bigserial, title text not null, provider_id text, reason text, created_at timestamptz default now()`. Populated by the Flags tab's Whitelist action. **Consumed by `validate_provider.py`'s duplicate check**: titles matching a whitelist entry (title + provider_id, or title + null provider_id for global whitelist) are skipped by Check 6 and never auto-flagged as duplicates.
-- `discovery_cloud` — search terms for automated provider discovery. Columns: `id bigserial, term text not null, type text not null ('activity'/'location'), weight integer default 1, active boolean default true, source text ('auto'/'manual'), last_used_at timestamptz, created_at timestamptz default now()`. Unique index on `(lower(term), type)`. Populated by `refresh_discovery_cloud.py`, consumed by `discover_providers.py`. Admin-editable in Settings tab.
+- `discovery_cloud` — search terms for automated provider discovery. Columns: `id bigserial, term text not null, type text not null ('activity'/'location'), weight integer default 1, active boolean default true, source text ('auto'/'manual'), last_used_at timestamptz, hit_count integer default 0, skip_count integer default 0, created_at timestamptz default now()`. Unique index on `(lower(term), type)`. Populated by `refresh_discovery_cloud.py`, consumed by `discover_providers.py`. Admin-editable in Settings tab.
 
 ### Admin edge functions (deployed via deploy-functions.yml)
 All live in `supabase/functions/admin-*/index.ts`. Every one verifies the JWT, checks `user.email === 'luke@backcountryfinder.com'`, executes, then writes a row to `admin_log`.
@@ -712,9 +725,11 @@ Indexed on `(provider_id)` and `(title_hash)`. Append only when price changes. *
 | active | boolean | default true — admin toggle, inactive terms skipped by discovery |
 | source | text | `auto` (refresh script) or `manual` (admin-added) |
 | last_used_at | timestamptz | stamped by discover_providers.py when the term generates a search query |
+| hit_count | integer | default 0 — cumulative: candidates from this term that passed to analysis |
+| skip_count | integer | default 0 — cumulative: candidates from this term filtered before analysis |
 | created_at | timestamptz | default now() |
 
-Unique index on `(lower(term), type)`. Populated by `refresh_discovery_cloud.py`, consumed by `discover_providers.py`. Admin-editable in the Settings tab of admin.html.
+Unique index on `(lower(term), type)`. Populated by `refresh_discovery_cloud.py`, consumed by `discover_providers.py`. Admin-editable in the Settings tab of admin.html. Quality warning shown in admin when `skip_count > 80% of (hit_count + skip_count)` and total >= 5.
 
 ### Intelligence logging tables — append only
 `course_availability_log` and `course_price_log` are sacred append-only tables that form the historical intelligence asset of the platform. Never truncate, delete rows from, or run cleanup operations on these tables under any circumstances. New rows are added only when values change. These tables are permanently excluded from all maintenance and cleanup operations.
