@@ -483,7 +483,7 @@ All live in `supabase/functions/admin-*/index.ts`. Every one verifies the JWT, c
 | `admin-trigger-scraper` | Call GitHub Actions `workflow_dispatches` — requires `GITHUB_TOKEN` secret in Supabase Edge Functions settings. Accepts `{workflow_id, inputs?}`; `inputs` is forwarded to `workflow_dispatch` (used for `validate-provider.yml` which requires `provider_id`). |
 
 ### Related one-offs
-- `bootstrap_summaries.py` — one-time migration that seeded `course_summaries` from existing `courses.summary` values. Already run; file can be deleted.
+- `bootstrap_summaries.py` — deleted. Was a one-time migration that seeded `course_summaries` from existing `courses.summary` values. No longer needed.
 - `course_summaries` dedup: unique constraint on `(provider_id, title)`; `description_hash` tracks when the underlying description changes so a stale approved summary can be flagged for review.
 
 ### Two-flag system reminder
@@ -698,7 +698,7 @@ All existing V1 courses backfilled with `currency='CAD'`. All existing providers
 
 **Backward-compatible return**: callers still receive `{course_id: summary_text}`. Both fields are upserted to `course_summaries` internally. `admin-approve-summary` copies both to `courses.summary` + `courses.search_document`. `admin-regenerate-summary` uses the two-field prompt. Summary Review tab shows both fields (card description editable, search document read-only).
 
-Backfill of `search_document` for existing approved rows is not yet done — requires a one-time script or edge function.
+No backfill needed — V1 rows are deleted on cutover, and all new scraper runs generate both fields. Algolia (Phase 3) goes live after cutover, so there is no consumer for `search_document` on pre-cutover rows.
 
 ### V2 phases remaining (not yet implemented)
 - **Phase 3:** Algolia index bootstrap (geo-enrichment, record push, synonym config)
