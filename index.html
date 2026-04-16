@@ -18,6 +18,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/algoliasearch@5/dist/lite/builds/browser.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/instantsearch.js@4/dist/instantsearch.production.min.js"></script>
 <style>
   :root {
     --green-dark: #1a2e1a;
@@ -777,6 +779,11 @@ const SUPABASE_EDGE_URL = 'https://owzrztaguehebkatnatc.supabase.co/functions/v1
 const NOTIFY_URL = 'https://owzrztaguehebkatnatc.supabase.co/functions/v1/notify-submission';
 const SUPABASE_URL = 'https://owzrztaguehebkatnatc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_lqIyTGAgCn09Yfh1eacSPg_tcs9SJcB';
+
+// ── ALGOLIA ──
+const ALGOLIA_APP_ID = 'YOUR_APP_ID';
+const ALGOLIA_SEARCH_KEY = 'YOUR_SEARCH_KEY';
+const ALGOLIA_INDEX = 'courses_v2';
 
 const IMG = {
   skiing:        "https://images.unsplash.com/photo-1673994841979-a8d3983d4a51?w=800&q=80&fit=crop",
