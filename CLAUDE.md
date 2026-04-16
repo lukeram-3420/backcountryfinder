@@ -796,7 +796,7 @@ V2 is an incremental migration on the live system. V1 and V2 coexist in the same
 | — | V2 stable ID migration (all 14 scrapers) | Complete |
 | 3 | Algolia index bootstrap | Complete |
 | 4 | V2 frontend (Algolia InstantSearch) | Complete |
-| 4.5 | `index.html` modularisation | Not started |
+| 4.5 | `index.html` modularisation | Complete |
 | 5 | Velocity signals (fill rate, price trend) | Not started — needs 4+ weeks of log data |
 | 6 | Validator simplification (4 checks) | Not started |
 | 7 | Drop V1 columns + tables post-cutover | Not started |
@@ -856,8 +856,30 @@ Algolia InstantSearch is live in `index.html` and replaces the Supabase-backed s
 - Old Supabase search functions are commented out (not deleted) as a fallback reference until V1 cutover
 - `courses_v2` is the single source of truth for the search grid, synced every 6 hours by `scraper-all.yml`'s final step and on-demand via `sync-algolia.yml`
 
+### V2 Phase 4.5 — `index.html` modularisation (implemented)
+
+JS extracted into `/js/` modules. Classic script tags, not ES modules — functions stay global, no import/export, no build step:
+
+| File | Contents |
+|------|----------|
+| `/js/cards.js`     | `buildCard()`, `mapHit()`, `renderCards()`, `utmUrl()` |
+| `/js/saved.js`     | saved-list primitives (`getSaved`/`setSaved`/`isSaved`), `toggleSave`, `renderSaved`, shared-list (`getSharedIds`, `initSharedCourses`, `saveSharedCourses`, `dismissSharedBanner`), share popover (`buildSharePopoverHTML`, `positionPopover`, `toggleSavedShare`, `closeAllPopovers`, `copyShareLink`, `nativeShare`), `clearMyList`, `openEmailListModal`, `submitEmailList` |
+| `/js/ui.js`        | `showPage`, `logClick`, `loadActivityLabels`, notify / email / provider modals, toast + micro-toast, skeleton/loading utilities, `addRemoveReadyListeners`, report strip (`openReport`, `selectChip`, `closeReport`, `resetReport`, `submitReport`, `reportObserver`), `initUI()` (logo hover + tagline animation) |
+| `/js/providers.js` | `loadProviders()` (providers page grid) |
+| `/js/search.js`    | Algolia InstantSearch (`searchClient`, `search`, `customSearchBox`, `customInfiniteHits`, `customConfigure`), date/provider filters (`updateDateChip`, `clearDateFilter`, `applyConfigFilters`), provider deep-link helpers (`setProviderFilter`, `clearProviderFilter`, `initProviderFilter`), `debouncedSearch` legacy stub, commented-out V1 Supabase query blocks, `initSearch()` |
+
+`index.html` now contains only: HTML structure, CSS, constants (`SUPABASE_URL`, `SUPABASE_KEY`, `ALGOLIA_APP_ID` etc.), shared state (`currentFilters`, `currentCourses`, `ACTIVITY_LABELS`, etc.), and a ~5-line `DOMContentLoaded` init sequence that calls `loadActivityLabels()`, `initSearch()`, `initUI()`, `initSharedCourses()`.
+
+**Rules for future changes:**
+- All new JS goes into the relevant `/js/` module — never back into `index.html` inline
+- Script tags in `<head>` (order matters for globals-via-classic-script): `cards.js`, `saved.js`, `ui.js`, `providers.js`, `search.js`
+- Shared mutable state (`currentCourses`, `currentFilters`, `ACTIVITY_LABELS`, `totalCount` etc.) lives as top-level `let` in `index.html`; modules read/write by name
+- Credentials/URLs (`SUPABASE_URL`, `ALGOLIA_APP_ID` etc.) stay in `index.html`; modules reference them as globals
+
+### Card redesign (scheduled post-Phase 4.5)
+New card design discussed and approved. Claude Code to build against `/js/cards.js` only. No other files touched during card redesign.
+
 ### V2 phases remaining (not yet implemented)
-- **Phase 4.5:** `index.html` modularisation — split the single static file into logical modules now that the search stack is no longer Supabase-bound
 - **Phase 5:** Velocity signal calculation (fill rate, price trend — needs 4+ weeks of log data)
 - **Phase 6:** Validator simplification (4 checks, admin tabs removed)
 - **Phase 7:** Drop V1 columns + tables after cutover
