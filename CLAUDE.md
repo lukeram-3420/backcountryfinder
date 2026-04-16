@@ -112,7 +112,8 @@ In production, scrapers run via GitHub Actions with `workflow_dispatch` (manual 
 ## Conventions
 
 - **Booking URLs** must always append `utm_source=backcountryfinder&utm_medium=referral`
-- **Stable ID format:** `{provider_id}-{activity}-{date_sort}-{title_hash}` (title_hash = first 6 chars of md5(title))
+- **Stable ID format (V2 — active):** `{provider_id}-{date_sort}-{title_hash}` or `{provider_id}-flex-{title_hash}` (title_hash = first 8 chars of md5(title.strip().lower())). No activity segment. See V2 section below.
+- **Stable ID format (V1 — legacy, still in DB):** `{provider_id}-{activity}-{date_sort}-{title_hash}` (title_hash = first 6 chars of md5(title)). V1 rows have `activity_canonical` populated; V2 rows have `activity_canonical = NULL`.
 - **Availability (`avail`) values:** `open`, `low`, `critical`, `sold` — sold courses set `active=false`
 - **Activity canonical values** (use exactly these): `skiing`, `climbing`, `mountaineering`, `hiking`, `biking`, `fishing`, `heli`, `cat`, `huts`, `guided`, `glissading`, `rappelling`, `snowshoeing`, `via_ferrata`, `avalanche_safety`
 - **Location canonical format:** `"City, Province"` e.g. `"Canmore, AB"` — for ranges use `"Area Name, BC"` e.g. `"Rogers Pass, BC"`
@@ -654,6 +655,49 @@ Indexed on `(provider_id)` and `(title_hash)`. Append only when price changes. *
 
 ### Intelligence logging tables — append only
 `course_availability_log` and `course_price_log` are sacred append-only tables that form the historical intelligence asset of the platform. Never truncate, delete rows from, or run cleanup operations on these tables under any circumstances. New rows are added only when values change. These tables are permanently excluded from all maintenance and cleanup operations.
+
+## V2 Migration — Implemented Changes
+
+V2 is an incremental migration on the live system. V1 and V2 coexist in the same database. The V1 frontend continues working throughout the transition. Changes below are already shipped and active.
+
+### V2 stable ID format
+All 14 standalone scrapers now emit V2 IDs via `stable_id_v2()` in `scraper_utils.py`:
+```
+{provider_id}-{date_sort}-{title_hash_8}     # dated courses
+{provider_id}-flex-{title_hash_8}             # flexible-dates / custom / private
+```
+- No activity segment. Platform-agnostic. Three segments, always three.
+- `title_hash_8` = `md5(title.strip().lower())[:8]` via the `title_hash()` function.
+- `title_hash()` is the SINGLE source of truth for title hashing — used by `stable_id_v2`, log functions, and future Algolia objectIDs. Never compute an inline md5 of titles elsewhere.
+- The old V1 `stable_id()` function still exists in `scraper_utils.py` but is no longer called by any scraper.
+
+### V1/V2 row coexistence
+- V2 rows write `activity_canonical = None`. This makes them invisible to the V1 frontend, which filters on `activity_canonical=eq.{value}`.
+- V1 rows from previous scraper runs persist in the DB with `activity_canonical` populated.
+- Both V1 and V2 rows coexist. The V1 frontend sees only V1 rows. V2 rows accumulate silently.
+- **On cutover day:** `DELETE FROM courses WHERE activity_canonical IS NOT NULL` removes all V1 rows cleanly.
+
+### Intelligence logging (V2 Phase 2 — active)
+Every scraper calls these after upsert:
+- `log_availability_change(course)` — appends to `course_availability_log` only when `spots_remaining` or `avail` differs from the last logged value. Queries by `(provider_id, title_hash, date_sort)` — ID-format-agnostic.
+- `log_price_change(course)` — appends to `course_price_log` only when `price` differs from the last logged value. Queries by `(provider_id, title_hash, date_sort)`.
+- Both are safe to call on every run — they no-op when values haven't changed.
+- Both use `title_hash()` for grouping, NOT `course_id` — so log continuity is preserved across the V1→V2 ID format change.
+
+### V2 schema additions (live in Supabase)
+New columns on `courses`: `search_document`, `currency` (default 'CAD'), `lat`, `lng`, `booking_mode` (default 'instant'), `cancellation_policy`, `cancellation_policy_hash`, `policy_updated_at`.
+New columns on `providers`: `country` (default 'CA'), `description`, `certifications`, `booking_platform`.
+New columns on `course_summaries`: `search_document`, `title_hash`.
+New tables: `course_availability_log`, `course_price_log`, `provider_email_preferences`.
+All existing V1 courses backfilled with `currency='CAD'`. All existing providers backfilled with `country='CA'`.
+
+### V2 phases remaining (not yet implemented)
+- **Phase 1:** Haiku two-field generation (`display_summary` + `search_document` per title)
+- **Phase 3:** Algolia index bootstrap (geo-enrichment, record push, synonym config)
+- **Phase 4:** V2 frontend (Algolia InstantSearch replaces Supabase dropdown queries)
+- **Phase 5:** Velocity signal calculation (fill rate, price trend — needs 4+ weeks of log data)
+- **Phase 6:** Validator simplification (4 checks, admin tabs removed)
+- **Phase 7:** Drop V1 columns + tables after cutover
 
 ### One-time setup SQL
 
