@@ -244,74 +244,16 @@ function initProviderFilter() {
 }
 
 // ── ALGOLIA INSTANTSEARCH ──
-const searchClient = algoliasearch(ALGOLIA_APP_ID, ALGOLIA_SEARCH_KEY);
-const search = instantsearch({
-  indexName: ALGOLIA_INDEX,
-  searchClient,
-  routing: false,
-});
-
-// ── Search box connector ──
-const customSearchBox = instantsearch.connectors.connectSearchBox(
-  ({ refine }, isFirstRender) => {
-    if (isFirstRender) {
-      const input = document.getElementById('search-query');
-      let timer;
-      input.addEventListener('input', () => {
-        clearTimeout(timer);
-        timer = setTimeout(() => refine(input.value), 300);
-      });
-    }
-  }
-);
-
-// ── Infinite hits connector (card grid + load more) ──
+// These are populated by initSearch() on DOMContentLoaded, not at script-load time —
+// Algolia constants (ALGOLIA_APP_ID etc.) live in index.html's body script and are only
+// defined after all head-loaded module files have finished executing.
+let searchClient;
+let search;
+let customSearchBox;
+let customInfiniteHits;
+let customConfigure;
 let _algoliaShowMore = null;
-const customInfiniteHits = instantsearch.connectors.connectInfiniteHits(
-  ({ hits, showMore, isLastPage, results }, isFirstRender) => {
-    const grid = document.getElementById('card-grid');
-    const wrap = document.getElementById('load-more-wrap');
-    const count = document.getElementById('results-count');
-
-    const mapped = hits.map(mapHit);
-    currentCourses = mapped;
-    totalCount = results ? results.nbHits : mapped.length;
-    _algoliaShowMore = showMore;
-
-    if (mapped.length === 0) {
-      const noFiltersActive = !document.getElementById('search-query').value
-        && !currentFilters.provider;
-      if (noFiltersActive) {
-        grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="empty-icon" style="font-size:52px;">🏔</div><h3>Updating course listings</h3><p>We're pulling in fresh data. Check back in about 45 minutes.</p><div class="status-pill"><span class="status-dot"></span><span>Scraper running now</span></div></div>`;
-      } else {
-        grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="empty-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="20" rx="6" ry="2.5" stroke="#ccc" stroke-width="1.5" fill="none"/><ellipse cx="12" cy="14.5" rx="4.5" ry="2" stroke="#ccc" stroke-width="1.5" fill="none"/><ellipse cx="12" cy="9.5" rx="3" ry="1.8" stroke="#ccc" stroke-width="1.5" fill="none"/></svg></div><h3>no experiences found</h3><p>Try adjusting your filters.</p></div>`;
-      }
-      if (count) count.textContent = '0 results';
-      if (wrap) wrap.style.display = 'none';
-      return;
-    }
-
-    grid.innerHTML = mapped.map(c => buildCard(c)).join('');
-    if (count) count.textContent = `${totalCount} results`;
-    if (wrap) wrap.style.display = isLastPage ? 'none' : 'block';
-    addRemoveReadyListeners();
-  }
-);
-
-// ── Date + provider filter via configure connector ──
 var _configRefine = null;
-const customConfigure = instantsearch.connectors.connectConfigure(
-  ({ refine }, isFirstRender) => {
-    _configRefine = refine;
-    if (isFirstRender) {
-      const dateInput = document.getElementById('search-date');
-      dateInput.addEventListener('change', () => {
-        updateDateChip();
-        applyConfigFilters();
-      });
-    }
-  }
-);
 
 function updateDateChip() {
   const dateInput = document.getElementById('search-date');
@@ -340,6 +282,71 @@ function applyConfigFilters() {
 }
 
 function initSearch() {
+  // Instantiate Algolia client + connectors now that the body script has defined the constants
+  searchClient = algoliasearch(ALGOLIA_APP_ID, ALGOLIA_SEARCH_KEY);
+  search = instantsearch({
+    indexName: ALGOLIA_INDEX,
+    searchClient,
+    routing: false,
+  });
+
+  customSearchBox = instantsearch.connectors.connectSearchBox(
+    ({ refine }, isFirstRender) => {
+      if (isFirstRender) {
+        const input = document.getElementById('search-query');
+        let timer;
+        input.addEventListener('input', () => {
+          clearTimeout(timer);
+          timer = setTimeout(() => refine(input.value), 300);
+        });
+      }
+    }
+  );
+
+  customInfiniteHits = instantsearch.connectors.connectInfiniteHits(
+    ({ hits, showMore, isLastPage, results }, isFirstRender) => {
+      const grid = document.getElementById('card-grid');
+      const wrap = document.getElementById('load-more-wrap');
+      const count = document.getElementById('results-count');
+
+      const mapped = hits.map(mapHit);
+      currentCourses = mapped;
+      totalCount = results ? results.nbHits : mapped.length;
+      _algoliaShowMore = showMore;
+
+      if (mapped.length === 0) {
+        const noFiltersActive = !document.getElementById('search-query').value
+          && !currentFilters.provider;
+        if (noFiltersActive) {
+          grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="empty-icon" style="font-size:52px;">🏔</div><h3>Updating course listings</h3><p>We're pulling in fresh data. Check back in about 45 minutes.</p><div class="status-pill"><span class="status-dot"></span><span>Scraper running now</span></div></div>`;
+        } else {
+          grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="empty-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="20" rx="6" ry="2.5" stroke="#ccc" stroke-width="1.5" fill="none"/><ellipse cx="12" cy="14.5" rx="4.5" ry="2" stroke="#ccc" stroke-width="1.5" fill="none"/><ellipse cx="12" cy="9.5" rx="3" ry="1.8" stroke="#ccc" stroke-width="1.5" fill="none"/></svg></div><h3>no experiences found</h3><p>Try adjusting your filters.</p></div>`;
+        }
+        if (count) count.textContent = '0 results';
+        if (wrap) wrap.style.display = 'none';
+        return;
+      }
+
+      grid.innerHTML = mapped.map(c => buildCard(c)).join('');
+      if (count) count.textContent = `${totalCount} results`;
+      if (wrap) wrap.style.display = isLastPage ? 'none' : 'block';
+      addRemoveReadyListeners();
+    }
+  );
+
+  customConfigure = instantsearch.connectors.connectConfigure(
+    ({ refine }, isFirstRender) => {
+      _configRefine = refine;
+      if (isFirstRender) {
+        const dateInput = document.getElementById('search-date');
+        dateInput.addEventListener('change', () => {
+          updateDateChip();
+          applyConfigFilters();
+        });
+      }
+    }
+  );
+
   // Set default "from" date to tomorrow
   const tmrw = new Date();
   tmrw.setDate(tmrw.getDate() + 1);
