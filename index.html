@@ -453,33 +453,22 @@ document.addEventListener('DOMContentLoaded', () => {
       Find your <span class="word-slot" id="slot2" style="min-width:min(140px,42vw);"><div class="word-inner" id="track2"><span class="word-item">adventure</span><span class="word-item">peak</span><span class="word-item">people</span><span class="word-item">escape</span><span class="word-item">wild</span><span class="word-item">silence</span><span class="word-item">horizon</span><span class="word-item">freedom</span><span class="word-item">solitude</span><span class="word-item">calling</span><span class="word-item">tracks</span><span class="word-item">flow</span><span class="word-item">crew</span><span class="word-item">way out</span><span class="word-item">next chapter</span><span class="word-item">adventure</span></div></span>
     </div>
     <div class="hero-sub">Without the 20 open tabs.</div>
-    <div class="search-bar">
-      <div class="search-field" style="flex:2;">
+    <div class="search-bar" style="border-radius:var(--radius);overflow:hidden;">
+      <div class="search-field" style="flex:1;padding:16px 22px;">
         <label>Search</label>
-        <input type="text" id="search-query" placeholder="Search courses..." autocomplete="off" style="border:none;background:transparent;font-size:14px;font-weight:600;color:var(--text-primary);font-family:var(--font);outline:none;width:100%;">
+        <input type="text" id="search-query" placeholder="Search courses, locations, providers..." autocomplete="off" style="border:none;background:transparent;font-size:14px;font-weight:600;color:var(--text-primary);font-family:var(--font);outline:none;width:100%;">
       </div>
-      <div class="search-field" style="flex:1.5;" >
-        <label>Where</label>
-        <select id="search-location">
-          <option value="">Anywhere</option>
-          <option>Whistler / Blackcomb</option>
-          <option>Squamish</option>
-          <option>North Shore / Seymour</option>
-          <option>Pemberton / Duffey</option>
-          <option>Garibaldi Park</option>
-          <option>Tantalus Range</option>
-        </select>
+    </div>
+    <input type="date" id="search-date" style="position:absolute;opacity:0;pointer-events:none;width:0;height:0;">
+    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+      <div id="date-chip" class="provider-filter-chip" style="display:inline-flex;cursor:pointer;" onclick="document.getElementById('search-date').showPicker()">
+        <span id="date-chip-label">From: tomorrow</span>
+        <button onclick="event.stopPropagation();clearDateFilter()" title="Clear date">×</button>
       </div>
-      <div class="search-field" style="flex:1;" >
-        <label>From when</label>
-        <input type="date" id="search-date">
-      </div>
-      <button class="search-go" onclick="document.getElementById('search-query').focus()">Search →</button>
     </div>
     </div>
   </div>
   <div class="main">
-    <!-- Sort buttons removed for V2 MVP — date ascending is default via Algolia customRanking -->
     <div id="provider-filter-chip" style="display:none;" class="provider-filter-chip">
       <span id="provider-filter-label">Viewing: ...</span>
       <button onclick="clearProviderFilter()" title="Show all">×</button>
@@ -1732,12 +1721,32 @@ const customConfigure = instantsearch.connectors.connectConfigure(
     if (isFirstRender) {
       const dateInput = document.getElementById('search-date');
       dateInput.addEventListener('change', () => {
-        dateInput.classList.toggle('has-value', !!dateInput.value);
+        updateDateChip();
         applyConfigFilters();
       });
     }
   }
 );
+
+function updateDateChip() {
+  const dateInput = document.getElementById('search-date');
+  const chip = document.getElementById('date-chip');
+  const label = document.getElementById('date-chip-label');
+  if (!dateInput.value) {
+    chip.style.display = 'none';
+  } else {
+    const d = new Date(dateInput.value + 'T00:00:00');
+    const formatted = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    label.textContent = `From: ${formatted}`;
+    chip.style.display = 'inline-flex';
+  }
+}
+
+function clearDateFilter() {
+  document.getElementById('search-date').value = '';
+  updateDateChip();
+  applyConfigFilters();
+}
 
 function applyConfigFilters() {
   const config = {};
@@ -1761,7 +1770,7 @@ loadActivityLabels().then(() => {
   tmrw.setDate(tmrw.getDate() + 1);
   const dateInput = document.getElementById('search-date');
   dateInput.value = tmrw.toISOString().split('T')[0];
-  dateInput.classList.add('has-value');
+  updateDateChip();
 
   // Parse provider deep link before starting search
   initProviderFilter();
@@ -1776,7 +1785,6 @@ loadActivityLabels().then(() => {
   // Start Algolia InstantSearch
   search.addWidgets([
     customSearchBox({}),
-    customLocationMenu({ attribute: 'location', limit: 100 }),
     customInfiniteHits({ showPrevious: false }),
     customConfigure({
       searchParameters: {
