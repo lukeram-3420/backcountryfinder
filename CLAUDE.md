@@ -267,7 +267,7 @@ Both systems produce identical output (rows upserted to the `courses` table with
 | Function | Signature | Description |
 |----------|-----------|-------------|
 | `claude_classify` | `(prompt: str, max_tokens: int = 256) -> dict` | Call Claude Haiku, return parsed JSON. Returns `{}` on failure. |
-| `generate_summaries_batch` | `(courses: list) -> dict` | Batch-generate 2-sentence summaries. Input: list of `{id, title, description, provider, activity}`. Returns `{course_id: summary_text}`. Processes in batches of 12 with single retry on failure. Deduplication by title is the caller's responsibility. |
+| `generate_summaries_batch` | `(courses: list, provider_id: str = None) -> dict` | Batch-generate two-field summaries (Phase 1 V2): `display_summary` (user-facing) + `search_document` (Algolia keywords). Input: list of `{id, title, description, provider, activity}`. Returns `{course_id: display_summary_text}` (backward-compatible). Internally upserts both fields to `course_summaries` table. `provider_id` param used for upsert; falls back to each course dict's `provider_id` key. Processes in batches of 12 with single retry on failure. |
 
 #### Dates & IDs
 
@@ -300,7 +300,7 @@ Both systems produce identical output (rows upserted to the `courses` table with
 #### Important notes
 
 - **Playwright is never imported at the top level** of `scraper_utils.py`. Any scraper that needs Playwright (e.g. Yamnuska) imports it in its own file.
-- **Haiku batching**: `generate_summaries_batch` processes 12 courses per Claude call with 0.5s delay between batches. Failed batches retry once after 3s.
+- **Haiku batching**: `generate_summaries_batch` processes 12 courses per Claude call with single retry on failure. Internally upserts both `display_summary` and `search_document` to `course_summaries` table (Phase 1 V2). Return value is backward-compatible `{course_id: summary_text}`.
 - **Environment variables**: `SUPABASE_URL`, `SUPABASE_KEY`, `RESEND_API_KEY`, `GOOGLE_PLACES_API_KEY`, `ANTHROPIC_API_KEY` are read from env at module load and available as module-level constants.
 
 ### Two-pass scraping pattern
@@ -444,7 +444,7 @@ One file per provider at `.github/workflows/scraper-{id}.yml`. All use `workflow
 
 ### Sortable headers (shared pattern)
 Three tables (Providers, Activity Mappings, Location Mappings) use a shared sort helper in `admin.html` (`cmpValues`, `sortIndicator`, `sortableHeader`, `toggleSortState`). Clicking a header toggles asc/desc on that column or switches to a new column (asc first). Nulls always sink to the bottom regardless of direction. Text sorts via `.toLowerCase().localeCompare()`. Numeric sorts cast via `Number(...)`.
-4. **Summary Review** — all `course_summaries` rows where `approved=false`. Approve / Reject / Regenerate buttons per row.
+4. **Summary Review** — all `course_summaries` rows where `approved=false`. Two fields per row: **Card description** (editable textarea, maps to `courses.summary`) and **Search document** (read-only textarea, maps to `courses.search_document`, Algolia keywords only). Approve / Reject / Regenerate buttons per row. Regenerate re-runs Haiku to produce both fields fresh.
 5. **Flags** — Stats row (User reports / Auto-hidden / Warnings). Header buttons: "Reload flags" (re-runs `loadFlagsTab`), "Re-validate all ↗" (loops `admin-trigger-scraper` over all active providers with 500ms spacing), "Copy fixable flags prompt" (bundles wrong_price, wrong_date, bad_description, sold_out flags for Claude Code). User reports section (only `button_broken` and `other` get a Mark resolved button). Validator auto-flags section is **grouped by `(title, flag_reason)`** so 20 identical mismatch rows collapse to one row with an occurrences badge. Each group offers a root-cause fix action based on the reason: `activity mismatch:` / `null activity` → **Add mapping** (inline form, pre-fills title + suggested activity, calls `admin-approve-mapping` then bulk-clears the group's auto-flags); `summary mismatch:` / `summary bleed` → **Regenerate** (calls `admin-regenerate-summary` per course id then bulk-clears); `invalid price:` → **Mark as expected** (bulk-clear with note that next run may re-flag unless a code-level exception is added); A third **Warnings** subsection below auto-flags surfaces the `validator_warnings` table (email-only issues persisted by `validate_provider.py`): grouped by `(title, check_type)`, actions per type — `price_outlier` → Mark as expected (opens inline form for `title_contains`, scope, reason → writes a permanent row to `validator_price_exceptions` and deletes the warning rows; future runs skip the outlier check for matching titles); `summary_empty` → Regenerate (loops `admin-regenerate-summary` then deletes); `null_price` / `null_avail` / `future_date` → View (opens booking URL); `count_drop` → View provider (switches to Providers tab); `all_sold` → informational only. `duplicate:` → **Diagnose** (calls `admin-diagnose-duplicate` which sends the rows to Claude Haiku and returns `{verdict, reason, claude_code_prompt}`). Whitelist verdict → **Whitelist** button records one row per provider in `validator_whitelist` then bulk-clears. Fix-scraper verdict → **Copy fix prompt ↗** copies the Claude Code instruction to clipboard. Haiku failure falls back to a "Diagnosis unavailable" note. `validator_whitelist` is not yet consumed by `validate_provider.py` — that is a future wiring step. **Clear all** is always present as a secondary option and loops `admin-clear-auto-flag` over every course id in the group.
 6. **Audit Log** — last 100 rows of `admin_log` with search filter.
 7. **Pipeline** — Provider onboarding tracker backed by `provider_pipeline` table. Header has an **"Add provider"** button that opens an inline URL-only form: `admin-analyse-provider` runs Haiku web_search + Google Places lookup, slugifies the returned name, then POSTs to `provider_pipeline` (status='candidate', `id` = slug). Each non-live row (candidate/scouted/scraper_built) has a **"Copy prompt ↗"** button that copies a Claude Code instruction to the clipboard for building the scraper. **Client-side hide of already-live providers:** on every tab load, `loadPipelineTab` fetches active providers alongside pipeline rows and builds `activeProviderKeys = {domains, names}`. `renderPipelineTable` hides any pipeline row whose normalised website domain or lowercase name is in those sets. Domain comparison uses `domainOf()` which normalises via lowercase → strip `https?://` → strip `www.` → strip trailing `/`. No PATCH writes happen during display — the pipeline's own `status` column is not updated by the UI's filter logic; the status PATCH only fires via the inline Edit form. Excludes `status='skip'` from display. Columns: Name (linked to website), Location, **Rating** (`★ X.X (N)` / `★ —` / `—`), Platform, Complexity, Status (coloured badge: candidate=grey, scouted=blue, scraper_built=yellow, live=green, skip=faded), Priority (1/2/3), Notes (truncated to ~60 chars with full-text tooltip), Edit + Copy prompt. Inline edit lets you change status/platform/priority/notes plus the Google enrichment fields (`google_place_id`, `rating`, `review_count`). Name/Platform/Status/Priority headers are sortable. Pipeline `id` is a text slug — onclick handlers must quote it (`editPipelineRow('${id}')`) or it will be evaluated as a global variable.
@@ -472,9 +472,9 @@ All live in `supabase/functions/admin-*/index.ts`. Every one verifies the JWT, c
 | `admin-reject-location` | Mark `pending_location_mappings.reviewed=true` |
 | `admin-update-location` | Update `location_mappings.location_raw` + `location_canonical` by id |
 | `admin-delete-location` | Delete a `location_mappings` row by id (does not touch `courses`) |
-| `admin-approve-summary` | Approve `course_summaries` row, patch all matching `courses.summary`, clear any user flags |
+| `admin-approve-summary` | Approve `course_summaries` row, patch all matching `courses.summary` + `courses.search_document`, clear any user flags |
 | `admin-reject-summary` | Set `course_summaries.approved=false` |
-| `admin-regenerate-summary` | Call Claude Haiku for fresh summary, write to `course_summaries` with `approved=false, pending_reason='regenerated'` |
+| `admin-regenerate-summary` | Call Claude Haiku for fresh two-field summary (`display_summary` + `search_document`), write both to `course_summaries` with `approved=false, pending_reason='regenerated'` |
 | `admin-resolve-flag` | Clear user flag — only for `button_broken` / `other` reasons (400 otherwise) |
 | `admin-clear-auto-flag` | Clear `auto_flagged` + `flag_reason` |
 | `admin-toggle-provider` | Set `providers.active` and cascade to that provider's `courses.active`. Toggle OFF sets all courses to `active=false`. Toggle ON only restores courses where `avail != 'sold'` — preserves sold-out and notify-me courses. |
@@ -691,8 +691,16 @@ New columns on `course_summaries`: `search_document`, `title_hash`.
 New tables: `course_availability_log`, `course_price_log`, `provider_email_preferences`.
 All existing V1 courses backfilled with `currency='CAD'`. All existing providers backfilled with `country='CA'`.
 
+### V2 Phase 1 — Haiku two-field generation (implemented)
+`generate_summaries_batch()` now produces two fields per course title:
+- `display_summary`: 2 sentences for course card (user-facing, admin-editable)
+- `search_document`: keyword-rich text for Algolia (read-only, never shown to users)
+
+**Backward-compatible return**: callers still receive `{course_id: summary_text}`. Both fields are upserted to `course_summaries` internally. `admin-approve-summary` copies both to `courses.summary` + `courses.search_document`. `admin-regenerate-summary` uses the two-field prompt. Summary Review tab shows both fields (card description editable, search document read-only).
+
+Backfill of `search_document` for existing approved rows is not yet done — requires a one-time script or edge function.
+
 ### V2 phases remaining (not yet implemented)
-- **Phase 1:** Haiku two-field generation (`display_summary` + `search_document` per title)
 - **Phase 3:** Algolia index bootstrap (geo-enrichment, record push, synonym config)
 - **Phase 4:** V2 frontend (Algolia InstantSearch replaces Supabase dropdown queries)
 - **Phase 5:** Velocity signal calculation (fill rate, price trend — needs 4+ weeks of log data)

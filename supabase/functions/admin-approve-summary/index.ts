@@ -44,15 +44,28 @@ serve(async (req) => {
       .eq("provider_id", provider_id)
       .eq("title", title);
 
-    // Patch summary on all matching courses and clear any user flags
+    // Fetch search_document from course_summaries to copy to courses
+    const { data: csRow } = await supabase
+      .from("course_summaries")
+      .select("search_document")
+      .eq("provider_id", provider_id)
+      .eq("title", title)
+      .limit(1)
+      .single();
+
+    // Patch summary + search_document on all matching courses and clear any user flags
+    const coursePatch: Record<string, unknown> = {
+      summary,
+      flagged: false,
+      flagged_reason: null,
+      flagged_note: null,
+    };
+    if (csRow?.search_document) {
+      coursePatch.search_document = csRow.search_document;
+    }
     await supabase
       .from("courses")
-      .update({
-        summary,
-        flagged: false,
-        flagged_reason: null,
-        flagged_note: null,
-      })
+      .update(coursePatch)
       .eq("provider_id", provider_id)
       .eq("title", title);
 

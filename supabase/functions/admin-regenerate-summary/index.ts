@@ -37,12 +37,30 @@ serve(async (req) => {
 
     const { provider_id, title, description } = await req.json();
 
-    // Call Claude Haiku for a fresh summary
+    // Fetch location from a matching course for richer context
+    const { data: courseRow } = await supabase
+      .from("courses")
+      .select("location_canonical")
+      .eq("provider_id", provider_id)
+      .eq("title", title)
+      .limit(1)
+      .single();
+    const location = courseRow?.location_canonical || "";
+
+    // Call Claude Haiku for two-field summary (Phase 1 V2)
     const prompt =
-      `Write a 2-sentence summary for '${title}'. ` +
-      `The summary MUST start with '${title}'. Be specific to this course only. ` +
-      `Description: ${String(description || "").slice(0, 400)}. ` +
-      `Return only the summary text, no JSON.`;
+      `Given this course, generate two outputs:\n\n` +
+      `1. display_summary: 2 sentences for the course card. ` +
+      `Do not repeat the title or location (shown separately on card). ` +
+      `Focus on the experience, what participants learn, who it's for. ` +
+      `Use plain language, no marketing fluff. Do not use the word "perfect". Write in third person.\n\n` +
+      `2. search_document: Comprehensive keyword text for Algolia search indexing. ` +
+      `Include: title, location, certification body, skill level, ` +
+      `terrain type, equipment, synonyms, all relevant search terms. ` +
+      `Write as space-separated keywords, not sentences. Never shown to users.\n\n` +
+      `Title: ${title}\nLocation: ${location}\n` +
+      `Description: ${String(description || "").slice(0, 400)}\n\n` +
+      `Respond with valid JSON only:\n{"display_summary": "...", "search_document": "..."}`;
 
     const anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -53,7 +71,7 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         model: CLAUDE_MODEL,
-        max_tokens: 200,
+        max_tokens: 400,
         messages: [{ role: "user", content: prompt }],
       }),
     });
@@ -64,15 +82,30 @@ serve(async (req) => {
     }
 
     const anthropicData = await anthropicRes.json();
-    const newSummary = (anthropicData?.content?.[0]?.text || "").trim();
+    const rawText = (anthropicData?.content?.[0]?.text || "").trim();
+    let newSummary = "";
+    let newSearchDoc = "";
+    try {
+      const parsed = JSON.parse(rawText);
+      newSummary = (parsed.display_summary || "").trim();
+      newSearchDoc = (parsed.search_document || "").trim();
+    } catch {
+      // Fallback: treat entire response as display_summary (backward compat)
+      newSummary = rawText;
+    }
+
+    const updatePayload: Record<string, unknown> = {
+      summary: newSummary,
+      approved: false,
+      pending_reason: "regenerated",
+    };
+    if (newSearchDoc) {
+      updatePayload.search_document = newSearchDoc;
+    }
 
     await supabase
       .from("course_summaries")
-      .update({
-        summary: newSummary,
-        approved: false,
-        pending_reason: "regenerated",
-      })
+      .update(updatePayload)
       .eq("provider_id", provider_id)
       .eq("title", title);
 
@@ -82,7 +115,7 @@ serve(async (req) => {
       detail: { provider_id, title },
     });
 
-    return json({ success: true, summary: newSummary });
+    return json({ success: true, summary: newSummary, search_document: newSearchDoc });
   } catch (err) {
     console.error(err);
     return json({ error: String(err) }, 500);

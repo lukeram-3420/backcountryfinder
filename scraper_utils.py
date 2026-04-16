@@ -383,11 +383,18 @@ def claude_classify(prompt: str, max_tokens: int = 256) -> dict:
         return {}
 
 
-def generate_summaries_batch(courses: list) -> dict:
+def generate_summaries_batch(courses: list, provider_id: str = None) -> dict:
     """
-    Batch-generate 2-sentence summaries via Claude Haiku.
+    Batch-generate two-field summaries via Claude Haiku (Phase 1 V2):
+      - display_summary: 2 sentences for the course card (user-facing)
+      - search_document: keyword-rich text for Algolia (never shown to users)
+
     courses: list of dicts with keys: id, title, description, provider, activity.
-    Returns {course_id: summary_text}. Deduplication by title is the caller's job.
+    provider_id: optional — used for course_summaries upsert. If not provided,
+      falls back to each course dict's "provider_id" key.
+
+    Returns {course_id: display_summary_text} — backward-compatible with V1 callers.
+    Internally upserts both fields to course_summaries table.
     """
     if not ANTHROPIC_API_KEY:
         return {}
@@ -396,7 +403,6 @@ def generate_summaries_batch(courses: list) -> dict:
         return {}
 
     # Deduplicate by description — same description gets one summary, reused for all IDs
-    # This is semantically correct: the summary represents the description, not the title.
     desc_to_ids = {}       # normalised_desc → [all ids with this description]
     desc_to_course = {}    # normalised_desc → first course (used for batching)
     unique_courses = []
@@ -412,6 +418,7 @@ def generate_summaries_batch(courses: list) -> dict:
     # Build id→course lookup for post-processing
     id_to_course = {c["id"]: c for c in unique_courses}
 
+    # results stores {course_id: {"display_summary": str, "search_document": str}}
     results = {}
     BATCH_SIZE = 12
 
@@ -420,33 +427,45 @@ def generate_summaries_batch(courses: list) -> dict:
         items = ""
         for c in batch:
             desc = c["description"][:600].strip()
+            loc = c.get("location", "")
             items += f"""---
 ID: {c["id"]}
 Provider: {c["provider"]}
 Activity: {c["activity"]}
 Title: {c["title"]}
+Location: {loc}
 Description: {desc}
 """
-        prompt = f"""You are writing 2-sentence summaries for backcountry experience listings on a booking aggregator.
+        prompt = f"""Given these backcountry course listings, generate two outputs for each:
 
-For each course, write a 2-sentence summary that MUST begin with the course name. The summary must be specific to that course only. Use plain language, no marketing fluff. Do not use the word "perfect". Write in third person.
+1. display_summary: 2 sentences for the course card.
+   Do not repeat the title or location (shown separately on card).
+   Focus on the experience, what participants learn, who it's for.
+   Use plain language, no marketing fluff. Do not use the word "perfect". Write in third person.
+
+2. search_document: Comprehensive keyword text for Algolia search indexing.
+   Include: title, location, certification body, skill level,
+   terrain type, equipment, synonyms, all relevant search terms.
+   Write as space-separated keywords, not sentences. Never shown to users.
 
 {items}
 
-Respond with JSON only — an array of objects with "id" and "summary" keys. Example:
-[{{"id": "provider-activity-2026-05-16", "summary": "Two sentences here."}}]"""
+Respond with valid JSON only — an array of objects:
+[{{"id": "course-id", "display_summary": "Two sentences here.", "search_document": "keywords here"}}]"""
 
         batch_num = i // BATCH_SIZE + 1
         for attempt in range(2):
             try:
-                result = claude_classify(prompt, max_tokens=1500)
+                result = claude_classify(prompt, max_tokens=2500)
                 if isinstance(result, list) and result:
                     for item in result:
-                        if item.get("id") and item.get("summary"):
-                            results[item["id"]] = item["summary"]
+                        cid = item.get("id")
+                        ds = item.get("display_summary") or item.get("summary", "")
+                        sd = item.get("search_document", "")
+                        if cid and ds:
+                            results[cid] = {"display_summary": ds, "search_document": sd}
                     log.info(f"Batch summaries: {len(result)} generated (batch {batch_num})")
                     break
-                # Empty or non-list response — treat as failure
                 raise ValueError(f"unexpected response type: {type(result)}")
             except Exception as e:
                 if attempt == 0:
@@ -456,34 +475,36 @@ Respond with JSON only — an array of objects with "id" and "summary" keys. Exa
                     log.warning(f"Batch {batch_num} retry also failed: {e}")
 
     # ── Post-processing: detect and fix duplicate summary bleed ──
-    # Bleed = same summary text for courses with DIFFERENT descriptions.
-    # Same description → same summary is intentional (handled by dedup above).
     summary_to_ids = {}
-    for cid, summary in results.items():
-        s = summary.strip()
+    for cid, fields in results.items():
+        s = fields["display_summary"].strip()
         if s:
             summary_to_ids.setdefault(s, []).append(cid)
 
     for summary_text, ids in summary_to_ids.items():
         if len(ids) <= 1:
             continue
-        # These are unique-description courses (deduped above) — if they share a summary, it's bleed
         titles = set(id_to_course[cid]["title"] for cid in ids if cid in id_to_course)
         if len(titles) <= 1:
-            continue  # same title — not bleed
+            continue
 
-        # Keep summary for first course, regenerate for the rest
         log.warning(f"Duplicate summary bleed across {len(titles)} titles with different descriptions — regenerating")
-        all_summaries = set(results.values())
+        all_summaries = set(f["display_summary"] for f in results.values())
         for cid in ids[1:]:
             c = id_to_course.get(cid)
             if not c:
                 continue
+            loc = c.get("location", "")
             regen_prompt = (
-                f"Write a 2-sentence summary for '{c['title']}'. "
-                f"The summary MUST start with '{c['title']}'. Be specific to this course only. "
-                f"Description: {c['description'][:400]}. "
-                f"Return only the summary text, no JSON."
+                f"Given this course, generate two outputs:\n\n"
+                f"1. display_summary: 2 sentences for the course card. "
+                f"Do not repeat the title or location. Focus on the experience.\n\n"
+                f"2. search_document: Keyword text for search indexing. "
+                f"Include title, location, skill level, terrain, equipment, synonyms.\n\n"
+                f"Title: {c['title']}\nProvider: {c['provider']}\n"
+                f"Location: {loc}\nDescription: {c['description'][:400]}\n\n"
+                f"Respond with valid JSON only:\n"
+                f"{{\"display_summary\": \"...\", \"search_document\": \"...\"}}"
             )
             try:
                 r = requests.post(
@@ -495,35 +516,112 @@ Respond with JSON only — an array of objects with "id" and "summary" keys. Exa
                     },
                     json={
                         "model": CLAUDE_MODEL,
-                        "max_tokens": 150,
+                        "max_tokens": 300,
                         "messages": [{"role": "user", "content": regen_prompt}],
                     },
                     timeout=30,
                 )
-                new_summary = r.json()["content"][0]["text"].strip()
+                regen_data = json.loads(r.json()["content"][0]["text"].strip())
+                new_summary = regen_data.get("display_summary", "").strip()
                 new_summary = re.sub(r"^#+\s*", "", new_summary).strip()
+                new_sd = regen_data.get("search_document", "").strip()
 
                 if new_summary in all_summaries:
                     log.warning(f"Regenerated summary for '{c['title']}' is still a duplicate — clearing")
-                    results[cid] = ""
+                    results[cid] = {"display_summary": "", "search_document": ""}
                 else:
-                    results[cid] = new_summary
+                    results[cid] = {"display_summary": new_summary, "search_document": new_sd}
                     all_summaries.add(new_summary)
                     log.info(f"Regenerated unique summary for '{c['title']}'")
             except Exception as e:
                 log.warning(f"Failed to regenerate summary for '{c['title']}': {e}")
-                results[cid] = ""
+                results[cid] = {"display_summary": "", "search_document": ""}
 
-    # Expand results: copy summaries to all IDs that share the same description
+    # Expand results: copy to all IDs that share the same description
     expanded = dict(results)
     for norm_desc, ids in desc_to_ids.items():
         first_id = desc_to_course[norm_desc]["id"]
-        if first_id in results and results[first_id]:
+        if first_id in results and results[first_id].get("display_summary"):
             for cid in ids:
                 if cid != first_id:
                     expanded[cid] = results[first_id]
 
-    return expanded
+    # ── Upsert to course_summaries table (both fields) ──
+    _upsert_course_summaries(expanded, id_to_course, desc_to_ids, desc_to_course, provider_id)
+
+    # Return backward-compatible {course_id: summary_text}
+    return {cid: fields["display_summary"] for cid, fields in expanded.items()}
+
+
+def _upsert_course_summaries(expanded: dict, id_to_course: dict,
+                             desc_to_ids: dict, desc_to_course: dict,
+                             fallback_provider_id: str = None) -> None:
+    """Upsert display_summary + search_document to course_summaries table.
+    Keyed by (provider_id, title). Writes title_hash and description_hash."""
+    if not expanded:
+        return
+
+    # Build one row per unique (provider_id, title)
+    seen = set()
+    rows = []
+    for cid, fields in expanded.items():
+        ds = fields.get("display_summary", "")
+        if not ds:
+            continue
+        # Look up course metadata — try id_to_course first, then any desc group
+        c = id_to_course.get(cid)
+        if not c:
+            # This is an expanded ID — find the source course
+            for norm_desc, ids in desc_to_ids.items():
+                if cid in ids:
+                    c = desc_to_course[norm_desc]
+                    break
+        if not c:
+            continue
+
+        pid = c.get("provider_id", "") or fallback_provider_id or ""
+        title = c.get("title", "")
+        key = (pid, title)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        desc = c.get("description", "")
+        desc_hash = hashlib.md5(desc.strip().encode()).hexdigest() if desc.strip() else None
+
+        rows.append({
+            "provider_id": pid,
+            "title": title,
+            "course_id": cid,
+            "summary": ds,
+            "search_document": fields.get("search_document", ""),
+            "title_hash": title_hash(title),
+            "description_hash": desc_hash,
+            "approved": False,
+            "pending_reason": "generated",
+        })
+
+    if not rows:
+        return
+
+    try:
+        r = requests.post(
+            f"{SUPABASE_URL}/rest/v1/course_summaries",
+            headers={
+                "apikey": SUPABASE_KEY,
+                "Authorization": f"Bearer {SUPABASE_KEY}",
+                "Content-Type": "application/json",
+                "Prefer": "resolution=merge-duplicates,return=minimal",
+            },
+            json=rows,
+            timeout=30,
+        )
+        if r.ok:
+            log.info(f"Upserted {len(rows)} rows to course_summaries")
+        else:
+            log.warning(f"course_summaries upsert failed {r.status_code}: {r.text[:200]}")
+    except Exception as e:
+        log.warning(f"course_summaries upsert error: {e}")
 
 
 # ── Date helpers ─────────────────────────────────────────────────────────────

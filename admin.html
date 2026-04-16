@@ -270,7 +270,7 @@
 
     <!-- TAB: SUMMARIES -->
     <div class="tab-panel hidden" id="panel-summaries">
-      <details class="instructions"><summary>How to use this tab</summary><p>Pending summaries are Haiku-generated descriptions waiting for approval. Edit the text if needed, then Approve to publish it to the site instantly. Courses with bad_description user flags appear here — approving a corrected summary unhides the course immediately.</p></details>
+      <details class="instructions"><summary>How to use this tab</summary><p>Each summary has two fields: <strong>Card description</strong> (editable, shown to users on course cards) and <strong>Search document</strong> (read-only, keyword text for Algolia search — never shown to users). Edit the card description if needed, then Approve to publish both fields. If the search document looks wrong, click Regenerate to get fresh outputs for both fields. Courses with bad_description user flags appear here — approving a corrected summary unhides the course immediately.</p></details>
       <div class="section">
         <h2>Pending summaries</h2>
         <div id="summaries-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
@@ -1295,20 +1295,26 @@ async function loadSummariesTab() {
       document.getElementById('summaries-wrap').innerHTML = '<div class="loading">No pending summaries</div>';
       return;
     }
-    document.getElementById('summaries-wrap').innerHTML = rows.map(r => `
+    document.getElementById('summaries-wrap').innerHTML = rows.map(r => {
+      const key = btoa(r.provider_id + '|' + r.title).replace(/=/g,'');
+      const hasSD = (r.search_document || '').trim();
+      return `
       <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;margin-bottom:12px;">
         <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
           <strong>${esc(r.title)}</strong>
           <div><code>${esc(r.provider_id)}</code> ${r.pending_reason ? `<span class="badge badge-amber">${esc(r.pending_reason)}</span>` : ''}</div>
         </div>
-        <textarea id="sum-${btoa(r.provider_id + '|' + r.title).replace(/=/g,'')}">${esc(r.summary || '')}</textarea>
+        <label style="font-size:12px;color:var(--text-muted);margin-bottom:4px;display:block;">Card description (editable)</label>
+        <textarea id="sum-${key}">${esc(r.summary || '')}</textarea>
+        ${hasSD ? `<label style="font-size:12px;color:var(--text-muted);margin:8px 0 4px;display:block;">Search document (read-only)</label>
+        <textarea id="sd-${key}" readonly style="background:var(--bg-alt);opacity:0.8;cursor:default;">${esc(r.search_document)}</textarea>` : ''}
         <div class="row-actions" style="margin-top:10px;">
           <button class="btn btn-small btn-primary" onclick="window.approveSummary('${esc(r.provider_id)}', '${esc(r.title).replace(/'/g, "&#39;")}', '${esc(r.course_id || '')}')">Approve</button>
           <button class="btn btn-small btn-danger" onclick="window.rejectSummary('${esc(r.provider_id)}', '${esc(r.title).replace(/'/g, "&#39;")}')">Reject</button>
           <button class="btn btn-small" onclick="window.regenerateSummary('${esc(r.provider_id)}', '${esc(r.title).replace(/'/g, "&#39;")}')">Regenerate</button>
         </div>
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
   } catch (e) {
     document.getElementById('summaries-wrap').innerHTML = `<div class="loading">Error: ${esc(e.message)}</div>`;
   }
@@ -1333,7 +1339,17 @@ window.regenerateSummary = async (provider_id, title) => {
     // Fetch a description from any matching course row
     const { data } = await sb.from('courses').select('description').eq('provider_id', provider_id).eq('title', title).limit(1);
     const description = data?.[0]?.description || title;
-    await callEdge('admin-regenerate-summary', { provider_id, title, description });
+    const res = await callEdge('admin-regenerate-summary', { provider_id, title, description });
+    // Update textareas inline if response has new values
+    const key = sumKey(provider_id, title);
+    if (res?.summary) {
+      const sumEl = document.getElementById('sum-' + key);
+      if (sumEl) sumEl.value = res.summary;
+    }
+    if (res?.search_document) {
+      const sdEl = document.getElementById('sd-' + key);
+      if (sdEl) sdEl.value = res.search_document;
+    }
     toast('Regenerated');
     loadSummariesTab();
   } catch (e) { toast('Failed: ' + e.message, true); }
