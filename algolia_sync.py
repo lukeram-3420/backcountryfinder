@@ -69,6 +69,7 @@ def fetch_courses():
         "flagged": "not.is.true",
         "auto_flagged": "not.is.true",
         "activity_canonical": "is.null",
+        "limit": "50000",
     }
     headers = {
         "apikey": SUPABASE_KEY,
