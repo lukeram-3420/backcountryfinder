@@ -48,10 +48,14 @@ function showPage(name){
 // NOTIFY MODAL
 let _notifyProvider = '';
 let _notifyCourse = '';
+let _notifyCourseId = '';
+let _notifyQueryID = '';
 
-function openNotifyModal(idOrProvider, courseTitle, providerId) {
+function openNotifyModal(idOrProvider, courseTitle, providerId, queryID) {
   _notifyProvider = providerId || idOrProvider;
   _notifyCourse = courseTitle;
+  _notifyCourseId = idOrProvider || '';
+  _notifyQueryID = queryID || '';
   document.getElementById('notify-course-name').textContent = courseTitle;
   document.getElementById('notify-email').value = '';
   document.getElementById('notify-form-content').style.display = 'block';
@@ -91,6 +95,7 @@ async function submitNotify() {
       body: JSON.stringify({email, course_title: _notifyCourse, provider_name: ''})
     });
   } catch(e) {}
+  if (_notifyCourseId) trackAlgoliaConversion(_notifyCourseId, _notifyQueryID, 'Notify Me Signed Up');
   document.getElementById('notify-form-content').style.display = 'none';
   document.getElementById('notify-success').style.display = 'block';
   setTimeout(closeNotifyModal, 2500);

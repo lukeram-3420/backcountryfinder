@@ -856,6 +856,31 @@ Algolia InstantSearch is live in `index.html` and replaces the Supabase-backed s
 - Old Supabase search functions are commented out (not deleted) as a fallback reference until V1 cutover
 - `courses_v2` is the single source of truth for the search grid, synced every 6 hours by `scraper-all.yml`'s final step and on-demand via `sync-algolia.yml`
 
+### Algolia Insights (event tracking)
+Event tracking is wired so the Analytics tab in the Algolia dashboard accumulates CTR + conversion data per query, and so the dataset is ready for future personalisation / dynamic re-ranking.
+
+**Setup** (in `/js/search.js`):
+- `search-insights` CDN script loaded in `<head>` before deferred modules → exposes `window.aa`
+- `initAlgoliaInsights()` in `/js/search.js` calls `aa('init', ...)` + sets a persistent anonymous `userToken` (UUID stored in `localStorage` as `bcf_algolia_user`) so returning visitors are recognised across sessions
+- `instantsearch({ insights: true })` middleware auto-fires `viewedObjectIDsAfterSearch` when results render, and decorates each hit with `__queryID` + `__position` which `mapHit()` propagates onto the course object as `_queryID` / `_position`
+
+**Events fired:**
+| Event | Trigger | Algolia call | Name |
+|-------|---------|--------------|------|
+| View | Results render | auto (middleware) | `Hits Viewed` |
+| Click | User saves course to My List (first time, not on unsave) | `trackAlgoliaClick(id, queryID, position, 'Course Saved')` in [js/saved.js](js/saved.js) `toggleSave` | `Course Saved` |
+| Conversion | User clicks Book Now | `trackAlgoliaConversion(id, queryID, 'Course Booking Initiated')` in [js/cards.js](js/cards.js) `buildCard` onclick | `Course Booking Initiated` |
+| Conversion | User submits Notify Me form | `trackAlgoliaConversion(_notifyCourseId, _notifyQueryID, 'Notify Me Signed Up')` in [js/ui.js](js/ui.js) `submitNotify` | `Notify Me Signed Up` |
+
+**Helpers** live in `/js/search.js`: `trackAlgoliaClick(objectID, queryID, position, eventName)` and `trackAlgoliaConversion(objectID, queryID, eventName)`. Both no-op silently if `aa` isn't loaded or the objectID is missing — they never block UI or throw.
+
+**Overlap with Supabase `click_events`:** the Book Now click currently fires BOTH `logClick()` (Supabase) and `trackAlgoliaConversion()` (Algolia). Double-instrumented by design during V2 transition — Phase 5 velocity-signals work will pick whichever source is more reliable and deprecate the other.
+
+**Rules for future changes:**
+- New user-facing interactions on course cards should fire an Algolia event where possible; use `trackAlgoliaClick` for engagement (save, share), `trackAlgoliaConversion` for booking intent (Book Now, Notify)
+- `_queryID` + `_position` must be threaded through any new onclick/handler that acts on a course — read from the `currentCourses` entry, or serialise into the onclick payload like Book Now does
+- Never depend on `aa` being defined — always guard with `if (typeof aa !== 'function') return;` inside the helper (already done)
+
 ### V2 Phase 4.5 — `index.html` modularisation (implemented)
 
 JS extracted into `/js/` modules. Classic script tags, not ES modules — functions stay global, no import/export, no build step:

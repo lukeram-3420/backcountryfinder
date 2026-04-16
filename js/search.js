@@ -4,6 +4,46 @@ function debouncedSearch() {
   clearTimeout(_searchTimer);
 }
 
+// ── ALGOLIA INSIGHTS (events) ──
+// Anonymous persistent userToken stored in localStorage so Algolia can attribute
+// clicks/conversions back to a search session (enables CTR + future personalisation).
+function initAlgoliaInsights() {
+  if (typeof aa !== 'function') return;
+  try {
+    aa('init', { appId: ALGOLIA_APP_ID, apiKey: ALGOLIA_SEARCH_KEY });
+    let token = localStorage.getItem('bcf_algolia_user');
+    if (!token) {
+      token = (crypto && crypto.randomUUID) ? crypto.randomUUID() : `u_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      localStorage.setItem('bcf_algolia_user', token);
+    }
+    aa('setUserToken', token);
+  } catch(e) { /* never block UI */ }
+}
+
+function trackAlgoliaClick(objectID, queryID, position, eventName) {
+  if (typeof aa !== 'function' || !objectID) return;
+  try {
+    const payload = { eventName, index: ALGOLIA_INDEX, objectIDs: [objectID] };
+    if (queryID && position) {
+      aa('clickedObjectIDsAfterSearch', { ...payload, queryID, positions: [position] });
+    } else {
+      aa('clickedObjectIDs', payload);
+    }
+  } catch(e) {}
+}
+
+function trackAlgoliaConversion(objectID, queryID, eventName) {
+  if (typeof aa !== 'function' || !objectID) return;
+  try {
+    const payload = { eventName, index: ALGOLIA_INDEX, objectIDs: [objectID] };
+    if (queryID) {
+      aa('convertedObjectIDsAfterSearch', { ...payload, queryID });
+    } else {
+      aa('convertedObjectIDs', payload);
+    }
+  } catch(e) {}
+}
+
 // V1 SUPABASE SEARCH FUNCTIONS — commented out, replaced by Algolia connectors above.
 // Kept for rollback if needed. Delete once Algolia is confirmed working.
 /*
@@ -283,11 +323,13 @@ function applyConfigFilters() {
 
 function initSearch() {
   // Instantiate Algolia client + connectors now that the body script has defined the constants
+  initAlgoliaInsights();
   searchClient = algoliasearch(ALGOLIA_APP_ID, ALGOLIA_SEARCH_KEY);
   search = instantsearch({
     indexName: ALGOLIA_INDEX,
     searchClient,
     routing: false,
+    insights: true,  // auto-fires viewedObjectIDsAfterSearch and decorates hits with __queryID / __position
   });
 
   customSearchBox = instantsearch.connectors.connectSearchBox(

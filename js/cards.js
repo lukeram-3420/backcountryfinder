@@ -96,10 +96,10 @@ function buildCard(c) {
           <span class="save-label">my list</span>
         </button>
         ${c.custom_dates
-          ?`<button class="book-btn" style="background:#f5f4f0;color:#1a2e1a;border:1px solid #c8c7c2;" onclick="openNotifyModal('${c.id}','${safeTitle}','${c.provider_id}')">Notify me 🔔</button>`
+          ?`<button class="book-btn" style="background:#f5f4f0;color:#1a2e1a;border:1px solid #c8c7c2;" onclick="openNotifyModal('${c.id}','${safeTitle}','${c.provider_id}','${c._queryID||''}')">Notify me 🔔</button>`
           :c.avail==='sold'
             ?`<button class="book-btn" style="background:#f5f4f0;color:#888;border:1px solid #c8c7c2;cursor:default;">Sold out</button>`
-            :`<a class="book-btn" href="${utmUrl(bookingUrl)}" target="_blank" rel="noopener" onclick="logClick(JSON.parse('${courseJson}'));setTimeout(showToast,800)">Book Now <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-left:2px;"><path d="M7 17L17 7"/><path d="M7 7h10v10"/></svg></a>`
+            :`<a class="book-btn" href="${utmUrl(bookingUrl)}" target="_blank" rel="noopener" onclick="logClick(JSON.parse('${courseJson}'));trackAlgoliaConversion('${c.id}','${c._queryID||''}','Course Booking Initiated');setTimeout(showToast,800)">Book Now <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-left:2px;"><path d="M7 17L17 7"/><path d="M7 7h10v10"/></svg></a>`
         }
       </div>
     </div>
@@ -155,5 +155,9 @@ function mapHit(hit) {
       rating: hit.provider_rating || null,
       review_count: null,
     },
+    // Algolia insights — auto-decorated by `insights: true` on the root config,
+    // read here so click/conversion handlers can attribute events to the originating search.
+    _queryID: hit.__queryID || null,
+    _position: hit.__position || null,
   };
 }
