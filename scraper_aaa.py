@@ -14,6 +14,7 @@ import requests
 
 from scraper_utils import (
     sb_upsert, find_place_id, send_email,
+    log_availability_change, log_price_change,
     SUPABASE_URL, SUPABASE_KEY, RESEND_API_KEY, UTM,
 )
 
@@ -257,6 +258,11 @@ def main():
         sb_upsert("courses", rows[i:i+50])
 
     print(f"  ✅ Upserted {len(rows)} rows")
+
+    # Log intelligence (V2 — append-only, change-detected)
+    for c in rows:
+        log_availability_change(c)
+        log_price_change(c)
     # EMAILS OFF
     # send_summary(len(rows), skipped)
 

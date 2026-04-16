@@ -19,6 +19,7 @@ from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 from scraper_utils import (
+    log_availability_change, log_price_change,
     sb_get, sb_upsert, sb_insert, sb_patch,
     load_location_mappings, normalise_location,
     load_activity_mappings, load_activity_labels, resolve_activity, build_badge,
@@ -454,6 +455,10 @@ def main():
         for c in deduped:
             c.pop("description", None)
         sb_upsert("courses", deduped)
+        # Log intelligence (V2 — append-only, change-detected)
+        for c in deduped:
+            log_availability_change(c)
+            log_price_change(c)
         log.info(f"Total courses upserted: {len(deduped)}")
 
         # Clean up stale flexible-date rows where we now have dated rows

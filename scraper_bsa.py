@@ -16,6 +16,7 @@ from bs4 import BeautifulSoup
 from datetime import datetime, date
 
 from scraper_utils import (
+    log_availability_change, log_price_change,
     sb_upsert, sb_patch, sb_get,
     send_email, append_utm,
     SUPABASE_URL, SUPABASE_KEY, RESEND_API_KEY, ANTHROPIC_API_KEY,
@@ -181,6 +182,11 @@ def upsert_courses(rows: list[dict]):
     if not rows:
         return
     sb_upsert("courses", rows)
+
+    # Log intelligence (V2 — append-only, change-detected)
+    for c in rows:
+        log_availability_change(c)
+        log_price_change(c)
 
 
 def deactivate_missing(seen_ids: set[str]):

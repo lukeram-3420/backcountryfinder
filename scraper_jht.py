@@ -9,6 +9,7 @@ from datetime import datetime
 from anthropic import Anthropic
 
 from scraper_utils import (
+    log_availability_change, log_price_change,
     sb_upsert, sb_patch, send_email,
     SUPABASE_URL, SUPABASE_KEY, RESEND_API_KEY, ANTHROPIC_API_KEY,
     GOOGLE_PLACES_API_KEY,
@@ -384,6 +385,10 @@ def main():
                 deduped.append(c)
         all_courses = deduped
         sb_upsert("courses", all_courses)
+        # Log intelligence (V2 — append-only, change-detected)
+        for c in all_courses:
+            log_availability_change(c)
+            log_price_change(c)
         print(f"\n✓ Upserted {len(all_courses)} courses")
     else:
         print("\n⚠ No courses found")

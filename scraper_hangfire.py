@@ -18,7 +18,7 @@ from typing import Optional
 import requests
 from bs4 import BeautifulSoup
 
-from scraper_utils import normalise_location
+from scraper_utils import normalise_location, log_availability_change, log_price_change
 
 # ── CONFIG ──
 SUPABASE_URL          = os.environ["SUPABASE_URL"]
@@ -531,6 +531,10 @@ def main():
 
     if deduped:
         sb_upsert("courses", deduped)
+        # Log intelligence (V2 — append-only, change-detected)
+        for c in deduped:
+            log_availability_change(c)
+            log_price_change(c)
         log.info(f"Total courses upserted: {len(deduped)}")
     else:
         log.warning("No courses scraped — keeping existing Supabase data")

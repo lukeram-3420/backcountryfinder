@@ -23,6 +23,7 @@ import logging
 import re
 
 from scraper_utils import (
+    log_availability_change, log_price_change,
     sb_upsert,
     update_provider_ratings,
     load_location_mappings, normalise_location,
@@ -309,6 +310,11 @@ def main():
     for i in range(0, len(final), 50):
         sb_upsert("courses", final[i:i + 50])
     log.info(f"✅ Upserted {len(final)} rows")
+
+    # Log intelligence (V2 — append-only, change-detected)
+    for c in final:
+        log_availability_change(c)
+        log_price_change(c)
 
 
 if __name__ == "__main__":

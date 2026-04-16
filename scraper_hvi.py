@@ -17,6 +17,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from scraper_utils import (
+    log_availability_change, log_price_change,
     sb_get, sb_upsert, sb_insert,
     load_location_mappings, normalise_location,
     load_activity_mappings, load_activity_labels, resolve_activity, build_badge,
@@ -352,6 +353,10 @@ def main():
             seen[c["id"]] = c
         deduped = list(seen.values())
         sb_upsert("courses", deduped)
+        # Log intelligence (V2 — append-only, change-detected)
+        for c in deduped:
+            log_availability_change(c)
+            log_price_change(c)
         log.info(f"Upserted {len(deduped)} courses for {provider['name']}")
     else:
         log.warning(f"No courses scraped for {provider['name']}")

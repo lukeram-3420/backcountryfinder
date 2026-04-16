@@ -17,6 +17,7 @@ from datetime import datetime, date
 from typing import Optional
 
 from scraper_utils import (
+    log_availability_change, log_price_change,
     sb_get, sb_upsert, sb_insert,
     normalise_location,
     send_email, send_scraper_summary,
@@ -645,6 +646,10 @@ def main():
         for c in deduped:
             c.pop("description", None)
         sb_upsert("courses", deduped)
+        # Log intelligence (V2 — append-only, change-detected)
+        for c in deduped:
+            log_availability_change(c)
+            log_price_change(c)
         log.info(f"Total courses upserted: {len(deduped)}")
     else:
         log.warning("No courses scraped — keeping existing Supabase data")
