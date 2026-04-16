@@ -1210,16 +1210,14 @@ function setProviderFilter(providerId, providerName) {
   if (window.history && window.history.replaceState)
     window.history.replaceState({}, '', `?provider=${providerId}`);
   showPage('search');
-  currentPage = 0;
-  fetchCourses(0, false);
+  applyConfigFilters();
 }
 
 function clearProviderFilter() {
   currentFilters.provider = '';
   const chip = document.getElementById('provider-filter-chip');
   if (chip) chip.style.display = 'none';
-  currentPage = 0;
-  fetchCourses(0, false);
+  applyConfigFilters();
   if (window.history && window.history.replaceState)
     window.history.replaceState({}, '', window.location.pathname);
 }
@@ -1613,17 +1611,178 @@ function showMicroToast() {
   microToastTimer = setTimeout(() => toast.classList.remove('show'), 3000);
 }
 
+// ── ALGOLIA INSTANTSEARCH ──
+const searchClient = algoliasearch(ALGOLIA_APP_ID, ALGOLIA_SEARCH_KEY);
+const search = instantsearch({
+  indexName: ALGOLIA_INDEX,
+  searchClient,
+  routing: false,
+});
+
+// Map Algolia hit → shape expected by buildCard()
+function mapHit(hit) {
+  return {
+    id: hit.objectID,
+    title: hit.title || '',
+    summary: hit.summary || '',
+    search_document: hit.search_document || '',
+    date_display: hit.date_display || '',
+    date_sort: hit.date_sort,
+    custom_dates: hit.custom_dates || false,
+    location_canonical: hit.location_canonical || '',
+    location_raw: hit.location_raw || '',
+    activity_canonical: null,
+    activity_raw: hit.activity || '',
+    activity: hit.activity || '',
+    badge_canonical: null,
+    badge: hit.badge || '',
+    image_url: hit.image_url,
+    price: hit.price,
+    currency: hit.currency || 'CAD',
+    avail: hit.avail || 'open',
+    spots_remaining: hit.spots_remaining ?? null,
+    booking_url: hit.booking_url || '#',
+    booking_mode: hit.booking_mode || 'instant',
+    provider_id: hit.provider_id || '',
+    providers: {
+      name: hit.provider_name || '',
+      rating: hit.provider_rating || null,
+      review_count: null,
+    },
+  };
+}
+
+// ── Search box connector ──
+const customSearchBox = instantsearch.connectors.connectSearchBox(
+  ({ refine }, isFirstRender) => {
+    if (isFirstRender) {
+      const input = document.getElementById('search-query');
+      let timer;
+      input.addEventListener('input', () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => refine(input.value), 300);
+      });
+    }
+  }
+);
+
+// ── Location dropdown connector ──
+const customLocationMenu = instantsearch.connectors.connectMenu(
+  ({ items, refine }, isFirstRender) => {
+    const select = document.getElementById('search-location');
+    const currentVal = select.value;
+    select.innerHTML = '<option value="">Anywhere</option>' +
+      items.map(item =>
+        `<option value="${item.value}" ${item.isRefined ? 'selected' : ''}>${item.value} (${item.count})</option>`
+      ).join('');
+    // Preserve selection if still valid
+    if (currentVal && !items.find(i => i.value === currentVal)) {
+      select.value = '';
+    }
+    if (isFirstRender) {
+      select.addEventListener('change', () => refine(select.value));
+    }
+  }
+);
+
+// ── Infinite hits connector (card grid + load more) ──
+let _algoliaShowMore = null;
+const customInfiniteHits = instantsearch.connectors.connectInfiniteHits(
+  ({ hits, showMore, isLastPage, results }, isFirstRender) => {
+    const grid = document.getElementById('card-grid');
+    const wrap = document.getElementById('load-more-wrap');
+    const count = document.getElementById('results-count');
+
+    const mapped = hits.map(mapHit);
+    currentCourses = mapped;
+    totalCount = results ? results.nbHits : mapped.length;
+    _algoliaShowMore = showMore;
+
+    if (mapped.length === 0) {
+      const noFiltersActive = !document.getElementById('search-query').value
+        && !document.getElementById('search-location').value
+        && !currentFilters.provider;
+      if (noFiltersActive) {
+        grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="empty-icon" style="font-size:52px;">🏔</div><h3>Updating course listings</h3><p>We're pulling in fresh data. Check back in about 45 minutes.</p><div class="status-pill"><span class="status-dot"></span><span>Scraper running now</span></div></div>`;
+      } else {
+        grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="empty-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="20" rx="6" ry="2.5" stroke="#ccc" stroke-width="1.5" fill="none"/><ellipse cx="12" cy="14.5" rx="4.5" ry="2" stroke="#ccc" stroke-width="1.5" fill="none"/><ellipse cx="12" cy="9.5" rx="3" ry="1.8" stroke="#ccc" stroke-width="1.5" fill="none"/></svg></div><h3>no experiences found</h3><p>Try adjusting your filters.</p></div>`;
+      }
+      if (count) count.textContent = '0 results';
+      if (wrap) wrap.style.display = 'none';
+      return;
+    }
+
+    grid.innerHTML = mapped.map(c => buildCard(c)).join('');
+    if (count) count.textContent = `${totalCount} results`;
+    if (wrap) wrap.style.display = isLastPage ? 'none' : 'block';
+    addRemoveReadyListeners();
+  }
+);
+
+// ── Date + provider filter via configure connector ──
+let _configRefine = null;
+const customConfigure = instantsearch.connectors.connectConfigure(
+  ({ refine }, isFirstRender) => {
+    _configRefine = refine;
+    if (isFirstRender) {
+      const dateInput = document.getElementById('search-date');
+      dateInput.addEventListener('change', () => {
+        dateInput.classList.toggle('has-value', !!dateInput.value);
+        applyConfigFilters();
+      });
+    }
+  }
+);
+
+function applyConfigFilters() {
+  const config = {};
+  // Date filter
+  const dateVal = document.getElementById('search-date').value;
+  if (dateVal) {
+    const ts = Math.floor(new Date(dateVal).getTime() / 1000);
+    config.numericFilters = [`date_sort>=${ts}`];
+  }
+  // Provider filter
+  if (currentFilters.provider) {
+    config.facetFilters = [`provider_id:${currentFilters.provider}`];
+  }
+  if (_configRefine) _configRefine(config);
+}
+
 // ── INIT ──
 loadActivityLabels().then(() => {
   // Set default "from" date to tomorrow
   const tmrw = new Date();
   tmrw.setDate(tmrw.getDate() + 1);
-  document.getElementById('search-date').value = tmrw.toISOString().split('T')[0];
-  document.getElementById('search-date').classList.add('has-value');
-  debouncedSearch();
+  const dateInput = document.getElementById('search-date');
+  dateInput.value = tmrw.toISOString().split('T')[0];
+  dateInput.classList.add('has-value');
+
+  // Parse provider deep link before starting search
   initProviderFilter();
-  loadActivitiesDropdown();
-  loadLocationsDropdown();
+
+  // Wire load more button to Algolia's showMore
+  const loadMoreBtn = document.querySelector('.load-more-btn');
+  if (loadMoreBtn) {
+    loadMoreBtn.removeAttribute('onclick');
+    loadMoreBtn.addEventListener('click', () => { if (_algoliaShowMore) _algoliaShowMore(); });
+  }
+
+  // Start Algolia InstantSearch
+  search.addWidgets([
+    customSearchBox({}),
+    customLocationMenu({ attribute: 'location', limit: 100 }),
+    customInfiniteHits({ showPrevious: false }),
+    customConfigure({
+      searchParameters: {
+        hitsPerPage: 12,
+      },
+    }),
+  ]);
+  search.start();
+
+  // Apply initial date + provider filters after start
+  applyConfigFilters();
 });
 initSharedCourses();
 
