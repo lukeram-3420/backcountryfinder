@@ -10,6 +10,7 @@ from anthropic import Anthropic
 
 from scraper_utils import (
     log_availability_change, log_price_change,
+    stable_id_v2,
     sb_upsert, sb_patch, send_email,
     SUPABASE_URL, SUPABASE_KEY, RESEND_API_KEY, ANTHROPIC_API_KEY,
     GOOGLE_PLACES_API_KEY,
@@ -287,7 +288,7 @@ def scrape_page(path, default_activity, default_location):
         summary = generate_summary(title, description)
 
         for (start, end, display) in dates:
-            course_id = make_id(activity, start, title)
+            course_id = stable_id_v2(PROVIDER_ID, start, title)
             booking_url = f"{BOOKING_BASE}?{UTM}"
             try:
                 duration_days = (
@@ -308,7 +309,7 @@ def scrape_page(path, default_activity, default_location):
                 "title":              title,
                 "activity":           activity,
                 "activity_raw":       title,
-                "activity_canonical": activity,
+                "activity_canonical": None,  # V2: null hides from V1 frontend
                 "location_raw":       location,
                 "location_canonical": location,
                 "date_display":       display,

@@ -17,6 +17,7 @@ from datetime import datetime, date
 
 from scraper_utils import (
     log_availability_change, log_price_change,
+    stable_id_v2,
     sb_upsert, sb_patch, sb_get,
     send_email, append_utm,
     SUPABASE_URL, SUPABASE_KEY, RESEND_API_KEY, ANTHROPIC_API_KEY,
@@ -363,13 +364,13 @@ def scrape_course_page(url: str) -> list[dict]:
     rows = []
     if dates:
         for d in dates:
-            cid = stable_id_bsa(PROVIDER["id"], activity, d["date_sort"], title)
+            cid = stable_id_v2(PROVIDER["id"], d["date_sort"], title)
             rows.append({
                 "id":               cid,
                 "provider_id":      PROVIDER["id"],
                 "title":            title,
                 "activity":         activity,
-                "activity_canonical": activity,
+                "activity_canonical": None,  # V2: null hides from V1 frontend
                 "location_raw":     location,
                 "location_canonical": location,
                 "date_display":     d["date_str"],
@@ -383,13 +384,13 @@ def scrape_course_page(url: str) -> list[dict]:
                 "spots_remaining":  None,
             })
     else:
-        cid = stable_id_bsa(PROVIDER["id"], activity, "evergreen", title)
+        cid = stable_id_v2(PROVIDER["id"], None, title)
         rows.append({
             "id":               cid,
             "provider_id":      PROVIDER["id"],
             "title":            title,
             "activity":         activity,
-            "activity_canonical": activity,
+            "activity_canonical": None,  # V2: null hides from V1 frontend
             "location_raw":     location,
             "location_canonical": location,
             "date_display":     None,

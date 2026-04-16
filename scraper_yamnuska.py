@@ -29,7 +29,7 @@ from scraper_utils import (
     load_location_mappings, normalise_location,
     load_activity_mappings, load_activity_labels, resolve_activity, build_badge,
     claude_classify, generate_summaries_batch,
-    parse_date_sort, is_future, stable_id,
+    parse_date_sort, is_future, stable_id_v2,
     update_provider_ratings, send_email,
     SUPABASE_URL, SUPABASE_KEY, ANTHROPIC_API_KEY, GOOGLE_PLACES_API_KEY,
     RESEND_API_KEY, UTM,
@@ -508,7 +508,7 @@ def main():
 
         activity_canonical = resolve_activity(c["title"], c.get("description", ""), activity_maps)
         badge_canonical    = build_badge(activity_canonical, c.get("duration_days"), activity_labels)
-        course_id          = stable_id(PROVIDER["id"], activity_canonical, c.get("date_sort"), c["title"])
+        course_id          = stable_id_v2(PROVIDER["id"], c.get("date_sort"), c["title"])
 
         processed.append({
             "id":                 course_id,
@@ -517,7 +517,7 @@ def main():
             "badge":              badge_canonical,
             "activity":           activity_canonical,
             "activity_raw":       c.get("activity_raw", ""),
-            "activity_canonical": activity_canonical,
+            "activity_canonical": None,  # V2: null hides from V1 frontend
             "badge_canonical":    badge_canonical,
             "location_raw":       loc_raw,
             "location_canonical": loc_canonical,

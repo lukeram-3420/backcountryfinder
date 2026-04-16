@@ -588,8 +588,23 @@ def spots_to_avail(spots: Optional[int]) -> str:
 # ── Intelligence logging (V2 — sacred append-only tables) ───────────────────
 
 def title_hash(title: str) -> str:
-    """Stable 8-char hash for grouping all dates of the same course title."""
-    return hashlib.md5((title or "").encode()).hexdigest()[:8]
+    """Stable 8-char hash for grouping all dates of the same course title.
+    Normalises to stripped lowercase before hashing so 'AST 1 ' and ' ast 1'
+    produce the same hash. This is the SINGLE source of truth for title
+    hashing — every stable_id_v2, log function, and Algolia objectID must
+    call this function. Never compute an inline md5 of titles elsewhere.
+    """
+    return hashlib.md5((title or "").strip().lower().encode()).hexdigest()[:8]
+
+
+def stable_id_v2(provider_id: str, date_sort: Optional[str], title: str) -> str:
+    """V2 stable course ID: {provider}-{date}-{title_hash_8} or {provider}-flex-{title_hash_8}.
+    No activity segment. Platform-agnostic. Three segments, always three.
+    """
+    th = title_hash(title)
+    if date_sort:
+        return f"{provider_id}-{date_sort}-{th}"
+    return f"{provider_id}-flex-{th}"
 
 
 def log_availability_change(course: dict) -> None:
@@ -611,10 +626,12 @@ def log_availability_change(course: dict) -> None:
     spots = course.get("spots_remaining")
     avail = course.get("avail")
 
-    # Fetch the most recent log entry for this course+date
+    # Fetch most recent log entry by (provider_id, title_hash, date_sort) —
+    # ID-format-agnostic so logs survive the V1→V2 ID migration.
     try:
         prev = sb_get("course_availability_log", {
-            "course_id": f"eq.{cid}",
+            "provider_id": f"eq.{pid}",
+            "title_hash": f"eq.{th}",
             "date_sort": f"eq.{ds}",
             "select": "spots_remaining,avail",
             "order": "scraped_at.desc",

@@ -22,7 +22,7 @@ from scraper_utils import (
     sb_get, sb_upsert, sb_insert,
     load_activity_mappings, load_activity_labels,
     resolve_activity, build_badge,
-    stable_id, is_future,
+    stable_id_v2, is_future,
     generate_summaries_batch,
     update_provider_ratings,
     send_scraper_summary,
@@ -243,7 +243,7 @@ def main():
     processed = []
     for c in raw_courses:
         loc_canonical = "Squamish"  # always Squamish
-        course_id = stable_id(PROVIDER["id"], c["activity"], c.get("date_sort"), c["title"])
+        course_id = stable_id_v2(PROVIDER["id"], c.get("date_sort"), c["title"])
         activity_canonical = resolve_activity(c["title"], "", activity_maps)
         badge_canonical = build_badge(activity_canonical, c.get("duration_days"), activity_labels)
         processed.append({
@@ -253,7 +253,7 @@ def main():
             "badge":              badge_canonical,
             "activity":           activity_canonical,
             "activity_raw":       c.get("activity_raw", "climbing"),
-            "activity_canonical": activity_canonical,
+            "activity_canonical": None,  # V2: null hides from V1 frontend
             "badge_canonical":    badge_canonical,
             "location_raw":       "Squamish",
             "location_canonical": loc_canonical,

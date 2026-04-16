@@ -18,7 +18,7 @@ from typing import Optional
 import requests
 from bs4 import BeautifulSoup
 
-from scraper_utils import normalise_location, log_availability_change, log_price_change
+from scraper_utils import normalise_location, log_availability_change, log_price_change, stable_id_v2
 
 # ── CONFIG ──
 SUPABASE_URL          = os.environ["SUPABASE_URL"]
@@ -469,7 +469,7 @@ def main():
             log.info(f"Skipping past course: {title} ({date_sort})")
             continue
 
-        course_id = stable_id(provider["id"], activity, date_sort, title)
+        course_id = stable_id_v2(provider["id"], date_sort, title)
         duration_days = c.get("duration_days")
         dur_str = f" · {int(duration_days)} day{'s' if duration_days > 1 else ''}" if duration_days else ""
         badge = f"Avalanche Safety{dur_str}"
@@ -481,7 +481,7 @@ def main():
             "badge":              badge,
             "activity":           activity,
             "activity_raw":       activity,
-            "activity_canonical": activity,
+            "activity_canonical": None,  # V2: null hides from V1 frontend
             "badge_canonical":    badge,
             "location_raw":       loc_raw,
             "location_canonical": loc_canonical,

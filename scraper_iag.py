@@ -21,7 +21,7 @@ from scraper_utils import (
     load_location_mappings, normalise_location,
     load_activity_mappings, load_activity_labels, resolve_activity, build_badge,
     generate_summaries_batch,
-    stable_id, spots_to_avail,
+    stable_id_v2, spots_to_avail,
     update_provider_ratings, send_scraper_summary,
 )
 
@@ -298,7 +298,7 @@ def main():
         loc_canonical = normalise_location(c.get("location_raw", ""), mappings)
         if not loc_canonical:
             loc_canonical = "Vancouver Island"
-        course_id = stable_id(provider["id"], c["activity"], c.get("date_sort"), c["title"])
+        course_id = stable_id_v2(provider["id"], c.get("date_sort"), c["title"])
         activity_canonical = resolve_activity(c["title"], "", activity_maps)
         badge_canonical = build_badge(activity_canonical, c.get("duration_days"), activity_labels)
         processed.append({
@@ -308,7 +308,7 @@ def main():
             "badge":              badge_canonical,
             "activity":           activity_canonical,
             "activity_raw":       c.get("activity_raw", "guided"),
-            "activity_canonical": activity_canonical,
+            "activity_canonical": None,  # V2: null hides from V1 frontend
             "badge_canonical":    badge_canonical,
             "location_raw":       c.get("location_raw"),
             "location_canonical": loc_canonical,

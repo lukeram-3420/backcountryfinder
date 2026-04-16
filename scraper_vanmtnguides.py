@@ -24,7 +24,7 @@ import re
 
 from scraper_utils import (
     log_availability_change, log_price_change,
-    sb_upsert,
+    sb_upsert, stable_id_v2,
     update_provider_ratings,
     load_location_mappings, normalise_location,
     load_activity_mappings, resolve_activity, build_badge,
@@ -191,14 +191,14 @@ def main():
         # on-demand. Emit one flexible-dates card instead of dated rows.
         if category_name == "Private Guiding":
             log.info(f"  [{aid}] {title!r}: private-guiding → 1 flexible-dates row")
-            course_id = make_id(PROVIDER["id"], activity_canonical, "flex", aid, title)
+            course_id = stable_id_v2(PROVIDER["id"], None, title)
             rows.append({
                 "id":                 course_id,
                 "title":              title,
                 "provider_id":        PROVIDER["id"],
                 "activity":           activity_canonical,
                 "activity_raw":       category_name,
-                "activity_canonical": activity_canonical,
+                "activity_canonical": None,  # V2: null hides from V1 frontend
                 "badge":              badge,
                 "badge_canonical":    badge,
                 "location_raw":       loc_raw,
@@ -244,14 +244,14 @@ def main():
         # Emit one row per bookable date
         for d in bookable:
             date_iso = d.isoformat()
-            course_id = make_id(PROVIDER["id"], activity_canonical, date_iso, aid, title)
+            course_id = stable_id_v2(PROVIDER["id"], date_iso, title)
             rows.append({
                 "id":                 course_id,
                 "title":              title,
                 "provider_id":        PROVIDER["id"],
                 "activity":           activity_canonical,
                 "activity_raw":       category_name,
-                "activity_canonical": activity_canonical,
+                "activity_canonical": None,  # V2: null hides from V1 frontend
                 "badge":              badge,
                 "badge_canonical":    badge,
                 "location_raw":       loc_raw,

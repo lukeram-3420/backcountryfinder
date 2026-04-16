@@ -24,7 +24,7 @@ from scraper_utils import (
     load_location_mappings, normalise_location,
     load_activity_mappings, load_activity_labels, resolve_activity, build_badge,
     detect_activity, generate_summaries_batch,
-    parse_date_sort, is_future, stable_id,
+    parse_date_sort, is_future, stable_id_v2,
     update_provider_ratings,
 )
 
@@ -391,7 +391,7 @@ def main():
                         date_sort = parse_date_sort(date_display)
                 time.sleep(1)  # brief pause between Playwright page loads
 
-            course_id = stable_id(provider["id"], activity_canonical, date_sort, c["title"])
+            course_id = stable_id_v2(provider["id"], date_sort, c["title"])
 
             processed.append({
                 "id":                 course_id,
@@ -400,7 +400,7 @@ def main():
                 "badge":              badge_canonical,
                 "activity":           activity_canonical,
                 "activity_raw":       c.get("activity_raw", "guided"),
-                "activity_canonical": activity_canonical,
+                "activity_canonical": None,  # V2: null hides from V1 frontend
                 "badge_canonical":    badge_canonical,
                 "location_raw":       loc_raw or None,
                 "location_canonical": loc_canonical,

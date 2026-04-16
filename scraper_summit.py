@@ -23,6 +23,7 @@ from scraper_utils import (
     send_email, send_scraper_summary,
     SUPABASE_URL, SUPABASE_KEY, RESEND_API_KEY, ANTHROPIC_API_KEY,
     GOOGLE_PLACES_API_KEY, UTM, CLAUDE_MODEL, NOTIFY_EMAIL, FROM_EMAIL,
+    stable_id_v2,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -551,7 +552,7 @@ def main():
                 location_flags.append({"location_raw": loc_raw, "provider_id": provider["id"], "course_title": c["title"]})
         else:
             loc_canonical = None
-        course_id = stable_id(provider["id"], c["activity"], c.get("date_sort"), c["title"])
+        course_id = stable_id_v2(provider["id"], c.get("date_sort"), c["title"])
         activity_canonical, act_is_new, act_add_mapping = resolve_activity(c["title"], "", activity_maps, provider["name"])
         if act_add_mapping:
             sb_insert("activity_mappings", {"title_contains": c["title"].lower()[:100], "activity": activity_canonical})
@@ -564,7 +565,7 @@ def main():
             "badge":              badge_canonical,
             "activity":           activity_canonical,
             "activity_raw":       c.get("activity_raw", "guided"),
-            "activity_canonical": activity_canonical,
+            "activity_canonical": None,  # V2: null hides from V1 frontend
             "badge_canonical":    badge_canonical,
             "location_raw":       loc_raw or None,
             "location_canonical": loc_canonical,

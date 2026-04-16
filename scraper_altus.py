@@ -18,7 +18,7 @@ from typing import Optional
 import requests
 from bs4 import BeautifulSoup
 
-from scraper_utils import normalise_location, log_availability_change, log_price_change
+from scraper_utils import normalise_location, log_availability_change, log_price_change, stable_id_v2
 
 # ── CONFIG ──
 SUPABASE_URL          = os.environ["SUPABASE_URL"]
@@ -1052,7 +1052,7 @@ def main():
             loc_canonical = None
 
         # Build stable ID
-        course_id = stable_id(provider["id"], c["activity"], c.get("date_sort"), c["title"])
+        course_id = stable_id_v2(provider["id"], c.get("date_sort"), c["title"])
 
         # Resolve canonical activity
         activity_raw = c.get("activity_raw") or c.get("activity") or "guided"
@@ -1099,7 +1099,7 @@ def main():
             "badge":              badge_canonical,
             "activity":           activity_canonical,
             "activity_raw":       activity_raw,
-            "activity_canonical": activity_canonical,
+            "activity_canonical": None,  # V2: null hides from V1 frontend
             "badge_canonical":    badge_canonical,
             "location_raw":       loc_raw or None,
             "location_canonical": loc_canonical,
@@ -1140,7 +1140,7 @@ def main():
                 loc_canonical = normalise_location(loc_raw, mappings)
 
             badge_canonical = build_badge(activity_canonical, c.get("duration_days"))
-            course_id = stable_id(provider["id"], activity_canonical, c.get("date_sort"), c["title"])
+            course_id = stable_id_v2(provider["id"], c.get("date_sort"), c["title"])
 
             processed.append({
                 "id":                 course_id,
@@ -1149,7 +1149,7 @@ def main():
                 "badge":              badge_canonical,
                 "activity":           activity_canonical,
                 "activity_raw":       c.get("activity_raw", "guided"),
-                "activity_canonical": activity_canonical,
+                "activity_canonical": None,  # V2: null hides from V1 frontend
                 "badge_canonical":    badge_canonical,
                 "location_raw":       loc_raw or None,
                 "location_canonical": loc_canonical,

@@ -23,6 +23,7 @@ from scraper_utils import (
     send_email, send_scraper_summary,
     SUPABASE_URL, SUPABASE_KEY, RESEND_API_KEY, ANTHROPIC_API_KEY,
     GOOGLE_PLACES_API_KEY, UTM, CLAUDE_MODEL, NOTIFY_EMAIL, FROM_EMAIL,
+    stable_id_v2,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -540,7 +541,7 @@ def main():
                 location_flags.append({"location_raw": loc_raw, "provider_id": provider["id"], "course_title": c["title"]})
         else:
             loc_canonical = None
-        course_id = stable_id(provider["id"], c["activity"], c.get("date_sort"), c["title"])
+        course_id = stable_id_v2(provider["id"], c.get("date_sort"), c["title"])
         activity_raw = c.get("activity_raw") or "guided"
         activity_canonical, act_is_new, act_add_mapping = resolve_activity(c["title"], c.get("location_raw") or "", activity_maps, provider["name"])
         if act_add_mapping:
@@ -555,7 +556,7 @@ def main():
         processed.append({
             "id": course_id, "title": c["title"], "provider_id": provider["id"],
             "badge": badge_canonical, "activity": activity_canonical,
-            "activity_raw": activity_raw, "activity_canonical": activity_canonical,
+            "activity_raw": activity_raw, "activity_canonical": None,  # V2: null hides from V1 frontend
             "badge_canonical": badge_canonical, "location_raw": loc_raw or None,
             "location_canonical": loc_canonical, "date_display": date_display,
             "date_sort": date_sort, "duration_days": c.get("duration_days"),
@@ -598,7 +599,7 @@ def main():
             date_sort = session.get("date_sort")
             # Include product_id as tiebreaker to avoid duplicate stable IDs
             id_key = f"{course['title']} {session.get('product_id', '')}"
-            session_id = stable_id(provider["id"], course["activity"], date_sort, id_key)
+            session_id = stable_id_v2(provider["id"], date_sort, course["title"])
 
             session_course = dict(course)
             session_course.update({

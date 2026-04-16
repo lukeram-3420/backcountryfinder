@@ -13,7 +13,7 @@ import datetime
 import requests
 
 from scraper_utils import (
-    sb_upsert, find_place_id, send_email,
+    sb_upsert, find_place_id, send_email, stable_id_v2,
     log_availability_change, log_price_change,
     SUPABASE_URL, SUPABASE_KEY, RESEND_API_KEY, UTM,
 )
@@ -219,8 +219,7 @@ def main():
 
             date_sort    = d.isoformat()
             date_display = d.strftime("%b %-d, %Y")
-            course_id    = make_id(PROVIDER["id"], activity, date_key,
-                                   item_id, title)
+            course_id    = stable_id_v2(PROVIDER["id"], date_sort, title)
             booking_url  = (
                 f"{BOOKING_URL}?item_id={item_id}&start_date={date_key}"
                 f"&utm_source=backcountryfinder&utm_medium=referral"
@@ -232,7 +231,7 @@ def main():
                 "title":              title,
                 "activity":           activity,
                 "activity_raw":       category,
-                "activity_canonical": activity,
+                "activity_canonical": None,  # V2: null hides from V1 frontend
                 "location_raw":       location,
                 "location_canonical": location,
                 "date_sort":          date_sort,
