@@ -37,15 +37,6 @@ GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "")
 CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 PLACES_API_URL = "https://maps.googleapis.com/maps/api/place"
 
-# Canadian regions to search across
-REGIONS = [
-    "British Columbia",
-    "Alberta",
-    "Canadian Rockies",
-    "Ontario",
-    "Quebec",
-]
-
 # Query templates — {activity} and {region} are substituted
 QUERY_TEMPLATES = [
     "{activity} guides {region} Canada",
@@ -129,30 +120,73 @@ def load_known_domains():
     return known
 
 
-# ── Load activity labels ─────────────────────────────────────────────────────
+# ── Load discovery cloud ─────────────────────────────────────────────────────
 
-def load_activity_labels():
-    """Load activity_labels table → {slug: display_label}."""
-    rows = sb_get("activity_labels", {"select": "activity,label"})
-    labels = {r["activity"]: r["label"] for r in rows}
-    log.info(f"Loaded {len(labels)} activity labels")
-    return labels
+def load_discovery_cloud():
+    """Load active terms from discovery_cloud table.
+    Returns {activity_terms: [str], location_terms: [str]}."""
+    rows = sb_get("discovery_cloud", {"active": "eq.true", "select": "id,term,type,weight"})
+    activity_terms = sorted(
+        [r["term"] for r in rows if r["type"] == "activity"],
+        key=lambda t: next((r["weight"] for r in rows if r["term"] == t), 0),
+        reverse=True,
+    )
+    location_terms = sorted(
+        [r["term"] for r in rows if r["type"] == "location"],
+        key=lambda t: next((r["weight"] for r in rows if r["term"] == t), 0),
+        reverse=True,
+    )
+    log.info(f"Loaded discovery cloud: {len(activity_terms)} activity + {len(location_terms)} location terms")
+    return {"activity": activity_terms, "location": location_terms, "rows": rows}
+
+
+def update_last_used(term_ids):
+    """Stamp last_used_at on terms that were used in this run."""
+    if not term_ids:
+        return
+    for term_id in term_ids:
+        try:
+            headers = _sb_headers()
+            headers["Prefer"] = "return=minimal"
+            requests.patch(
+                f"{SUPABASE_URL}/rest/v1/discovery_cloud?id=eq.{term_id}",
+                headers=headers,
+                json={"last_used_at": "now()"},
+            )
+        except Exception:
+            pass
 
 
 # ── Generate search queries ──────────────────────────────────────────────────
 
-def generate_queries(activity_labels):
-    """Generate search queries from activity labels x regions x templates."""
+def generate_queries(cloud):
+    """Generate search queries from discovery cloud: activity terms x location terms x templates."""
+    activity_terms = cloud["activity"]
+    location_terms = cloud["location"]
+    if not activity_terms or not location_terms:
+        log.warning("Discovery cloud is empty — run refresh_discovery_cloud.py first")
+        return []
+
     queries = []
-    for slug, label in activity_labels.items():
-        for region in REGIONS:
-            # Use one template per activity-region pair to keep volume reasonable
-            # Rotate templates across activities for variety
-            template_idx = hash(slug + region) % len(QUERY_TEMPLATES)
-            q = QUERY_TEMPLATES[template_idx].format(activity=label, region=region)
-            queries.append({"query": q, "activity": slug, "region": region})
-    log.info(f"Generated {len(queries)} search queries")
-    return queries
+    used_term_ids = set()
+    cloud_rows_by_term = {(r["term"].lower(), r["type"]): r for r in cloud["rows"]}
+
+    for activity in activity_terms:
+        for region in location_terms:
+            # Rotate templates for variety across combinations
+            template_idx = hash(activity + region) % len(QUERY_TEMPLATES)
+            q = QUERY_TEMPLATES[template_idx].format(activity=activity, region=region)
+            queries.append({"query": q, "activity": activity, "region": region})
+            # Track which terms were used
+            act_row = cloud_rows_by_term.get((activity.lower(), "activity"))
+            loc_row = cloud_rows_by_term.get((region.lower(), "location"))
+            if act_row:
+                used_term_ids.add(act_row["id"])
+            if loc_row:
+                used_term_ids.add(loc_row["id"])
+
+    log.info(f"Generated {len(queries)} search queries from {len(activity_terms)} activities x {len(location_terms)} locations")
+    return queries, used_term_ids
 
 
 # ── Haiku web search ─────────────────────────────────────────────────────────
@@ -409,11 +443,14 @@ def main():
         return
 
     # 1. Load inputs
-    activity_labels = load_activity_labels()
+    cloud = load_discovery_cloud()
     known_domains = load_known_domains()
 
     # 2. Generate search queries
-    queries = generate_queries(activity_labels)
+    result = generate_queries(cloud)
+    if not result:
+        return
+    queries, used_term_ids = result
 
     # 3. Search and collect candidates
     raw_finds = {}  # domain -> {url, name, courses, query}
@@ -480,6 +517,9 @@ def main():
 
         # Rate limit between analysis calls
         time.sleep(2)
+
+    # 5. Stamp last_used_at on discovery cloud terms
+    update_last_used(used_term_ids)
 
     log.info(f"Discovery complete: {len(raw_finds)} candidates found, {inserted} new rows inserted")
 

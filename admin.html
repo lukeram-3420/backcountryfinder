@@ -338,7 +338,7 @@
 
     <!-- TAB: SETTINGS -->
     <div class="tab-panel hidden" id="panel-settings">
-      <details class="instructions"><summary>How to use this tab</summary><p>Manage canonical activity values used across all scrapers and filters. Changes here affect how activities are labelled on the site. Add new canonical values when adding a new activity type.</p></details>
+      <details class="instructions"><summary>How to use this tab</summary><p>Manage canonical activity values used across all scrapers and filters. Changes here affect how activities are labelled on the site. Add new canonical values when adding a new activity type. <strong>Discovery Cloud</strong> controls the search terms used by the weekly automated provider discovery script. Activity terms are extracted from course titles (bigrams across 2+ providers); location terms are derived from provider locations and location mappings. Toggle terms on/off to control what gets searched. Add manual terms to search for niches not yet in your data. Weight shows how many providers use that term. Last used shows when the term last generated a discovery run.</p></details>
       <div class="section">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
           <h2 style="margin:0;">Canonical activity values</h2>
@@ -363,6 +363,37 @@
           <li><code>Rogers Pass, BC</code></li>
           <li><code>Bugaboos, BC</code></li>
         </ul>
+      </div>
+
+      <!-- Discovery Cloud -->
+      <div class="section">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h2 style="margin:0;">Discovery Cloud — Activity Terms</h2>
+          <button class="btn btn-primary" onclick="showAddCloudTerm('activity')">Add term</button>
+        </div>
+        <div id="add-cloud-activity-form" class="hidden" style="background:#faf9f5;border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;margin-bottom:12px;">
+          <div style="display:flex;gap:8px;align-items:flex-end;">
+            <div style="flex:1;"><label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-tertiary);display:block;margin-bottom:4px;">Term</label><input type="text" id="new-cloud-activity-term" placeholder="backcountry skiing"></div>
+            <button class="btn btn-small btn-primary" onclick="addCloudTerm('activity')">Add</button>
+            <button class="btn btn-small" onclick="hideAddCloudTerm('activity')">Cancel</button>
+          </div>
+        </div>
+        <div id="cloud-activity-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
+      </div>
+
+      <div class="section">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h2 style="margin:0;">Discovery Cloud — Location Terms</h2>
+          <button class="btn btn-primary" onclick="showAddCloudTerm('location')">Add term</button>
+        </div>
+        <div id="add-cloud-location-form" class="hidden" style="background:#faf9f5;border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;margin-bottom:12px;">
+          <div style="display:flex;gap:8px;align-items:flex-end;">
+            <div style="flex:1;"><label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-tertiary);display:block;margin-bottom:4px;">Term</label><input type="text" id="new-cloud-location-term" placeholder="Yukon"></div>
+            <button class="btn btn-small btn-primary" onclick="addCloudTerm('location')">Add</button>
+            <button class="btn btn-small" onclick="hideAddCloudTerm('location')">Cancel</button>
+          </div>
+        </div>
+        <div id="cloud-location-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
       </div>
     </div>
   </div>
@@ -2173,6 +2204,7 @@ async function loadSettingsTab() {
   } catch (e) {
     document.getElementById('activity-labels-wrap').innerHTML = `<div class="loading">Error: ${esc(e.message)}</div>`;
   }
+  loadDiscoveryCloud();
 }
 
 function renderActivityLabels() {
@@ -2249,6 +2281,115 @@ window.deleteActivityLabel = (key) => {
       loadSettingsTab();
     } catch (e) { toast('Failed: ' + e.message, true); }
   });
+};
+
+// ── Discovery Cloud (within Settings tab) ───────
+let cachedCloud = [];
+
+async function loadDiscoveryCloud() {
+  try {
+    cachedCloud = await sbSelect('discovery_cloud', { order: { col: 'weight', ascending: false } });
+    renderCloudList('activity');
+    renderCloudList('location');
+  } catch (e) {
+    document.getElementById('cloud-activity-wrap').innerHTML = `<div class="loading">Error: ${esc(e.message)}</div>`;
+    document.getElementById('cloud-location-wrap').innerHTML = '';
+  }
+}
+
+function renderCloudList(type) {
+  const items = cachedCloud.filter(r => r.type === type);
+  const wrapId = `cloud-${type}-wrap`;
+  if (!items.length) {
+    document.getElementById(wrapId).innerHTML = `<div class="loading">No ${type} terms yet — run refresh_discovery_cloud.py</div>`;
+    return;
+  }
+  const rows = items.map(r => {
+    const lastUsed = r.last_used_at ? new Date(r.last_used_at).toLocaleDateString() : '—';
+    const weightBar = Math.min(r.weight || 1, 20);
+    const weightStyle = `display:inline-block;width:${weightBar * 4}px;height:8px;background:var(--accent);border-radius:3px;opacity:0.5;margin-right:6px;vertical-align:middle;`;
+    const activeClass = r.active ? '' : ' style="opacity:0.45;text-decoration:line-through;"';
+    const toggleLabel = r.active ? 'Disable' : 'Enable';
+    const toggleClass = r.active ? 'btn-small' : 'btn-small btn-primary';
+    const sourceTag = r.source === 'manual' ? ' <span style="font-size:10px;color:var(--text-tertiary);font-weight:600;">MANUAL</span>' : '';
+    return `<tr${activeClass}>
+      <td><span style="${weightStyle}"></span>${esc(r.term)}${sourceTag}</td>
+      <td style="text-align:center;font-size:12px;color:var(--text-tertiary);">${r.weight || 1}</td>
+      <td style="text-align:center;font-size:12px;color:var(--text-tertiary);">${lastUsed}</td>
+      <td class="row-actions">
+        <button class="${toggleClass}" onclick="toggleCloudTerm(${r.id}, ${!r.active})">${toggleLabel}</button>
+        <button class="btn btn-small btn-danger" onclick="deleteCloudTerm(${r.id}, '${esc(r.term)}')">Delete</button>
+      </td>
+    </tr>`;
+  }).join('');
+  document.getElementById(wrapId).innerHTML = `
+    <table><thead><tr><th>Term</th><th style="width:60px;text-align:center;">Weight</th><th style="width:90px;text-align:center;">Last used</th><th style="width:140px;"></th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+}
+
+window.toggleCloudTerm = async (id, active) => {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/discovery_cloud?id=eq.${id}`, {
+      method: 'PATCH',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify({ active }),
+    });
+    if (!res.ok) throw new Error(`PATCH ${res.status}`);
+    toast(active ? 'Term enabled' : 'Term disabled');
+    loadDiscoveryCloud();
+  } catch (e) { toast('Failed: ' + e.message, true); }
+};
+
+window.deleteCloudTerm = (id, term) => {
+  confirmAction('Delete cloud term', `Remove "${term}" from the discovery cloud?`, async () => {
+    try {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/discovery_cloud?id=eq.${id}`, {
+        method: 'DELETE',
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (!res.ok) throw new Error(`DELETE ${res.status}`);
+      toast('Term deleted');
+      loadDiscoveryCloud();
+    } catch (e) { toast('Failed: ' + e.message, true); }
+  });
+};
+
+window.showAddCloudTerm = (type) => {
+  document.getElementById(`add-cloud-${type}-form`).classList.remove('hidden');
+  document.getElementById(`new-cloud-${type}-term`).value = '';
+};
+window.hideAddCloudTerm = (type) => {
+  document.getElementById(`add-cloud-${type}-form`).classList.add('hidden');
+};
+window.addCloudTerm = async (type) => {
+  const term = document.getElementById(`new-cloud-${type}-term`).value.trim();
+  if (!term) { toast('Term is required', true); return; }
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/discovery_cloud`, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify({ term, type, weight: 1, source: 'manual', active: true }),
+    });
+    if (res.status === 409) { toast('Term already exists', true); return; }
+    if (!res.ok) throw new Error(`POST ${res.status}`);
+    toast('Term added');
+    window.hideAddCloudTerm(type);
+    loadDiscoveryCloud();
+  } catch (e) { toast('Failed: ' + e.message, true); }
 };
 
 // ── Tab: Pipeline ───────────────────────────────

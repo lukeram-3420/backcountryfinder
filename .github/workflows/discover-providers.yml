@@ -20,5 +20,7 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: pip install requests
+      - name: Refresh discovery cloud
+        run: python refresh_discovery_cloud.py
       - name: Run provider discovery
         run: python discover_providers.py
