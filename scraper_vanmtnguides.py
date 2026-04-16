@@ -290,9 +290,10 @@ def main():
                 summaries = generate_summaries_batch(list(by_title.values()))
                 log.info(f"Generated {len(summaries)} summaries")
                 for r in rows:
-                    s = summaries.get(r["title"])
-                    if s:
-                        r["summary"] = s
+                    result = summaries.get(r["title"])
+                    if result:
+                        r["summary"] = result.get("summary", "") if isinstance(result, dict) else result
+                        r["search_document"] = result.get("search_document", "") if isinstance(result, dict) else ""
             except Exception as e:
                 log.warning(f"Summary batch failed: {e}")
 

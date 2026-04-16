@@ -267,7 +267,7 @@ Both systems produce identical output (rows upserted to the `courses` table with
 | Function | Signature | Description |
 |----------|-----------|-------------|
 | `claude_classify` | `(prompt: str, max_tokens: int = 256) -> dict` | Call Claude Haiku, return parsed JSON. Returns `{}` on failure. |
-| `generate_summaries_batch` | `(courses: list, provider_id: str = None) -> dict` | Batch-generate two-field summaries (Phase 1 V2): `display_summary` (user-facing) + `search_document` (Algolia keywords). Input: list of `{id, title, description, provider, activity}`. Returns `{course_id: display_summary_text}` (backward-compatible). Internally upserts both fields to `course_summaries` table. `provider_id` param used for upsert; falls back to each course dict's `provider_id` key. Processes in batches of 12 with single retry on failure. |
+| `generate_summaries_batch` | `(courses: list, provider_id: str = None) -> dict` | Batch-generate two-field summaries (Phase 1 V2): `display_summary` (user-facing) + `search_document` (Algolia keywords). Input: list of `{id, title, description, provider, activity}`. Returns `{course_id: {"summary": str, "search_document": str}}`. Internally upserts both fields to `course_summaries` table. `provider_id` param used for upsert; falls back to each course dict's `provider_id` key. Processes in batches of 12 with single retry on failure. |
 
 #### Dates & IDs
 
@@ -300,7 +300,7 @@ Both systems produce identical output (rows upserted to the `courses` table with
 #### Important notes
 
 - **Playwright is never imported at the top level** of `scraper_utils.py`. Any scraper that needs Playwright (e.g. Yamnuska) imports it in its own file.
-- **Haiku batching**: `generate_summaries_batch` processes 12 courses per Claude call with single retry on failure. Internally upserts both `display_summary` and `search_document` to `course_summaries` table (Phase 1 V2). Return value is backward-compatible `{course_id: summary_text}`.
+- **Haiku batching**: `generate_summaries_batch` processes 12 courses per Claude call with single retry on failure. Internally upserts both `display_summary` and `search_document` to `course_summaries` table (Phase 1 V2). Returns `{course_id: {"summary": str, "search_document": str}}`. All 14 scrapers write both fields to the courses upsert payload — `search_document` goes live immediately at scrape time, no admin approval needed.
 - **Environment variables**: `SUPABASE_URL`, `SUPABASE_KEY`, `RESEND_API_KEY`, `GOOGLE_PLACES_API_KEY`, `ANTHROPIC_API_KEY` are read from env at module load and available as module-level constants.
 
 ### Two-pass scraping pattern
@@ -783,7 +783,7 @@ All existing V1 courses backfilled with `currency='CAD'`. All existing providers
 
 **All 14 scrapers consolidated**: every scraper imports `generate_summaries_batch` from `scraper_utils.py`. Local copies in altus, cwms, summit, hangfire were deleted. Single-course `generate_summary` in bsa and jht was replaced with the batch pattern. Some scrapers (altus, cwms, summit, hangfire) still have local copies of other helpers (`claude_classify`, `parse_date_sort`, etc.) — lower priority consolidation.
 
-**Backward-compatible return**: callers still receive `{course_id: summary_text}`. Both fields are upserted to `course_summaries` internally. `admin-approve-summary` copies both to `courses.summary` + `courses.search_document`. `admin-regenerate-summary` uses the two-field prompt. Summary Review tab shows both fields (card description editable, search document read-only).
+**Return format**: `{course_id: {"summary": str, "search_document": str}}`. Both fields are upserted to `course_summaries` internally. All 14 scrapers write both `summary` and `search_document` directly to the `courses` table at scrape time — `search_document` goes live immediately without admin approval. `admin-approve-summary` still copies the `display_summary` to `courses.summary` (for admin edits). `admin-regenerate-summary` uses the two-field prompt. Summary Review tab shows both fields (card description editable, search document read-only).
 
 No backfill needed — V1 rows are deleted on cutover, and all new scraper runs generate both fields. Algolia (Phase 3) goes live after cutover, so there is no consumer for `search_document` on pre-cutover rows.
 

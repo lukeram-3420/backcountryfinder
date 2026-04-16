@@ -353,7 +353,9 @@ def main():
 
         data    = products[match]
         price   = data.get("price")
-        summary = summaries.get(match, "")
+        result = summaries.get(match, {})
+        summary = result.get("summary", "") if isinstance(result, dict) else result
+        search_doc = result.get("search_document", "") if isinstance(result, dict) else ""
 
         if price is None:
             no_price += 1
@@ -361,6 +363,8 @@ def main():
         payload = {}
         if summary:
             payload["summary"] = summary
+        if search_doc:
+            payload["search_document"] = search_doc
         if price is not None:
             payload["price"] = price
 
@@ -476,13 +480,20 @@ def main():
             summaries = {}
 
         regen_patched = 0
-        for title, summary in summaries.items():
+        for title, result in summaries.items():
+            if not result:
+                continue
+            summary = result.get("summary", "") if isinstance(result, dict) else result
+            search_doc = result.get("search_document", "") if isinstance(result, dict) else ""
             if not summary:
                 continue
+            payload = {"summary": summary}
+            if search_doc:
+                payload["search_document"] = search_doc
             sb_patch(
                 "courses",
                 f"provider_id=eq.{PROVIDER_ID}&title=eq.{requests.utils.quote(title)}",
-                {"summary": summary},
+                payload,
             )
             regen_patched += 1
         print(f"    ✅ Patched {regen_patched} titles with regenerated summaries")
