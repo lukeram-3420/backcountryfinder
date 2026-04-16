@@ -15,6 +15,7 @@ Public API:
   IDs:       stable_id
   Avail:     spots_to_avail
   Email:     send_email, send_scraper_summary
+  Logging:   title_hash, log_availability_change, log_price_change
   Two-pass:  fetch_detail_pages
 """
 
@@ -582,6 +583,112 @@ def spots_to_avail(spots: Optional[int]) -> str:
     if spots <= 4:
         return "low"
     return "open"
+
+
+# ── Intelligence logging (V2 — sacred append-only tables) ───────────────────
+
+def title_hash(title: str) -> str:
+    """Stable 8-char hash for grouping all dates of the same course title."""
+    return hashlib.md5((title or "").encode()).hexdigest()[:8]
+
+
+def log_availability_change(course: dict) -> None:
+    """Append to course_availability_log if spots_remaining or avail differs
+    from the last logged value for this (course_id, date_sort).
+
+    Call after sb_upsert("courses", ...) on every scrape run. Only writes
+    when values actually change — not on every run.
+
+    course dict must include: id, provider_id, title, date_sort,
+    spots_remaining, avail.
+    """
+    cid = course.get("id")
+    pid = course.get("provider_id")
+    ds = course.get("date_sort")
+    if not cid or not pid or not ds:
+        return
+    th = title_hash(course.get("title", ""))
+    spots = course.get("spots_remaining")
+    avail = course.get("avail")
+
+    # Fetch the most recent log entry for this course+date
+    try:
+        prev = sb_get("course_availability_log", {
+            "course_id": f"eq.{cid}",
+            "date_sort": f"eq.{ds}",
+            "select": "spots_remaining,avail",
+            "order": "scraped_at.desc",
+            "limit": "1",
+        })
+    except Exception:
+        prev = []
+
+    if prev:
+        last = prev[0]
+        if last.get("spots_remaining") == spots and last.get("avail") == avail:
+            return  # no change
+
+    try:
+        sb_insert("course_availability_log", {
+            "course_id": cid,
+            "provider_id": pid,
+            "title_hash": th,
+            "date_sort": ds,
+            "spots_remaining": spots,
+            "avail": avail,
+            "event_type": "update",
+        })
+    except Exception as e:
+        log.warning(f"avail log failed for {cid}: {e}")
+
+
+def log_price_change(course: dict) -> None:
+    """Append to course_price_log if price differs from the last logged
+    value for this (provider_id, title_hash, date_sort).
+
+    Call after sb_upsert("courses", ...) on every scrape run.
+
+    course dict must include: provider_id, title, date_sort, price.
+    Optional: currency (defaults to 'CAD').
+    """
+    pid = course.get("provider_id")
+    price = course.get("price")
+    if not pid or price is None:
+        return
+    th = title_hash(course.get("title", ""))
+    ds = course.get("date_sort")
+    currency = course.get("currency", "CAD")
+
+    # Fetch the most recent price log entry for this title+date
+    try:
+        params = {
+            "provider_id": f"eq.{pid}",
+            "title_hash": f"eq.{th}",
+            "select": "price",
+            "order": "logged_at.desc",
+            "limit": "1",
+        }
+        if ds:
+            params["date_sort"] = f"eq.{ds}"
+        else:
+            params["date_sort"] = "is.null"
+        prev = sb_get("course_price_log", params)
+    except Exception:
+        prev = []
+
+    if prev and prev[0].get("price") == price:
+        return  # no change
+
+    try:
+        sb_insert("course_price_log", {
+            "provider_id": pid,
+            "title_hash": th,
+            "date_sort": ds,
+            "price": price,
+            "currency": currency,
+        })
+    except Exception as e:
+        log.warning(f"price log failed for {pid}/{th}: {e}")
 
 
 # ── UTM helper ───────────────────────────────────────────────────────────────
