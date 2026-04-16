@@ -1660,25 +1660,6 @@ const customSearchBox = instantsearch.connectors.connectSearchBox(
   }
 );
 
-// ── Location dropdown connector ──
-const customLocationMenu = instantsearch.connectors.connectMenu(
-  ({ items, refine }, isFirstRender) => {
-    const select = document.getElementById('search-location');
-    const currentVal = select.value;
-    select.innerHTML = '<option value="">Anywhere</option>' +
-      items.map(item =>
-        `<option value="${item.value}" ${item.isRefined ? 'selected' : ''}>${item.value} (${item.count})</option>`
-      ).join('');
-    // Preserve selection if still valid
-    if (currentVal && !items.find(i => i.value === currentVal)) {
-      select.value = '';
-    }
-    if (isFirstRender) {
-      select.addEventListener('change', () => refine(select.value));
-    }
-  }
-);
-
 // ── Infinite hits connector (card grid + load more) ──
 let _algoliaShowMore = null;
 const customInfiniteHits = instantsearch.connectors.connectInfiniteHits(
@@ -1694,7 +1675,6 @@ const customInfiniteHits = instantsearch.connectors.connectInfiniteHits(
 
     if (mapped.length === 0) {
       const noFiltersActive = !document.getElementById('search-query').value
-        && !document.getElementById('search-location').value
         && !currentFilters.provider;
       if (noFiltersActive) {
         grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="empty-icon" style="font-size:52px;">🏔</div><h3>Updating course listings</h3><p>We're pulling in fresh data. Check back in about 45 minutes.</p><div class="status-pill"><span class="status-dot"></span><span>Scraper running now</span></div></div>`;
