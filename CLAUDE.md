@@ -428,9 +428,15 @@ One file per provider at `.github/workflows/scraper-{id}.yml`. All use `workflow
 
 ### Discovery workflow — discover-providers.yml
 - **Triggers:** `schedule` (cron `0 6 * * 0` — every Sunday 06:00 UTC) + `workflow_dispatch`
-- Runs: `python discover_providers.py`
+- Runs: `refresh_discovery_cloud.py` then `discover_providers.py`
 - Dependencies: `requests` only (no beautifulsoup4/playwright needed)
 - Uses 4 secrets: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `GOOGLE_PLACES_API_KEY`, `ANTHROPIC_API_KEY`
+
+### Refresh cloud workflow — refresh-cloud.yml
+- **Trigger:** `workflow_dispatch` only (manual)
+- Runs: `python refresh_discovery_cloud.py`
+- Dependencies: `requests` only
+- Uses 2 secrets: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`
 
 ### discover_providers.py
 
