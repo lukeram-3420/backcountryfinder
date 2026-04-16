@@ -186,12 +186,12 @@ def configure_index(client):
 # ── Record push ──────────────────────────────────────────────────────────────
 
 def push_records(client, records, dry_run=False):
-    """Push records to Algolia in batches of 1000."""
-    BATCH_SIZE = 1000
+    """Replace all records in Algolia index atomically.
+    Uses replace_all_objects which swaps a temp index into place —
+    stale records from previous syncs are automatically removed."""
 
     if dry_run:
-        log.info(f"DRY RUN — would push {len(records)} records")
-        # Log a sample
+        log.info(f"DRY RUN — would push {len(records)} records (full replace)")
         for r in records[:3]:
             log.info(f"  Sample: {r.get('objectID')} | {r.get('title')} | "
                      f"activity={r.get('activity')} | location={r.get('location_canonical')} | "
@@ -200,14 +200,9 @@ def push_records(client, records, dry_run=False):
             log.info(f"  ... and {len(records) - 3} more")
         return
 
-    for i in range(0, len(records), BATCH_SIZE):
-        batch = records[i:i + BATCH_SIZE]
-        batch_num = i // BATCH_SIZE + 1
-        total_batches = (len(records) + BATCH_SIZE - 1) // BATCH_SIZE
-        client.save_objects(index_name=ALGOLIA_INDEX_NAME, objects=batch)
-        log.info(f"Pushed batch {batch_num}/{total_batches} ({len(batch)} records)")
-
-    log.info(f"All {len(records)} records pushed to {ALGOLIA_INDEX_NAME}")
+    log.info(f"Replacing all records in {ALGOLIA_INDEX_NAME} ({len(records)} records)...")
+    client.replace_all_objects(index_name=ALGOLIA_INDEX_NAME, objects=records)
+    log.info(f"All {len(records)} records pushed to {ALGOLIA_INDEX_NAME} (full replace)")
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
