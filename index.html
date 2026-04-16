@@ -460,7 +460,7 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>
       <div class="search-field" style="flex:1.5;" >
         <label>Where</label>
-        <select id="search-location" onchange="debouncedSearch()">
+        <select id="search-location">
           <option value="">Anywhere</option>
           <option>Whistler / Blackcomb</option>
           <option>Squamish</option>
@@ -472,9 +472,9 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>
       <div class="search-field" style="flex:1;" >
         <label>From when</label>
-        <input type="date" id="search-date" onchange="this.classList.toggle('has-value', !!this.value); debouncedSearch()">
+        <input type="date" id="search-date">
       </div>
-      <button class="search-go" onclick="runSearch()">Search →</button>
+      <button class="search-go" onclick="document.getElementById('search-query').focus()">Search →</button>
     </div>
     </div>
   </div>
@@ -826,9 +826,12 @@ function toggleSave(id){
   }
 }
 
-// ── CACHE ──
+// ── CACHE — commented out for V2 Algolia migration ──
 let currentCourses = [];
 
+// V1 SUPABASE SEARCH FUNCTIONS — commented out, replaced by Algolia connectors above
+// Kept for rollback if needed. Delete once Algolia is confirmed working.
+/*
 function getCached() {
   try {
     const raw = localStorage.getItem(CACHE_KEY);
@@ -851,7 +854,6 @@ function setCache(data) {
   } catch(e) {}
 }
 
-// ── SUPABASE QUERY ──
 async function fetchCourses(page = 0, append = false) {
   if (isLoading) return;
   isLoading = true;
@@ -928,6 +930,7 @@ async function fetchFromSupabase(page = 0, append = false, background = false) {
     if (!append) hideSkeleton();
   }
 }
+*/
 
 // ── SKELETON / LOADING ──
 function showSkeleton() {
@@ -964,7 +967,8 @@ function showError() {
   hideSkeleton();
 }
 
-// ── ACTIVITY DROPDOWN ──
+// V1 ACTIVITY/LOCATION DROPDOWN FUNCTIONS — commented out, replaced by Algolia connectors
+/*
 async function loadActivitiesDropdown() {
   try {
     const res = await fetch(
@@ -979,12 +983,9 @@ async function loadActivitiesDropdown() {
     select.innerHTML = '<option value="">Everything backcountry</option>' +
       [...activities].sort().map(a => `<option value="${a}">${ACTIVITY_LABELS[a] || a}</option>`).join('');
     if (currentVal) select.value = currentVal;
-  } catch(e) { /* keep default option */ }
+  } catch(e) {}
 }
 
-// ── LOCATION DROPDOWN ──
-// Source of truth is the location_mappings table (~55 rows) — avoids missing
-// locations due to Supabase pagination on the 25k+ courses table.
 async function loadLocationsDropdown() {
   try {
     const res = await fetch(
@@ -1001,14 +1002,11 @@ async function loadLocationsDropdown() {
     select.innerHTML = '<option value="">Anywhere</option>' +
       [...locations].sort().map(l => `<option value="${l}">${l}</option>`).join('');
     if (currentVal) select.value = currentVal;
-  } catch(e) { /* keep static options */ }
+  } catch(e) {}
 }
 
 async function updateLocationsForActivity(activity) {
-  if (!activity) {
-    loadLocationsDropdown();
-    return;
-  }
+  if (!activity) { loadLocationsDropdown(); return; }
   try {
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/courses?select=location_canonical&active=eq.true&flagged=not.is.true&auto_flagged=not.is.true&activity_canonical=eq.${encodeURIComponent(activity)}`,
@@ -1029,6 +1027,7 @@ async function updateLocationsForActivity(activity) {
     }
   } catch(e) { loadLocationsDropdown(); }
 }
+*/
 
 function buildCard(c) {
   const saved = isSaved(c.id);
@@ -1182,6 +1181,8 @@ async function renderSaved(){
   }
 }
 
+// V1 SEARCH HELPERS — commented out, replaced by Algolia connectors
+/*
 function loadMore(){
   currentPage++;
   fetchCourses(currentPage, true);
@@ -1193,10 +1194,11 @@ function sortBy(el,val){
   currentPage=0;
   fetchCourses(0, false);
 }
+*/
 let _searchTimer = null;
 function debouncedSearch() {
+  // Legacy stub — kept so any remaining onchange="debouncedSearch()" doesn't throw
   clearTimeout(_searchTimer);
-  _searchTimer = setTimeout(runSearch, 300);
 }
 
 function setProviderFilter(providerId, providerName) {
@@ -1241,6 +1243,8 @@ function initProviderFilter() {
     });
 }
 
+// V1 runSearch — commented out, replaced by Algolia connectors
+/*
 function runSearch(){
   const prevActivity = currentFilters.activity;
   currentFilters.activity = document.getElementById('search-activity').value;
@@ -1254,6 +1258,7 @@ function runSearch(){
   if (currentFilters.activity) document.getElementById('search-activity').value = currentFilters.activity;
   if (currentFilters.location) document.getElementById('search-location').value = currentFilters.location;
 }
+*/
 
 function showPage(name){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
