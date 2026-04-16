@@ -453,17 +453,14 @@ document.addEventListener('DOMContentLoaded', () => {
       Find your <span class="word-slot" id="slot2" style="min-width:min(140px,42vw);"><div class="word-inner" id="track2"><span class="word-item">adventure</span><span class="word-item">peak</span><span class="word-item">people</span><span class="word-item">escape</span><span class="word-item">wild</span><span class="word-item">silence</span><span class="word-item">horizon</span><span class="word-item">freedom</span><span class="word-item">solitude</span><span class="word-item">calling</span><span class="word-item">tracks</span><span class="word-item">flow</span><span class="word-item">crew</span><span class="word-item">way out</span><span class="word-item">next chapter</span><span class="word-item">adventure</span></div></span>
     </div>
     <div class="hero-sub">Without the 20 open tabs.</div>
-    <div class="search-bar" style="border-radius:var(--radius);overflow:hidden;">
-      <div class="search-field" style="flex:1;padding:16px 22px;">
+    <div class="search-bar">
+      <div class="search-field" style="flex:2;padding:16px 22px;">
         <label>Search</label>
         <input type="text" id="search-query" placeholder="Search courses, locations, providers..." autocomplete="off" style="border:none;background:transparent;font-size:14px;font-weight:600;color:var(--text-primary);font-family:var(--font);outline:none;width:100%;">
       </div>
-    </div>
-    <input type="date" id="search-date" style="position:absolute;opacity:0;pointer-events:none;width:0;height:0;">
-    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
-      <div id="date-chip" class="provider-filter-chip" style="display:inline-flex;cursor:pointer;" onclick="document.getElementById('search-date').showPicker()">
-        <span id="date-chip-label">From: tomorrow</span>
-        <button onclick="event.stopPropagation();clearDateFilter()" title="Clear date">×</button>
+      <div class="search-field" style="flex:1;padding:16px 22px;">
+        <label>From when</label>
+        <input type="date" id="search-date">
       </div>
     </div>
     </div>
@@ -1710,16 +1707,7 @@ const customConfigure = instantsearch.connectors.connectConfigure(
 
 function updateDateChip() {
   const dateInput = document.getElementById('search-date');
-  const chip = document.getElementById('date-chip');
-  const label = document.getElementById('date-chip-label');
-  if (!dateInput.value) {
-    chip.style.display = 'none';
-  } else {
-    const d = new Date(dateInput.value + 'T00:00:00');
-    const formatted = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    label.textContent = `From: ${formatted}`;
-    chip.style.display = 'inline-flex';
-  }
+  dateInput.classList.toggle('has-value', !!dateInput.value);
 }
 
 function clearDateFilter() {
