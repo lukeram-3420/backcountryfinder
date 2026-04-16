@@ -159,6 +159,22 @@ flagged=not.is.true&auto_flagged=not.is.true
 ```
 This applies to: main listing, activity dropdown, location dropdown, saved courses, shared courses (2 queries).
 
+### Title-based exclusion
+Scrapers may define a module-level `EXCLUDE_TITLES` list of lowercased title strings to filter non-course products (subscription clubs, merchandise, gift cards, membership products, digital downloads, Thinkific subscriptions) from a provider's catalog. Apply the check as `title.lower().strip() in EXCLUDE_TITLES` in the source parsing function, before any detail-page fetch or further processing. Filter at both pass 1 (listing) and pass 2 (detail) for two-pass scrapers.
+
+Reference: `scraper_altus.py` has `EXCLUDE_TITLES = ["altus mtn club", "altus mountain club"]` to skip the Thinkific subscription product, which was appearing with wrong price ($225) and a fabricated date.
+
+### Date extraction must be scoped (required)
+Scrapers that parse course dates from provider HTML pages must scope regex matching to schedule-like containers. Never run date regexes against the entire `soup.get_text()` — doing so pulls stray dates from footers, copyright notices, testimonials, Thinkific membership terms, "last updated" timestamps, and unrelated blog content, producing fabricated course dates (e.g. Altus MTN Club was assigned a fake Aug 20 2026 date before this rule was enforced).
+
+Required scoping heuristic:
+- Only extract dates from elements whose `class` or `id` matches the regex `schedule|dates|upcoming|session|availability|calendar` (case-insensitive)
+- Or from siblings following an `h2/h3/h4` whose text matches the same pattern
+- If no schedule container is found, treat the course as `custom_dates=True` (flex-date row)
+- This rule applies to BOTH Pass 1 detail-page checks (Rezdy/Checkfront/etc.) AND Pass 2 WordPress/HTML schedule parsing
+
+Reference implementation: `extract_schedule_text(soup)` in `scraper_altus.py` — replicate in other scrapers that parse schedules from HTML. The optional-year fallback in `parse_wp_dates` (defaults to current year, bumps to next year if past) amplifies this bug if unscoped, so the scoping rule is a hard requirement, not a nice-to-have.
+
 ## Architecture
 
 ### Scraping Pipeline

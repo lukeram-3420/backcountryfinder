@@ -93,6 +93,16 @@ STATIC_DATE_PATTERNS = [
     r"\d{1,2}/\d{1,2}/20\d{2}",
 ]
 
+# Non-course products to skip (Thinkific subscription club, merchandise, etc.)
+EXCLUDE_TITLES = ["altus mtn club", "altus mountain club"]
+
+# Scope date regex to schedule-like containers so stray dates in footers,
+# testimonials, copyright, and Thinkific billing terms aren't parsed as course dates.
+SCHEDULE_CONTAINER_KEYWORDS = re.compile(
+    r"schedule|dates|upcoming|session|availability|calendar",
+    re.IGNORECASE,
+)
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
@@ -390,6 +400,33 @@ def is_future(date_sort: Optional[str]) -> bool:
         return True
 
 
+def extract_schedule_text(soup: BeautifulSoup) -> str:
+    """Return text from schedule-like containers only, or empty string."""
+    chunks = []
+    seen = set()
+
+    def add(el):
+        if id(el) in seen:
+            return
+        seen.add(id(el))
+        chunks.append(el.get_text(separator=" ", strip=True))
+
+    for el in soup.find_all(True):
+        class_str = " ".join(el.get("class") or [])
+        id_str = el.get("id") or ""
+        if SCHEDULE_CONTAINER_KEYWORDS.search(class_str) or SCHEDULE_CONTAINER_KEYWORDS.search(id_str):
+            add(el)
+
+    for h in soup.find_all(["h2", "h3", "h4"]):
+        if SCHEDULE_CONTAINER_KEYWORDS.search(h.get_text()):
+            sib = h.find_next_sibling()
+            while sib and getattr(sib, "name", None) not in ("h1", "h2", "h3", "h4"):
+                add(sib)
+                sib = sib.find_next_sibling()
+
+    return " ".join(chunks)
+
+
 # ── STABLE ID ──
 
 def stable_id(provider_id: str, activity: str, date_sort: Optional[str], title: str) -> str:
@@ -526,6 +563,9 @@ def scrape_rezdy_page(provider: dict, url: str) -> list:
                 title_el = item.select_one("h2 a")
                 title = title_el.get_text(strip=True) if title_el else None
                 if not title:
+                    continue
+                if title.lower().strip() in EXCLUDE_TITLES:
+                    log.info(f"Skipping excluded title (Rezdy): {title}")
                     continue
 
                 # Booking URL — relative href on the title link
@@ -691,17 +731,18 @@ def check_course_page(booking_url: str) -> dict:
                 result["available"] = False
                 return result
 
-        page_text = soup.get_text()
+        schedule_text = extract_schedule_text(soup)
         found_dates = []
-        for pattern in STATIC_DATE_PATTERNS:
-            matches = re.findall(pattern, page_text)
-            found_dates.extend(matches)
+        if schedule_text:
+            for pattern in STATIC_DATE_PATTERNS:
+                matches = re.findall(pattern, schedule_text)
+                found_dates.extend(matches)
 
         if found_dates:
-            log.info(f"Found {len(found_dates)} static dates at {clean_url}")
+            log.info(f"Found {len(found_dates)} scheduled dates at {clean_url}")
             result["dates"] = list(set(found_dates))
         else:
-            log.info(f"No static dates found at {clean_url} — marking as custom dates")
+            log.info(f"No scheduled dates found at {clean_url} — marking as custom dates")
             result["custom_dates"] = True
 
         desc_el = soup.find("div", class_=lambda c: c and any(x in c for x in ["product-description", "description", "course-description", "entry-content"]))
@@ -848,6 +889,9 @@ def scrape_website_course(url: str) -> list:
     # Title
     h1 = soup.find("h1")
     title = h1.get_text(strip=True) if h1 else url.rstrip("/").split("/")[-1].replace("-", " ").title()
+    if title.lower().strip() in EXCLUDE_TITLES:
+        log.info(f"  Skipping excluded title (website): {title}")
+        return []
 
     # Price — look for $NNN pattern in page text
     price = None
@@ -899,10 +943,11 @@ def scrape_website_course(url: str) -> list:
     elif "bugaboo" in loc_text:
         location_raw = "Bugaboos, BC"
 
-    # Dates — check for specific dates vs seasonal
-    page_text = soup.get_text()
-    specific_dates = parse_wp_dates(page_text)
-    is_seasonal = bool(SEASONAL_PATTERN.search(page_text))
+    # Dates — scoped to schedule-like containers to avoid parsing stray dates
+    # from footers, copyright, testimonials, or unrelated blog content.
+    schedule_text = extract_schedule_text(soup)
+    specific_dates = parse_wp_dates(schedule_text) if schedule_text else []
+    is_seasonal = bool(SEASONAL_PATTERN.search(schedule_text)) if schedule_text else False
 
     scraped_at = datetime.utcnow().isoformat()
     rows = []
