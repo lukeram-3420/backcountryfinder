@@ -454,11 +454,9 @@ document.addEventListener('DOMContentLoaded', () => {
     </div>
     <div class="hero-sub">Without the 20 open tabs.</div>
     <div class="search-bar">
-      <div class="search-field" style="flex:2;" >
-        <label>I want to</label>
-        <select id="search-activity" onchange="debouncedSearch()">
-          <option value="">Everything backcountry</option>
-        </select>
+      <div class="search-field" style="flex:2;">
+        <label>Search</label>
+        <input type="text" id="search-query" placeholder="Search courses..." autocomplete="off" style="border:none;background:transparent;font-size:14px;font-weight:600;color:var(--text-primary);font-family:var(--font);outline:none;width:100%;">
       </div>
       <div class="search-field" style="flex:1.5;" >
         <label>Where</label>
@@ -481,14 +479,7 @@ document.addEventListener('DOMContentLoaded', () => {
     </div>
   </div>
   <div class="main">
-    <div class="filter-row">
-      <div class="sort-bar">
-        <span class="sort-label">sort by</span>
-        <button class="sort-btn active" onclick="sortBy(this,'date')">date</button>
-        <button class="sort-btn" onclick="sortBy(this,'price')">price</button>
-        <button class="sort-btn" onclick="sortBy(this,'availability')">availability</button>
-      </div>
-    </div>
+    <!-- Sort buttons removed for V2 MVP — date ascending is default via Algolia customRanking -->
     <div id="provider-filter-chip" style="display:none;" class="provider-filter-chip">
       <span id="provider-filter-label">Viewing: ...</span>
       <button onclick="clearProviderFilter()" title="Show all">×</button>
