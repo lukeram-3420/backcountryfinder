@@ -124,6 +124,25 @@ jobs:
       - name: Validate Canadian Rockies Hiking by Yamnuska
         run: python validate_provider.py canadian-rockies-hiking-by-yamnuska
         continue-on-error: true
+      # Mt. Norquay — 4 groups run back-to-back each tick because the
+      # catalogue is small (~5 via ferrata routes). Running all 4 keeps
+      # the Providers tab count-drop badge quiet without the Zaui-style
+      # hour-derived partitioning.
+      - name: Mt. Norquay (group 0)
+        run: python scraper_mt_norquay.py --group 0
+        continue-on-error: true
+      - name: Mt. Norquay (group 1)
+        run: python scraper_mt_norquay.py --group 1
+        continue-on-error: true
+      - name: Mt. Norquay (group 2)
+        run: python scraper_mt_norquay.py --group 2
+        continue-on-error: true
+      - name: Mt. Norquay (group 3)
+        run: python scraper_mt_norquay.py --group 3
+        continue-on-error: true
+      - name: Validate Mt. Norquay
+        run: python validate_provider.py mt-norquay
+        continue-on-error: true
       - name: Sync Algolia
         run: python algolia_sync.py --skip-settings
         continue-on-error: true
