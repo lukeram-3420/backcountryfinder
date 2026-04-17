@@ -31,6 +31,7 @@ from scraper_utils import (
     generate_summaries_batch,
     parse_date_sort, is_future, stable_id_v2,
     update_provider_ratings,
+    detect_url_drift,
     UTM,
 )
 
@@ -170,6 +171,19 @@ PASS2_TITLE_SKIP_KEYWORDS = [
     "lofoten",               # Pass 1 has Lofoten DreamTrip
     "terrace ski",           # Pass 1 has Terrace Ski Touring
 ]
+
+# URL drift detection — Squarespace flat-slug pattern.
+# Match top-level slugs (one or two segments deep) and exclude obvious
+# non-program pages (about, contact, guides, gear, etc.).
+DRIFT_URL_PATTERN = re.compile(
+    r"cloudnineguides\.com/[A-Za-z][A-Za-z0-9\-]+(?:/[A-Za-z0-9\-]+)?/?$"
+)
+DRIFT_URL_EXCLUDE = re.compile(
+    r"/(about|contact|our-guides|resources|gear-shop|guides-resources|"
+    r"shop|cart|checkout|account|login|admin|search|blog|press|media|"
+    r"privacy|terms|policies|sitemap|wp-content|wp-admin)",
+    re.IGNORECASE,
+)
 
 
 # ── Location resolution ──────────────────────────────────────────────────────
@@ -688,6 +702,20 @@ def main():
         log_price_change(c)
 
     log.info(f"✅ Upserted {len(deduped)} rows")
+
+    # URL drift check — surface any homepage program URLs not in our hardcoded list
+    try:
+        known = set(WEBSITE_PROGRAM_URLS) | set(CATALOG_URLS)
+        detect_url_drift(
+            provider_id=provider["id"],
+            homepage_url=WEBSITE_BASE,
+            known_urls=known,
+            url_pattern=DRIFT_URL_PATTERN,
+            exclude_pattern=DRIFT_URL_EXCLUDE,
+        )
+    except Exception as e:
+        log.warning(f"URL drift check failed: {e}")
+
     log.info(f"=== {provider['name']} scraper complete ===")
 
 

@@ -30,8 +30,25 @@ from scraper_utils import (
     claude_classify, generate_summaries_batch,
     parse_date_sort, is_future, stable_id_v2,
     update_provider_ratings, send_email,
+    detect_url_drift,
     SUPABASE_URL, SUPABASE_KEY, ANTHROPIC_API_KEY, GOOGLE_PLACES_API_KEY,
     RESEND_API_KEY, UTM,
+)
+
+# URL drift detection — homepage scan for course URLs not in PROVIDER["courses"].
+# Catches new programs the provider adds without us noticing. Findings go to
+# provider_url_drift for admin review.
+DRIFT_URL_PATTERN = re.compile(
+    r"yamnuska\.com/("
+    r"avalanche-courses|mountaineering|rock-climbing|ice-climbing|"
+    r"ski-mountaineering|mountain-semesters|navigation|wilderness-first-aid"
+    r")/[^?#]+",
+    re.IGNORECASE,
+)
+DRIFT_URL_EXCLUDE = re.compile(
+    r"/(about|contact|guides|booking|cart|wp-content|wp-admin|feed|page/|"
+    r"category/|tag/|author/|gear|reviews|policies|faq|gallery)",
+    re.IGNORECASE,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -575,6 +592,18 @@ def main():
         log_availability_change(c)
         log_price_change(c)
     log.info(f"Total courses upserted: {len(deduped)}")
+
+    # URL drift check — surface any homepage course URLs not in our hardcoded list
+    try:
+        detect_url_drift(
+            provider_id=PROVIDER["id"],
+            homepage_url=PROVIDER["base_url"],
+            known_urls=PROVIDER["courses"],
+            url_pattern=DRIFT_URL_PATTERN,
+            exclude_pattern=DRIFT_URL_EXCLUDE,
+        )
+    except Exception as e:
+        log.warning(f"URL drift check failed: {e}")
 
     # EMAILS OFF
     # send_summary(len(deduped), ok=True)

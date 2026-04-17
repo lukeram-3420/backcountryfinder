@@ -839,6 +839,121 @@ def send_scraper_summary(provider_name: str, count: int, ok: bool = True) -> Non
     return
 
 
+# ── URL drift detection (for scrapers with hardcoded URL lists) ──────────────
+
+def detect_url_drift(
+    provider_id: str,
+    homepage_url: str,
+    known_urls,
+    url_pattern,
+    exclude_pattern=None,
+    user_agent: str = None,
+) -> int:
+    """Probe a provider homepage for program URLs not in the scraper's
+    known list. Inserts findings into provider_url_drift (idempotent via
+    unique constraint on (provider_id, url)). Returns count of NEW URLs
+    detected this run.
+
+    Used by scrapers with hardcoded URL lists (yamnuska, cloud-nine) to
+    surface provider-added programs for admin review without auto-adding.
+    Auto-discovery scrapers don't need this.
+
+    Args:
+        provider_id:     'yamnuska', 'cloud-nine-guides', etc.
+        homepage_url:    URL to fetch and scan
+        known_urls:      iterable of URLs the scraper already covers
+                         (hardcoded list ± URLs collected this run)
+        url_pattern:     compiled regex; href must MATCH (re.search)
+        exclude_pattern: compiled regex; href that matches this is REJECTED
+        user_agent:      override default browser UA
+    """
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        log.warning("BeautifulSoup not installed — skipping URL drift check")
+        return 0
+
+    headers = {
+        "User-Agent": user_agent or (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept-Language": "en-CA,en;q=0.9",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    }
+
+    try:
+        r = requests.get(homepage_url, headers=headers, timeout=20)
+        r.raise_for_status()
+    except Exception as e:
+        log.warning(f"URL drift probe failed for {provider_id} @ {homepage_url}: {e}")
+        return 0
+
+    soup = BeautifulSoup(r.text, "html.parser")
+    known_norm = {_normalise_url(u) for u in (known_urls or [])}
+    found_new: dict = {}  # normalised url → link text (first seen)
+
+    for a in soup.find_all("a", href=True):
+        href = a["href"].strip()
+        if not href or href.startswith(("mailto:", "tel:", "javascript:", "#")):
+            continue
+        if href.startswith("/"):
+            from urllib.parse import urljoin
+            href = urljoin(homepage_url, href)
+        if not href.startswith("http"):
+            continue
+        if not url_pattern.search(href):
+            continue
+        if exclude_pattern and exclude_pattern.search(href):
+            continue
+        norm = _normalise_url(href)
+        if norm in known_norm or norm in found_new:
+            continue
+        link_text = (a.get_text(strip=True) or "")[:200]
+        found_new[norm] = link_text
+
+    if not found_new:
+        log.info(f"URL drift: 0 new URLs at {homepage_url}")
+        return 0
+
+    rows = [{
+        "provider_id": provider_id,
+        "url":         url,
+        "link_text":   text or None,
+    } for url, text in found_new.items()]
+
+    try:
+        # Use POST with on_conflict so existing entries are silently skipped.
+        r = requests.post(
+            f"{SUPABASE_URL}/rest/v1/provider_url_drift?on_conflict=provider_id,url",
+            headers={
+                "apikey":        SUPABASE_KEY,
+                "Authorization": f"Bearer {SUPABASE_KEY}",
+                "Content-Type":  "application/json",
+                "Prefer":        "resolution=ignore-duplicates,return=minimal",
+            },
+            json=rows,
+            timeout=20,
+        )
+        if not r.ok:
+            log.warning(f"provider_url_drift upsert failed {r.status_code}: {r.text[:200]}")
+        else:
+            log.info(f"URL drift: {len(rows)} new URL(s) detected at {homepage_url}")
+    except Exception as e:
+        log.warning(f"provider_url_drift upsert error: {e}")
+    return len(rows)
+
+
+def _normalise_url(url: str) -> str:
+    """Normalise a URL for set comparison: strip trailing slash, query, fragment."""
+    if not url:
+        return ""
+    from urllib.parse import urlparse
+    p = urlparse(url)
+    path = (p.path or "").rstrip("/")
+    return f"{p.scheme}://{p.netloc.lower()}{path}"
+
+
 # ── Two-pass scraping helper ─────────────────────────────────────────────────
 
 def fetch_detail_pages(

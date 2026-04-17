@@ -294,7 +294,8 @@
     <!-- TAB: PIPELINE -->
     <div class="tab-panel hidden" id="panel-pipeline">
       <details class="instructions"><summary>How to use this tab</summary><p><strong>Discovery Cloud</strong> (top) controls the search terms the weekly <code>refresh_discovery_cloud.py</code> + <code>discover_providers.py</code> cron uses to find new providers. Activity terms come from course-title bigrams across 2+ providers; location terms come from provider locations + location mappings. Add a manual term to search for niches not yet in your data. Click <strong>Remove</strong> to block a term — it stays in the table greyed out and the refresh script will not re-add it on its next run. Click <strong>Restore</strong> to un-block. <strong>Quality</strong> shows "X found / Y skipped" — &gt;80% skip rate (with 5+ total) gets a warning.</p>
-      <p><strong>Provider pipeline</strong> (bottom): providers already live in the Providers tab are auto-hidden. This list shows candidates still to be onboarded. Click <strong>Add provider</strong> to paste a URL — Claude Haiku fetches the site and pre-fills name, location, platform, complexity, priority, plus Google Places rating. Click the small <strong>Detect</strong> button in the Platform column to re-run signature detection (fetches the homepage, matches against <code>PLATFORM_SIGNATURES</code>) — useful for rows Haiku guessed wrong. Click <strong>Copy prompt ↗</strong> on any row to copy a Claude Code instruction for building the scraper. Column headers for Name, Platform, Status, Priority are clickable to sort. Click Edit to change status/platform/priority/notes inline.</p></details>
+      <p><strong>Provider pipeline</strong> (middle): providers already live in the Providers tab are auto-hidden. This list shows candidates still to be onboarded. Click <strong>Add provider</strong> to paste a URL — Claude Haiku fetches the site and pre-fills name, location, platform, complexity, priority, plus Google Places rating. Click the small <strong>Detect</strong> button in the Platform column to re-run signature detection (fetches the homepage, matches against <code>PLATFORM_SIGNATURES</code>) — useful for rows Haiku guessed wrong. Click <strong>Copy prompt ↗</strong> on any row to copy a Claude Code instruction for building the scraper. Column headers for Name, Platform, Status, Priority are clickable to sort. Click Edit to change status/platform/priority/notes inline.</p>
+      <p><strong>URL drift</strong> (bottom): for scrapers with hardcoded URL lists (currently <code>scraper_yamnuska.py</code> and <code>scraper_cloud_nine_guides.py</code>), each run probes the provider homepage for program URLs not in the hardcoded list and surfaces them here. Click <strong>Add</strong> to copy the URL with paste instructions for the scraper file (mark reviewed=added). Click <strong>Reject</strong> to mark the URL as not-a-program (won't resurface). Auto-discovery scrapers don't appear here — they pick up new URLs automatically.</p></details>
 
       <!-- Discovery Cloud -->
       <div class="section">
@@ -343,6 +344,15 @@
       <div class="section">
         <h2>Provider pipeline</h2>
         <div id="pipeline-table-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
+      </div>
+      <div class="section">
+        <h2>URL drift</h2>
+        <p style="font-size:12px;color:var(--text-secondary);margin:0 0 12px;">
+          Program URLs detected on a provider homepage that aren't in the scraper's hardcoded list.
+          Only applies to scrapers with hardcoded URL lists (yamnuska, cloud-nine-guides).
+          <strong>Add</strong> copies the URL with paste instructions; <strong>Reject</strong> marks it as not a real program.
+        </p>
+        <div id="url-drift-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
       </div>
     </div>
 
@@ -1952,6 +1962,94 @@ function renderCloudList(type) {
     <tbody>${rows}</tbody></table>`;
 }
 
+// ── URL drift (Pipeline tab) ───────────────────────────────────────────────
+
+async function loadUrlDrift() {
+  const wrap = document.getElementById('url-drift-wrap');
+  if (!wrap) return;
+  try {
+    const rows = await sbSelect('provider_url_drift', {
+      eq:    { reviewed: false },
+      order: { col: 'detected_at', ascending: false },
+      limit: 200,
+    });
+    renderUrlDrift(rows);
+  } catch (e) {
+    wrap.innerHTML = `<div class="loading">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderUrlDrift(rows) {
+  const wrap = document.getElementById('url-drift-wrap');
+  if (!rows.length) {
+    wrap.innerHTML = '<div class="loading">No URL drift detected. Scrapers with hardcoded URL lists are in sync with provider homepages.</div>';
+    return;
+  }
+  // Group by provider_id for readability
+  const byProvider = {};
+  for (const r of rows) (byProvider[r.provider_id] ||= []).push(r);
+  const providerIds = Object.keys(byProvider).sort();
+
+  wrap.innerHTML = providerIds.map(pid => {
+    const items = byProvider[pid];
+    return `<div style="margin-bottom:18px;">
+      <h3 style="font-size:13px;font-weight:600;margin:0 0 8px;">${esc(pid)} <span style="color:var(--text-tertiary);font-weight:400;">(${items.length})</span></h3>
+      <table><thead><tr>
+        <th>URL</th><th>Link text</th><th>Detected</th><th></th>
+      </tr></thead><tbody>${items.map(r => `
+        <tr>
+          <td><a href="${esc(r.url)}" target="_blank" rel="noopener" style="font-size:12px;word-break:break-all;">${esc(r.url)}</a></td>
+          <td style="font-size:12px;color:var(--text-secondary);">${esc(r.link_text || '—')}</td>
+          <td style="font-size:11px;color:var(--text-tertiary);white-space:nowrap;">${esc(new Date(r.detected_at).toLocaleDateString())}</td>
+          <td style="white-space:nowrap;">
+            <button class="btn btn-small btn-primary" onclick="window.urlDriftAdd(${r.id}, '${esc(r.provider_id)}', '${esc(r.url).replace(/'/g, "\\'")}')">Add</button>
+            <button class="btn btn-small" onclick="window.urlDriftReject(${r.id})">Reject</button>
+          </td>
+        </tr>`).join('')}</tbody></table>
+    </div>`;
+  }).join('');
+}
+
+window.urlDriftAdd = async (id, providerId, url) => {
+  // "Add" copies the URL with paste instructions to the clipboard. The admin
+  // pastes it into the scraper file (yamnuska or cloud-nine) by hand. We mark
+  // the row reviewed so it doesn't re-surface.
+  const target = providerId === 'yamnuska'
+    ? 'PROVIDER["courses"] in scraper_yamnuska.py'
+    : providerId === 'cloud-nine-guides'
+      ? 'WEBSITE_PROGRAM_URLS in scraper_cloud_nine_guides.py'
+      : 'the appropriate URL list';
+  try {
+    await navigator.clipboard.writeText(`    "${url}",`);
+    toast(`URL copied — paste into ${target}, commit, then this row will stay marked added.`);
+    await urlDriftPatch(id, { reviewed: true, action: 'added' });
+    loadUrlDrift();
+  } catch (e) { toast('Failed: ' + e.message, true); }
+};
+
+window.urlDriftReject = async (id) => {
+  if (!confirm('Mark this URL as not-a-program? It won\u2019t resurface on future scrapes.')) return;
+  try {
+    await urlDriftPatch(id, { reviewed: true, action: 'rejected' });
+    toast('URL rejected');
+    loadUrlDrift();
+  } catch (e) { toast('Failed: ' + e.message, true); }
+};
+
+async function urlDriftPatch(id, payload) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/provider_url_drift?id=eq.${id}`, {
+    method: 'PATCH',
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${session.access_token}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=minimal',
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`PATCH ${res.status}`);
+}
+
 window.toggleCloudTerm = async (id, active) => {
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/discovery_cloud?id=eq.${id}`, {
@@ -2082,6 +2180,7 @@ let activeProviderKeys = { domains: new Set(), names: new Set() };
 
 async function loadPipelineTab() {
   loadDiscoveryCloud();
+  loadUrlDrift();
   try {
     const [activeProviders, pipeline] = await Promise.all([
       fetchActiveProviders(),
