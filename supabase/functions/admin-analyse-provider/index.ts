@@ -29,6 +29,51 @@ const SYSTEM_PROMPT =
   "Respond in JSON only, no preamble, no markdown:\n" +
   "{name: string, location: string, platform: string, complexity: string, priority: number, notes: string}";
 
+// ── Platform detection via HTML signatures ────────────────────────────────
+// Mirrored in discover_providers.py `PLATFORM_SIGNATURES`. Keep both tables
+// in sync when adding a platform. First match wins.
+const PLATFORM_SIGNATURES: Array<[string, RegExp[]]> = [
+  ["rezdy",       [/\.rezdy\.com/i, /rezdy-online-booking/i, /rezdy-modal/i]],
+  ["checkfront",  [/\.checkfront\.com/i, /ChfHost/i, /checkfront-booking/i]],
+  ["zaui",        [/\.zaui\.net/i, /zaui\.js/i]],
+  ["fareharbor",  [/fareharbor\.com/i, /fh-iframe/i, /fareharbor-dock/i]],
+  ["bokun",       [/bokun\.io/i, /bokunwidget/i, /bokun-widget/i]],
+  ["peek",        [/book\.peek\.com/i, /peek-booking/i]],
+  ["thinkific",   [/thinkific\.com/i, /<meta[^>]+thinkific/i]],
+  ["shopify",     [/cdn\.shopify\.com/i, /Shopify\.theme/i, /myshopify\.com/i]],
+  ["wix",         [/static\.wixstatic\.com/i, /wix-viewer/i, /<meta[^>]+wix/i]],
+  ["squarespace", [/static1\.squarespace\.com/i, /Static\.SQUARESPACE_CONTEXT/i, /squarespace\.com/i]],
+  ["woocommerce", [/wp-content\/plugins\/woocommerce/i, /<body[^>]+woocommerce/i, /wc-ajax/i]],
+  ["wordpress",   [/wp-content\//i, /wp-includes\//i, /<meta[^>]+WordPress/i]],
+];
+
+async function detectPlatform(url: string): Promise<{ platform: string; evidence: string }> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const r = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; BackcountryFinderBot/1.0)",
+        "Accept": "text/html,application/xhtml+xml",
+      },
+      redirect: "follow",
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!r.ok) return { platform: "unknown", evidence: "" };
+    const html = await r.text();
+    for (const [platformId, patterns] of PLATFORM_SIGNATURES) {
+      for (const pat of patterns) {
+        if (pat.test(html)) return { platform: platformId, evidence: pat.source };
+      }
+    }
+    return { platform: "unknown", evidence: "" };
+  } catch (e) {
+    console.log(`platform fetch failed for ${url}: ${e instanceof Error ? e.name : "err"}`);
+    return { platform: "unknown", evidence: "" };
+  }
+}
+
 function fallbackFromUrl(url: string) {
   let domain = "";
   try {
@@ -205,10 +250,21 @@ serve(async (req) => {
 
     const name = (parsed.name || fallbackFromUrl(url).name).trim();
     const location = (parsed.location || null) as string | null;
-    const platform = (parsed.platform || "unknown").toLowerCase();
+    const haikuPlatform = (parsed.platform || "unknown").toLowerCase();
     const complexity = (parsed.complexity || "low").toLowerCase();
     const priority = Number.isFinite(Number(parsed.priority)) ? Number(parsed.priority) : 3;
     const notes = parsed.notes || "";
+
+    // Ground-truth platform detection overrides Haiku's web_search guess when
+    // it finds a signature match. Haiku falls back only when detection is
+    // inconclusive. Logic mirrored in discover_providers.py analyse_provider().
+    const detection = await detectPlatform(url);
+    const platform = detection.platform !== "unknown" ? detection.platform : haikuPlatform;
+    if (detection.platform !== "unknown") {
+      console.log(`platform detected: ${platform} (matched '${detection.evidence}')`);
+    } else {
+      console.log(`platform detection inconclusive; using Haiku guess: ${platform}`);
+    }
 
     const places = await googlePlacesLookup(name, location);
 

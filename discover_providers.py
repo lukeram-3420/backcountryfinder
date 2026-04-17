@@ -390,6 +390,58 @@ def haiku_web_search(query):
         return []
 
 
+# ── Platform detection via HTML signatures ──────────────────────────────────
+#
+# Fetches the provider homepage and scans for known booking-platform
+# fingerprints. Mirrored in supabase/functions/admin-analyse-provider/index.ts
+# — keep the two signature tables in sync when adding a platform.
+
+# Ordered: first match wins. Each entry is (platform_id, list_of_regex_patterns).
+# Patterns are matched against raw HTML with re.IGNORECASE.
+PLATFORM_SIGNATURES = [
+    ("rezdy",       [r"\.rezdy\.com", r"rezdy-online-booking", r"rezdy-modal"]),
+    ("checkfront",  [r"\.checkfront\.com", r"ChfHost", r"checkfront-booking"]),
+    ("zaui",        [r"\.zaui\.net", r"zaui\.js"]),
+    ("fareharbor",  [r"fareharbor\.com", r"fh-iframe", r"fareharbor-dock"]),
+    ("bokun",       [r"bokun\.io", r"bokunwidget", r"bokun-widget"]),
+    ("peek",        [r"book\.peek\.com", r"peek-booking"]),
+    ("thinkific",   [r"thinkific\.com", r"<meta[^>]+thinkific"]),
+    ("shopify",     [r"cdn\.shopify\.com", r"Shopify\.theme", r"myshopify\.com"]),
+    ("wix",         [r"static\.wixstatic\.com", r"wix-viewer", r"<meta[^>]+wix"]),
+    ("squarespace", [r"static1\.squarespace\.com", r"Static\.SQUARESPACE_CONTEXT", r"squarespace\.com"]),
+    ("woocommerce", [r"wp-content/plugins/woocommerce", r"<body[^>]+woocommerce", r"wc-ajax"]),
+    ("wordpress",   [r"wp-content/", r"wp-includes/", r"<meta[^>]+WordPress"]),
+]
+
+PLATFORM_FETCH_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (compatible; BackcountryFinderBot/1.0)",
+    "Accept": "text/html,application/xhtml+xml",
+}
+
+
+def detect_platform(url: str, timeout: int = 8) -> tuple[str, str]:
+    """Fetch the provider's homepage and match against PLATFORM_SIGNATURES.
+
+    Returns (platform_id, evidence) where evidence is the first matched
+    pattern (for logging / notes) or empty string on unknown/failure.
+    Never raises — on any fetch error returns ('unknown', '').
+    """
+    try:
+        r = requests.get(url, headers=PLATFORM_FETCH_HEADERS, timeout=timeout, allow_redirects=True)
+        if not r.ok:
+            return ("unknown", "")
+        html = r.text
+    except Exception as e:
+        log.info(f"  platform fetch failed for {url}: {type(e).__name__}")
+        return ("unknown", "")
+
+    for platform_id, patterns in PLATFORM_SIGNATURES:
+        for pat in patterns:
+            if re.search(pat, html, re.IGNORECASE):
+                return (platform_id, pat)
+    return ("unknown", "")
+
+
 # ── Provider analysis (inline version of admin-analyse-provider) ─────────────
 
 ANALYSE_SYSTEM_PROMPT = (
@@ -452,10 +504,23 @@ def analyse_provider(url):
 
     name = (parsed.get("name") or "Unknown").strip()
     location = parsed.get("location") or None
-    platform = (parsed.get("platform") or "unknown").lower()
+    haiku_platform = (parsed.get("platform") or "unknown").lower()
     complexity = (parsed.get("complexity") or "low").lower()
     priority = int(parsed.get("priority", 3)) if str(parsed.get("priority", "")).isdigit() else 3
     notes = parsed.get("notes") or ""
+
+    # Ground-truth platform detection: fetch the homepage and signature-match.
+    # Haiku's web_search guess is unreliable because it infers from search
+    # snippets rather than page HTML. Use detection when it finds a match;
+    # fall back to Haiku's guess only on 'unknown'.
+    detected_platform, evidence = detect_platform(url)
+    if detected_platform != "unknown":
+        platform = detected_platform
+        if evidence:
+            log.info(f"  platform detected: {platform} (matched '{evidence}')")
+    else:
+        platform = haiku_platform
+        log.info(f"  platform detection inconclusive; using Haiku guess: {platform}")
 
     places = google_places_lookup(name, location)
 
