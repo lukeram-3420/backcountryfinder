@@ -921,12 +921,11 @@ def main():
                     date_sort = parse_date_sort(date_display)
             time.sleep(0.5)
 
-        processed.append({
+        row = {
             "id":                 course_id,
             "title":              c["title"],
             "provider_id":        provider["id"],
             "location_raw":       loc_raw or None,
-            "location_canonical": loc_canonical,
             "date_display":       date_display,
             "date_sort":          date_sort,
             "duration_days":      c.get("duration_days"),
@@ -941,7 +940,12 @@ def main():
             "search_document":    c.get("search_document", ""),
             "description":        page_description or c.get("description", ""),
             "scraped_at":         c["scraped_at"],
-        })
+        }
+        # Omit location_canonical when None so a failed Haiku call doesn't
+        # null out a previously-resolved canonical on re-scrape.
+        if loc_canonical is not None:
+            row["location_canonical"] = loc_canonical
+        processed.append(row)
 
     # ── Pass 2: Scrape website course/trip pages ──
     log.info(f"\n=== Pass 2: Scraping {provider['name']} website ===")
@@ -958,12 +962,11 @@ def main():
 
             course_id = stable_id_v2(provider["id"], c.get("date_sort"), c["title"])
 
-            processed.append({
+            row = {
                 "id":                 course_id,
                 "title":              c["title"],
                 "provider_id":        provider["id"],
                 "location_raw":       loc_raw or None,
-                "location_canonical": loc_canonical,
                 "date_display":       c.get("date_display"),
                 "date_sort":          c.get("date_sort"),
                 "duration_days":      c.get("duration_days"),
@@ -978,7 +981,10 @@ def main():
                 "search_document":    "",
                 "description":        c.get("description", ""),
                 "scraped_at":         c["scraped_at"],
-            })
+            }
+            if loc_canonical is not None:
+                row["location_canonical"] = loc_canonical
+            processed.append(row)
         time.sleep(0.5)
 
     log.info(f"Total processed after both passes: {len(processed)}")

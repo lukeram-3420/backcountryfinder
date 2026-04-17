@@ -129,10 +129,33 @@ Scrapers must never include any of these in any upsert payload.
 ### Column existence rule
 Scrapers must never reference columns in upsert payloads, SELECT queries, or PATCH calls that are not defined in the Database Schema section of this file. Before writing any database interaction code, Claude Code must verify the column exists in the schema defined here. If a column is needed that does not exist in the schema, stop and explicitly tell the user — never assume the column exists or write code that depends on it without confirmation. Never add ALTER TABLE statements to migration files or print them as suggestions without flagging this to the user first.
 
-### Mapping tables are admin-write-only
-Scrapers must never write directly to `location_mappings`. When `normalise_location` in `scraper_utils.py` calls Claude Haiku for an unknown location, the suggestion is queued to `pending_location_mappings` for review in the admin panel. The approved mapping is only inserted into the live mapping table when an admin clicks Approve. This prevents scrapers from silently polluting the canonical mapping table with LLM-generated guesses. (This policy applies to location only — `activity_mappings` / `pending_mappings` are retired; scrapers no longer resolve activity at all.)
+### Location mapping policy — Haiku-live-write on structural confidence
+`normalise_location` in `scraper_utils.py` resolves an unknown location through four tiers:
+1. Exact match in the in-memory `location_mappings` dict → return canonical.
+2. Substring match → return canonical.
+3. **Claude Haiku with structural validation** — Haiku is prompted for `{"city": "...", "province": "XX"}` JSON. The response is accepted ONLY if:
+   - `city` is a non-empty string containing no comma, AND
+   - `province` matches `^[A-Z]{2}$` (a 2-letter uppercase code: BC/AB/ON/QC/CA/NY/WA/etc. — scales past Canada).
 
-**All scrapers must import `normalise_location` from `scraper_utils`** — it returns a single canonical string and internally queues unknown locations to `pending_location_mappings`. Never define a local `normalise_location` returning a `(canonical, is_new, add_mapping)` tuple; that legacy signature was removed from `scraper.py`, `scraper_altus.py`, `scraper_cwms.py`, and `scraper_summit.py`, and the paired `sb_insert("location_mappings", ...)` call sites were deleted.
+   On a structural match, the scraper writes `{location_raw, location_canonical}` directly to the `location_mappings` table (LIVE — no admin approval required) and returns the composed `"City, XX"` canonical. The admin Location Mappings tab sees this appear in the approved list on next load.
+4. **Fallback (Haiku unconfident / malformed / API error / no API key)** — queue to `pending_location_mappings` with a null `suggested_canonical` and return `None`. The admin fixes these by hand in the pending queue.
+
+**This is a targeted deviation from the old "mapping tables are admin-write-only" rule.** It applies to location only. Activity mappings are retired entirely — scrapers no longer resolve activity. The structural guard (`^[A-Z]{2}$`) is the confidence proxy: Haiku either produces something parseable into `City, XX` or it doesn't, no model-self-reported confidence mush.
+
+**All scrapers must import `normalise_location` from `scraper_utils`** — it returns `Optional[str]` and internally queues unknowns to `pending_location_mappings`. Never define a local `normalise_location` returning a `(canonical, is_new, add_mapping)` tuple; that legacy signature was removed from `scraper.py`, `scraper_altus.py`, `scraper_cwms.py`, and `scraper_summit.py`, and the paired `sb_insert("location_mappings", ...)` call sites were deleted.
+
+### Never pass `location_canonical: None` to a courses upsert
+When `normalise_location()` returns `None`, the scraper MUST OMIT the `location_canonical` key from the upsert payload entirely. Do NOT include `"location_canonical": None`. Reason: Supabase's `Prefer: resolution=merge-duplicates` treats an explicit null as "overwrite existing value with null." On a re-scrape, a transient Haiku failure would then silently destroy a previously-resolved canonical. Omitting the key preserves whatever is already in the DB. Pattern every scraper uses:
+
+```python
+loc_canonical = normalise_location(loc_raw, mappings)
+row = {..., "location_raw": loc_raw}
+if loc_canonical is not None:
+    row["location_canonical"] = loc_canonical
+processed.append(row)
+```
+
+This applies to every new course row built by any `scraper_{id}.py` that calls `normalise_location`. Scrapers that derive location from a hardcoded provider default (`scraper_srg`, `scraper_skaha_rock_adventures`, `scraper_aaa`, `scraper_bsa`, `scraper_jht`) do not call `normalise_location` and always have a non-null canonical, so the guard is structurally unnecessary there.
 
 ### Two-flag system
 | Column set | Written by | Purpose |
@@ -264,7 +287,7 @@ Both systems produce identical output (rows upserted to the `courses` table with
 | Function | Signature | Description |
 |----------|-----------|-------------|
 | `load_location_mappings` | `() -> dict` | Load `location_mappings` table → `{raw_lower: canonical}`. |
-| `normalise_location` | `(raw: str, mappings: dict) -> Optional[str]` | Three-tier resolution: exact match → substring → Claude → return raw. Claude suggestions go to `pending_location_mappings` for admin review — scrapers never write directly to `location_mappings`. |
+| `normalise_location` | `(raw: str, mappings: dict) -> Optional[str]` | Four-tier resolution: exact match → substring → Haiku with structural validation → None. Haiku responses matching `{"city": "...", "province": "XX"}` with province `^[A-Z]{2}$` are written directly to `location_mappings` (live) and returned. Malformed/null Haiku responses and API failures queue to `pending_location_mappings` and return `None`. Callers must omit `location_canonical` from the upsert payload when this returns `None` — see the caller contract in the Location mapping policy section. |
 
 #### Claude AI
 
@@ -772,6 +795,7 @@ V2 is an incremental migration on the live system. V1 and V2 coexist in the same
 | 4 | V2 frontend (Algolia InstantSearch) | Complete |
 | 4.5 | `index.html` modularisation | Complete |
 | — | Activity mapping elimination (Initiative 1 of data quality mission) | Complete — scrapers, validator, Algolia, frontend, admin tab, 4 edge functions, docs all retired |
+| — | Location mapping refinement (Initiative 2 of data quality mission) | Complete — Haiku-live-write on structural `{city, province}` match, `None`-return guard across all 9 normalise_location callers, pending queue now holds only real unknowns |
 | 5 | Velocity signals (fill rate, price trend) | Not started — needs 4+ weeks of log data |
 | 6 | Validator simplification | Partially done — activity check removed; full simplification pending |
 | 7 | Drop V1 columns + tables post-cutover | Not started |
@@ -888,7 +912,7 @@ New card design discussed and approved. Claude Code to build against `/js/cards.
 ### Data quality mission (parallel track)
 See [data_quality_initiatives.md](data_quality_initiatives.md) for the two-initiative plan.
 - **Initiative 1 — Activity mapping elimination:** fully complete — scraper side, shared helpers, frontend, validator, Algolia, admin tab, 4 edge functions, and docs all retired.
-- **Initiative 2 — Location mapping refinement:** not started; ready to pick up next.
+- **Initiative 2 — Location mapping refinement:** fully complete — `normalise_location` rewritten with structural-confidence Haiku prompt and live `location_mappings` write, `_get_popular_canonicals` helper added (top-50 by course-frequency, module-cached), every `normalise_location` caller guarded against `None`-clobber on re-scrape, policy shift documented.
 
 ### One-time setup SQL
 

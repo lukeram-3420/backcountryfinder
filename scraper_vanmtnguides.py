@@ -186,12 +186,11 @@ def main():
         if category_name == "Private Guiding":
             log.info(f"  [{aid}] {title!r}: private-guiding → 1 flexible-dates row")
             course_id = stable_id_v2(PROVIDER["id"], None, title)
-            rows.append({
+            row = {
                 "id":                 course_id,
                 "title":              title,
                 "provider_id":        PROVIDER["id"],
                 "location_raw":       loc_raw,
-                "location_canonical": loc_canonical,
                 "date_sort":          None,
                 "date_display":       "Flexible dates",
                 "duration_days":      duration_days,
@@ -206,7 +205,12 @@ def main():
                 "search_document":    "",
                 "description":        description or None,
                 "scraped_at":         scraped_at,
-            })
+            }
+            # Omit location_canonical when None so a failed Haiku call doesn't
+            # null out a previously-resolved canonical on re-scrape.
+            if loc_canonical is not None:
+                row["location_canonical"] = loc_canonical
+            rows.append(row)
             continue
 
         # All other categories — walk unavailability 7 days at a time across
@@ -235,12 +239,11 @@ def main():
         for d in bookable:
             date_iso = d.isoformat()
             course_id = stable_id_v2(PROVIDER["id"], date_iso, title)
-            rows.append({
+            row = {
                 "id":                 course_id,
                 "title":              title,
                 "provider_id":        PROVIDER["id"],
                 "location_raw":       loc_raw,
-                "location_canonical": loc_canonical,
                 "date_sort":          date_iso,
                 "date_display":       d.strftime("%b %-d, %Y"),
                 "duration_days":      duration_days,
@@ -255,7 +258,12 @@ def main():
                 "search_document":    "",
                 "description":        description or None,
                 "scraped_at":         scraped_at,
-            })
+            }
+            # Omit location_canonical when None so a failed Haiku call doesn't
+            # null out a previously-resolved canonical on re-scrape.
+            if loc_canonical is not None:
+                row["location_canonical"] = loc_canonical
+            rows.append(row)
 
     log.info(f"Built {len(rows)} course-date rows")
 

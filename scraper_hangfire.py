@@ -431,12 +431,11 @@ def main():
         course_id = stable_id_v2(provider["id"], date_sort, title)
         duration_days = c.get("duration_days")
 
-        processed.append({
+        row = {
             "id":                 course_id,
             "title":              title,
             "provider_id":        provider["id"],
             "location_raw":       loc_raw,
-            "location_canonical": loc_canonical,
             "date_display":       date_display,
             "date_sort":          date_sort,
             "duration_days":      duration_days,
@@ -451,7 +450,12 @@ def main():
             "search_document":    "",
             "description":        page_description,
             "scraped_at":         c["scraped_at"],
-        })
+        }
+        # Omit location_canonical when None so a failed Haiku call doesn't
+        # null out a previously-resolved canonical on re-scrape.
+        if loc_canonical is not None:
+            row["location_canonical"] = loc_canonical
+        processed.append(row)
 
     log.info(f"Total processed: {len(processed)}")
 

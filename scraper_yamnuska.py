@@ -501,16 +501,15 @@ def main():
     processed = []
     for c in raw_courses:
         loc_raw       = c.get("location_raw") or PROVIDER["location"]
-        loc_canonical = normalise_location(loc_raw, loc_mappings) or loc_raw
+        loc_canonical = normalise_location(loc_raw, loc_mappings)
 
         course_id = stable_id_v2(PROVIDER["id"], c.get("date_sort"), c["title"])
 
-        processed.append({
+        row = {
             "id":                 course_id,
             "title":              c["title"],
             "provider_id":        PROVIDER["id"],
             "location_raw":       loc_raw,
-            "location_canonical": loc_canonical,
             "date_display":       c.get("date_display"),
             "date_sort":          c.get("date_sort"),
             "duration_days":      c.get("duration_days"),
@@ -525,7 +524,12 @@ def main():
             "search_document":    "",
             "description":        c.get("description", ""),
             "scraped_at":         c["scraped_at"],
-        })
+        }
+        # Omit location_canonical when None so a failed Haiku call doesn't
+        # null out a previously-resolved canonical on re-scrape.
+        if loc_canonical is not None:
+            row["location_canonical"] = loc_canonical
+        processed.append(row)
 
     # Batch summaries — deduplicated by title
     if processed:

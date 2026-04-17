@@ -283,10 +283,10 @@ def main():
         custom_dates = True  # CWMS uses WooCommerce date picker
         date_display = "Flexible dates"
         date_sort = None
-        processed.append({
+        row = {
             "id": course_id, "title": c["title"], "provider_id": provider["id"],
             "location_raw": loc_raw or None,
-            "location_canonical": loc_canonical, "date_display": date_display,
+            "date_display": date_display,
             "date_sort": date_sort, "duration_days": c.get("duration_days"),
             "price": c.get("price"), "spots_remaining": None, "avail": "open",
             "image_url": c.get("image_url"), "booking_url": booking_url,
@@ -294,7 +294,12 @@ def main():
             "summary": "", "search_document": "",
             "description": c.get("description", ""),
             "scraped_at": c["scraped_at"],
-        })
+        }
+        # Omit location_canonical when None so a failed Haiku call doesn't
+        # null out a previously-resolved canonical on re-scrape.
+        if loc_canonical is not None:
+            row["location_canonical"] = loc_canonical
+        processed.append(row)
     # For each CWMS course, visit the page and create one row per date
     dated_processed = []
     for course in processed:

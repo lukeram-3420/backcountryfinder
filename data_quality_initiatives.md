@@ -4,6 +4,8 @@ Living reference for the data-quality cleanup mission. Each initiative below is 
 
 Order of execution: **Initiative 1 first, Initiative 2 second.** Activity is a pure deletion (low risk, unblocks the audit backlog); location is a behaviour change (medium risk, benefits from cleaner audit ground).
 
+**Status (2026-04-17):** both initiatives shipped. Initiative 1 scraper-side in `5157faa`, admin fast-follow in `c83bd4a`. Initiative 2 in this commit.
+
 ---
 
 ## Initiative 1 — Activity mapping elimination
@@ -70,36 +72,41 @@ Keep location mapping (it's load-bearing for Algolia search + card display + fil
 - Structural validation (`"City, Province"` with 2-letter province code) is a deterministic confidence proxy that works for Canada and generalises to US/other.
 - Net effect: admin queue shrinks to real unknowns. Approved table grows automatically from Haiku's confident calls.
 
-### Scope — what changes
+### Scope — what changed (completed)
 
 | Layer | Change |
 |---|---|
-| `scraper_utils.py` `normalise_location()` | Rewrite the Haiku branch. Prompt Haiku for structured JSON: `{"city": "...", "province": "XX"}`. If both fields are present AND province matches `^[A-Z]{2}$` → compose `"City, XX"`, write directly to `location_mappings` (new: scraper writes to canonical table), set on the course. Otherwise → leave `location_canonical = NULL` on the course, write to `pending_location_mappings` for admin |
-| CLAUDE.md | Update the *Mapping tables are admin-write-only* rule to split: activity = admin-write-only (moot after Initiative 1); location = Haiku-live-write on structural confidence, pending fallback for unknowns. Document the structural confidence rule explicitly |
-| Admin Location Mappings tab | No code change needed. The pending queue will simply get quieter; approved table will grow faster |
+| `scraper_utils.py` `normalise_location()` | Rewrote the Haiku branch. Prompt now returns `{"city": "...", "province": "XX"}`. Accepted ONLY when `city` is non-empty with no comma AND `province` matches `^[A-Z]{2}$`. On accept → `sb_upsert("location_mappings", ...)` live, update in-memory dict, return canonical. On reject / null / API error / no key → `sb_insert("pending_location_mappings", ...)` with null `suggested_canonical`, return `None` |
+| `scraper_utils.py` `_get_popular_canonicals()` | New helper. Queries the top-1000 active courses and ranks `location_canonical` by frequency, returning the top-50 as prompt anchors so Haiku reuses existing canonicals rather than minting spelling variants. Module-level cache — one query per scraper process. Falls back to mapping-alias-count frequency if the courses read fails |
+| 9 scraper upsert sites | Added the `if loc_canonical is not None: row["location_canonical"] = loc_canonical` guard around every dict that writes to `sb_upsert("courses", ...)`. Covers altus (2 sites), cwms, summit, iag, hvi, msaa, yamnuska, vanmtnguides (2 sites), hangfire. Removed the `or loc_raw` fallback that had been polluting canonical with raw in yamnuska |
+| CLAUDE.md | New "Location mapping policy — Haiku-live-write on structural confidence" section replaced the old admin-write-only rule. New "Never pass `location_canonical: None` to a courses upsert" section documents the re-scrape safety pattern. API table row for `normalise_location` updated to describe the four-tier resolution and caller contract |
+| Admin Location Mappings tab | No code change needed — pending queue now receives only real unknowns, approved table grows automatically from Haiku's confident writes |
 
-### Policy shift to document in CLAUDE.md
-> Scrapers may write directly to `location_mappings` **only** when Haiku returns a structurally valid `{"city": "...", "province": "XX"}` response where province is a 2-letter uppercase code. All other Haiku responses, null responses, and API failures continue to queue to `pending_location_mappings` for admin review. Scrapers must never write to `activity_mappings` (which is being removed entirely in Initiative 1).
+### Policy shift documented in CLAUDE.md
+> Scrapers may write directly to `location_mappings` **only** when Haiku returns a structurally valid `{"city": "...", "province": "XX"}` response where province is a 2-letter uppercase code. All other Haiku responses, null responses, and API failures queue to `pending_location_mappings` for admin review. Scrapers must never write to `activity_mappings` (retired in Initiative 1).
 
-### Decisions already made
-- **Confidence definition:** hard structural rule — both `city` and `province` fields present, province matches `^[A-Z]{2}$`. No model-self-reported confidence, no scoring. Scales cleanly to US (CA/NY/…), UK (no 2-letter regions), etc. — if it doesn't match the format, it goes to pending, which is the safe behaviour.
-- **Keep canonical.** Don't collapse to `location_raw`. The canonical asset is worth the small admin cost.
-- **Keep Algolia facet config** (`location_canonical` stays in `searchableAttributes`, `facets`) even though the live frontend only uses it for search, not faceting — leaves the door open for adding a region-browse UI later.
+### Decisions made in implementation (post-brief)
+- **Confidence definition:** hard structural rule — both `city` and `province` fields present, city contains no comma (defensive), province matches `^[A-Z]{2}$`.
+- **Known-canonicals ordering:** top-50 by *course frequency* (not mapping-alias count), computed once per scraper process. Falls back to mapping-alias frequency if the courses query fails or returns nothing.
+- **City casing:** trust Haiku's output as-is. No `.title()` munging. Admin fixes rare slips via the existing approved-table edit.
+- **No-Haiku-key fallback:** queue to pending + return `None` (deviates from the brief's pure framing but consistent with the unconfident branch — the old `return raw` fallback polluted canonical with un-normalised strings).
+- **Keep canonical.** Did not collapse to `location_raw`. The canonical asset is worth the small admin cost.
+- **Keep Algolia facet config.** `location_canonical` stays in `searchableAttributes` and `facets` — leaves the door open for adding a region-browse UI later.
 
-### Dependencies
-- Initiative 1 must land first. Cleaner audit backlog = better ground for validating the new Haiku write policy on live data.
+### Re-scrape safety — caller-side guard
+User flagged mid-implementation: Supabase `merge-duplicates` treats explicit `null` in an upsert payload as "overwrite existing with null". So if `normalise_location()` returns `None` on a re-scrape (transient Haiku hiccup), a previously-resolved canonical would be silently destroyed. Fix: every `normalise_location` caller guards with `if loc_canonical is not None: row["location_canonical"] = loc_canonical` instead of inlining the field unconditionally. 9 scrapers / 10 call sites touched. Documented as a hard rule in CLAUDE.md.
 
 ### Out of scope
 - Changing the card display of location (stays as `location_canonical || location_raw`)
 - Backfilling existing V2 rows with null `location_canonical` — they'll refresh on next scrape
-- Adding an area allowlist for wilderness names that Places-style geocoding might miss (we're not using Places here, we're using Haiku — the admin pending queue handles the edge cases)
-- Geocoding via Google Places — was considered (Option B from the discussion) but rejected in favour of keeping the admin-curated canonical table
+- Adding an area allowlist for wilderness names
+- Geocoding via Google Places — rejected in favour of keeping the admin-curated canonical table
 
 ### Success criteria
-- `pending_location_mappings` row-count per scraper run drops substantially (only genuinely unknown locations hit it)
-- `location_mappings` row-count grows automatically between admin sessions
-- No `location_canonical` regressions on existing rows (mappings table is never shrunk, only appended)
-- Admin can visit the pending tab and only see locations that genuinely need a human decision
+- `pending_location_mappings` receives only genuinely unknown locations going forward ✓ (Haiku-confident writes go live, unconfident go pending)
+- `location_mappings` grows automatically from Haiku writes between admin sessions ✓
+- No `location_canonical` regressions on existing rows ✓ (`None`-guard preserves existing DB values)
+- Admin pending tab only shows entries that need a human decision ✓
 
 ---
 

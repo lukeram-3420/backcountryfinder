@@ -24,6 +24,7 @@ import json
 import time
 import hashlib
 import logging
+from collections import Counter
 from datetime import datetime, date
 from typing import Optional, Callable
 
@@ -200,10 +201,72 @@ def load_location_mappings() -> dict:
     return {r["location_raw"].lower().strip(): r["location_canonical"] for r in rows}
 
 
+# Province / state short-code: two uppercase letters. Canada (BC/AB/ON/…),
+# US (CA/NY/WA/…), and most other jurisdictions fit.
+_PROVINCE_RE = re.compile(r"^[A-Z]{2}$")
+
+# Module-level cache for the top-N most-used canonicals, computed once per
+# scraper process and passed to Haiku as anchors so it reuses existing
+# canonicals rather than minting new spelling variants.
+_popular_canonicals_cache: Optional[list] = None
+
+
+def _get_popular_canonicals(mappings: dict, limit: int = 50) -> list:
+    """Return the top `limit` most-frequently-used location_canonical values
+    from the active courses table, sorted by frequency descending. Cached at
+    module level so one query serves every normalise_location() call in a
+    scraper process. Falls back to mapping-alias-count frequency if the
+    courses read fails or returns nothing.
+    """
+    global _popular_canonicals_cache
+    if _popular_canonicals_cache is not None:
+        return _popular_canonicals_cache
+    top: list = []
+    try:
+        rows = sb_get("courses", {
+            "select": "location_canonical",
+            "location_canonical": "not.is.null",
+            "active": "eq.true",
+            "limit": "1000",
+        })
+        counter = Counter(r["location_canonical"] for r in rows if r.get("location_canonical"))
+        top = [c for c, _ in counter.most_common(limit)]
+        if len(rows) >= 1000:
+            log.info("Popular canonicals sampled from first 1000 active rows (limit hit)")
+    except Exception as e:
+        log.warning(f"Could not compute popular canonicals from courses: {e}")
+    if not top:
+        # Fallback: how many location_raw aliases point to each canonical
+        top = [c for c, _ in Counter(mappings.values()).most_common(limit)]
+    _popular_canonicals_cache = top
+    return _popular_canonicals_cache
+
+
 def normalise_location(raw: str, mappings: dict) -> Optional[str]:
     """
-    Resolve a raw location string to a canonical value.
-    Tries exact match, then substring match, then Claude, then returns raw as-is.
+    Resolve a raw location string to a canonical "City, Province" value.
+
+    Tiered resolution:
+      1. Exact match in the in-memory mappings dict → return canonical.
+      2. Substring match against mappings dict → return canonical.
+      3. Haiku with structural confidence: prompt for {"city", "province"}.
+         - On structural match (city non-empty, no comma in city, province
+           matching ^[A-Z]{2}$): compose "City, XX" → upsert to
+           location_mappings (LIVE — not pending) → update the in-memory
+           dict → return canonical.
+         - On failure / malformed / null response: queue to
+           pending_location_mappings with no suggestion → return None.
+      4. Haiku unavailable (no API key) or API error: queue to
+         pending_location_mappings → return None.
+
+    Caller contract — CRITICAL:
+      When this returns None, the course's upsert payload MUST OMIT the
+      `location_canonical` key entirely. Do NOT write
+      `"location_canonical": None`. Explicit null overwrites a
+      previously-resolved canonical on re-scrape (Supabase merge-duplicates
+      treats present-null as an overwrite). Omitting the key preserves the
+      existing DB value. See the location-canonical upsert guard in every
+      scraper_{id}.py.
     """
     if not raw:
         return None
@@ -213,29 +276,65 @@ def normalise_location(raw: str, mappings: dict) -> Optional[str]:
     for known_raw, canonical in mappings.items():
         if known_raw in key or key in known_raw:
             return canonical
-    if ANTHROPIC_API_KEY:
-        known = list(set(mappings.values()))
-        result = claude_classify(
-            f"""Normalise this location for a backcountry booking aggregator in western Canada.
-Known canonical locations: {", ".join(known)}
-Raw location: "{raw}"
-If it matches a known location, return that exact value. Otherwise suggest a clean canonical name.
-Respond with JSON only: {{"location_canonical": "value", "is_new": false}}"""
-        )
-        if result.get("location_canonical"):
-            canonical = result["location_canonical"]
-            log.info(f"Claude normalised '{raw}' → '{canonical}' (pending admin review)")
-            # Queue for admin review — do NOT write directly to location_mappings
+
+    def _queue_pending(suggested: Optional[str] = None) -> None:
+        try:
             sb_insert("pending_location_mappings", {
                 "location_raw": raw,
-                "suggested_canonical": canonical,
+                "suggested_canonical": suggested,
                 "provider_id": None,
                 "course_title": None,
                 "reviewed": False,
             })
+        except Exception as e:
+            log.warning(f"pending_location_mappings insert failed for '{raw}': {e}")
+
+    if not ANTHROPIC_API_KEY:
+        _queue_pending()
+        log.info(f"Haiku disabled — '{raw}' queued to pending_location_mappings")
+        return None
+
+    known = _get_popular_canonicals(mappings)
+    result = claude_classify(
+        f"""Normalise this location for a backcountry booking aggregator. Canonical format is "City, Province" where Province is a 2-letter uppercase code (CA: BC/AB/ON/QC/etc., US: CA/NY/WA/CO/etc.).
+
+Known canonical locations (most-used first): {", ".join(known) if known else "Canmore, AB; Squamish, BC; Revelstoke, BC; Rogers Pass, BC"}
+
+Raw location: "{raw}"
+
+If you can confidently resolve this to a city + province (reusing an existing canonical whenever possible), respond with:
+{{"city": "Canmore", "province": "AB"}}
+
+If you cannot confidently parse both fields, respond with:
+{{"city": null, "province": null}}
+
+Respond with JSON only, no other text."""
+    )
+
+    city = ""
+    province = ""
+    if isinstance(result, dict):
+        city = (result.get("city") or "").strip()
+        province = (result.get("province") or "").strip().upper()
+
+    if city and "," not in city and _PROVINCE_RE.match(province):
+        canonical = f"{city}, {province}"
+        try:
+            sb_upsert("location_mappings", [{
+                "location_raw": raw,
+                "location_canonical": canonical,
+            }])
             mappings[key] = canonical
+            log.info(f"Haiku resolved '{raw}' → '{canonical}' (written live)")
             return canonical
-    return raw
+        except Exception as e:
+            log.warning(f"location_mappings upsert failed for '{raw}': {e} — queuing to pending instead")
+            _queue_pending(suggested=canonical)
+            return None
+
+    log.info(f"Haiku could not confidently resolve '{raw}' — queued to pending_location_mappings")
+    _queue_pending()
+    return None
 
 
 # ── Claude API ───────────────────────────────────────────────────────────────
