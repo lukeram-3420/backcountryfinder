@@ -50,8 +50,9 @@ LOOKAHEAD_DAYS = 180
 WINDOW_DAYS = 7
 TOTAL_GROUPS = 4
 
-# Title-keyword → canonical location_raw. First match wins; no match falls
-# through to PROVIDER["default_location"].
+# Title-keyword pre-resolution hint. First match wins; result is fed to
+# normalise_location() as the raw input (not as a bypass) so unknown mappings
+# still surface in pending_location_mappings for admin review (Initiative 2).
 LOCATION_MAP = [
     ("bugaboo",         "Bugaboos, BC"),
     ("slesse",          "Chilliwack, BC"),
@@ -67,15 +68,34 @@ LOCATION_MAP = [
     ("squamish",        "Squamish, BC"),
 ]
 
+# Zaui activity fields that may carry a human-readable location string.
+# Probed in order; first non-empty wins. No documented schema — probe is defensive.
+ZAUI_LOCATION_FIELDS = ("location", "meetingLocation", "address", "venue", "city")
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
 
-def resolve_location_raw(title: str) -> str:
+def resolve_location_raw(title: str, act: dict) -> str:
+    """Pick the raw location string to pass into normalise_location().
+
+    Priority:
+      1. Title keyword match in LOCATION_MAP (strongest signal — titles like
+         "Whistler Backcountry" unambiguously identify the location).
+      2. Zaui activity location-ish field (whatever the API exposes).
+      3. PROVIDER["default_location"] (last-resort guess).
+
+    Returns the raw string only. The caller must pass it through
+    normalise_location() so unknowns queue to pending_location_mappings.
+    """
     t = (title or "").lower()
     for kw, loc in LOCATION_MAP:
         if kw in t:
             return loc
+    for fld in ZAUI_LOCATION_FIELDS:
+        v = act.get(fld)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
     return PROVIDER["default_location"]
 
 
@@ -168,8 +188,10 @@ def main():
         if image_url and image_url.startswith("/"):
             image_url = f"https://{PROVIDER['tenant_slug']}.zaui.net{image_url}"
 
-        # Location: title keyword → raw → canonical via scraper_utils
-        loc_raw = resolve_location_raw(title)
+        # Location: title keyword → Zaui field → default → normalise_location
+        # (Initiative 2 — never bypass normalise_location; unknowns queue to
+        # pending_location_mappings via its internal logic.)
+        loc_raw = resolve_location_raw(title, act)
         loc_canonical = normalise_location(loc_raw, loc_mappings)
 
         # Booking URL with UTM in query + hash route for the Vue SPA
