@@ -48,24 +48,6 @@ KEEP_CATEGORIES = {
     "rock climbing",
 }
 
-# ── Activity resolution ───────────────────────────────────────────────────────
-ACTIVITY_MAP = [
-    (["ast", "avalanche", "companion rescue", "crevasse"],        "skiing"),
-    (["ice climbing"],                                             "climbing"),
-    (["rock climbing", "trad", "lead", "rappel", "rope rescue", "via ferrat",
-      "weekend warrior", "climb the ghost"],                      "climbing"),
-    (["mountaineering", "mountaineer", "alpine", "athabasca", "victoria",
-      "andromeda", "logan", "bugaboos", "fay", "huber",
-      "mountain skills week", "alberta high"],                    "mountaineering"),
-    (["ski touring", "splitboard", "backcountry ski", "ski camp",
-      "ski traverse", "wapta", "bow yoho", "rogers pass",
-      "spring rockies", "off piste", "bugs to rogers",
-      "waddington", "ski and ride"],                              "skiing"),
-    (["hiking", "trekking", "scramble", "temple", "sulphur",
-      "larch", "o'hara", "six glaciers", "castle mountain",
-      "moraine lake", "plain of 6"],                             "hiking"),
-]
-
 LOCATION_MAP = [
     ("rogers pass",   "Rogers Pass, BC"),
     ("bugs to rogers","Rogers Pass, BC"),
@@ -81,13 +63,6 @@ LOCATION_MAP = [
     ("canmore",       "Canmore, AB"),
     ("ghost",         "Canmore, AB"),
 ]
-
-def resolve_activity(title: str) -> str:
-    t = title.lower()
-    for keywords, activity in ACTIVITY_MAP:
-        if any(k in t for k in keywords):
-            return activity
-    return "guided"
 
 def resolve_location(title: str) -> str:
     t = title.lower()
@@ -192,9 +167,7 @@ def main():
             except (ValueError, TypeError):
                 price = None
 
-        activity = resolve_activity(title)
         location = resolve_location(title)
-        category = item.get("category", "")
 
         # Description from Checkfront summary HTML (strip tags)
         description_html = item.get("summary") or ""
@@ -229,9 +202,6 @@ def main():
                 "id":                 course_id,
                 "provider_id":        PROVIDER["id"],
                 "title":              title,
-                "activity":           activity,
-                "activity_raw":       category,
-                "activity_canonical": None,  # V2: null hides from V1 frontend
                 "location_raw":       location,
                 "location_canonical": location,
                 "date_sort":          date_sort,
@@ -245,8 +215,6 @@ def main():
                 "summary":            "",
                 "search_document":    "",
                 "image_url":          None,
-                "badge":              None,
-                "badge_canonical":    None,
                 "custom_dates":       False,
                 "scraped_at":         scraped_at,
             })

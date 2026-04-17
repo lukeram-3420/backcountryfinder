@@ -386,7 +386,7 @@ def main():
         ("Rock Climbing: Beginner", {}),
         ("Rock Climbing: Private", {}),
         ("Rock Climbing Progression: Intermediate", {}),
-        ("Rock Climbing Masters: Advanced", {"activity": "climbing", "activity_canonical": "climbing"}),
+        ("Rock Climbing Masters: Advanced", {}),
         ("Ice Climbing: Beginner", {}),
         ("Hiking & Trekking: Hiking week in the Canadian Rockies with Lake O'Hara", {}),
     ]
@@ -447,7 +447,7 @@ def main():
     stubs = sb_get("courses", {
         "provider_id": f"eq.{PROVIDER_ID}",
         "or": "(summary.is.null,summary.eq.)",
-        "select": "id,title,activity,activity_canonical",
+        "select": "id,title",
     })
     # Dedup by title — all dates of the same title share one summary
     by_title = {}
@@ -469,7 +469,6 @@ def main():
                 "title":       title,
                 "description": title,
                 "provider":    "Alpine Air Adventures",
-                "activity":    row.get("activity_canonical") or row.get("activity") or "",
             })
 
         try:

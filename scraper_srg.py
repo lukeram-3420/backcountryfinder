@@ -20,8 +20,6 @@ from bs4 import BeautifulSoup
 from scraper_utils import (
     log_availability_change, log_price_change,
     sb_get, sb_upsert, sb_insert,
-    load_activity_mappings, load_activity_labels,
-    resolve_activity, build_badge,
     stable_id_v2, is_future,
     generate_summaries_batch,
     update_provider_ratings,
@@ -173,8 +171,6 @@ def scrape_srg(provider):
                     courses.append({
                         "title":        title,
                         "provider_id":  provider["id"],
-                        "activity":     "climbing",
-                        "activity_raw": "climbing",
                         "price":        price,
                         "date_display": "Flexible dates",
                         "date_sort":    None,
@@ -201,8 +197,6 @@ def scrape_srg(provider):
                     courses.append({
                         "title":        title,
                         "provider_id":  provider["id"],
-                        "activity":     "climbing",
-                        "activity_raw": "climbing",
                         "price":        price,
                         "date_display": date_display,
                         "date_sort":    date_str,
@@ -235,28 +229,15 @@ def main():
     # Update provider ratings from Google Places
     update_provider_ratings(PROVIDER["id"])
 
-    # Load activity mappings and labels from Supabase
-    activity_maps = load_activity_mappings()
-    log.info(f"Loaded {len(activity_maps)} activity mappings")
-    activity_labels = load_activity_labels()
-    log.info(f"Loaded {len(activity_labels)} activity labels")
-
     raw_courses = scrape_srg(PROVIDER)
     processed = []
     for c in raw_courses:
         loc_canonical = "Squamish"  # always Squamish
         course_id = stable_id_v2(PROVIDER["id"], c.get("date_sort"), c["title"])
-        activity_canonical = resolve_activity(c["title"], "", activity_maps)
-        badge_canonical = build_badge(activity_canonical, c.get("duration_days"), activity_labels)
         processed.append({
             "id":                 course_id,
             "title":              c["title"],
             "provider_id":        PROVIDER["id"],
-            "badge":              badge_canonical,
-            "activity":           activity_canonical,
-            "activity_raw":       c.get("activity_raw", "climbing"),
-            "activity_canonical": None,  # V2: null hides from V1 frontend
-            "badge_canonical":    badge_canonical,
             "location_raw":       "Squamish",
             "location_canonical": loc_canonical,
             "date_display":       c.get("date_display"),
@@ -277,7 +258,7 @@ def main():
 
     # Batch summaries
     if processed:
-        summary_inputs = [{"id": c["id"], "title": c["title"], "description": c.get("description",""), "provider": PROVIDER["name"], "activity": c.get("activity_canonical","climbing")} for c in processed if c.get("description")]
+        summary_inputs = [{"id": c["id"], "title": c["title"], "description": c.get("description",""), "provider": PROVIDER["name"]} for c in processed if c.get("description")]
         if summary_inputs:
             # Deduplicate by title — same summary for all dates of same course
             seen_titles = {}

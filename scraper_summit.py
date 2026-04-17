@@ -45,193 +45,11 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
 
-ACTIVITY_LABELS = {
-    "skiing":         "Backcountry Skiing",
-    "climbing":       "Rock Climbing",
-    "mountaineering": "Mountaineering",
-    "hiking":         "Hiking",
-    "biking":         "Mountain Biking",
-    "fishing":        "Fly Fishing",
-    "hunting":        "Hunting",
-    "heli":           "Heli Skiing",
-    "cat":            "Cat Skiing",
-    "huts":           "Alpine Huts",
-    "guided":         "Guided Tour",
-    "glissading":     "Glissading",
-    "rappelling":     "Rappelling",
-    "snowshoeing":    "Snowshoeing",
-    "snowshoe":       "Snowshoeing",
-    "via_ferrata":    "Via Ferrata",
-}
-
-ACTIVITY_KEYWORDS = {
-    "skiing":         ["ast", "avalanche", "backcountry ski", "ski touring", "splitboard", "avy", "heli ski", "cat ski"],
-    "hiking":         ["hik", "backpack", "navigation", "wilderness travel", "heli-accessed hik", "heli access"],
-    "climbing":       ["climb", "rock", "multi-pitch", "rappel", "belay", "trad", "sport climb", "via ferrata", "ferrata"],
-    "mountaineering": ["glacier", "mountaineer", "alpine", "crampon", "crevasse", "scramble", "summit", "alpine climb"],
-    "biking":         ["bike", "biking", "mtb", "mountain bike", "cycling"],
-    "fishing":        ["fish", "fly fish", "angl", "cast", "river guide"],
-    "heli":           ["heli adventure", "heli tour", "heli experience"],
-}
-
-
 # ── Helper functions (replicated from scraper.py for standalone use) ──────────
 
 def load_location_mappings() -> dict:
     rows = sb_get("location_mappings", {"select": "location_raw,location_canonical"})
     return {r["location_raw"].lower().strip(): r["location_canonical"] for r in rows}
-
-
-def load_activity_labels():
-    try:
-        rows = sb_get("activity_labels", {"select": "activity,label"})
-        return {r["activity"]: r["label"] for r in rows}
-    except Exception as e:
-        log.warning(f"Could not load activity labels: {e}")
-        return {}
-
-
-def load_activity_mappings_table() -> list:
-    """Load activity mappings from Supabase — [{title_contains, activity}]."""
-    try:
-        rows = sb_get("activity_mappings", {"select": "title_contains,activity"})
-        mappings = [(r["title_contains"].lower(), r["activity"]) for r in rows]
-        return sorted(mappings, key=lambda x: len(x[0]), reverse=True)
-    except Exception as e:
-        log.warning(f"Could not load activity mappings: {e}")
-        return []
-
-
-def get_known_activities(activity_maps: list) -> list:
-    """Extract unique activity values from the mappings list."""
-    return list(set(activity for _, activity in activity_maps))
-
-
-def get_known_locations(location_maps: dict) -> list:
-    """Extract unique canonical location values from the mappings dict."""
-    return list(set(location_maps.values()))
-
-
-def claude_classify(prompt: str, max_tokens: int = 256, return_text: bool = False):
-    """Call Claude API. Returns parsed JSON dict by default, or raw text if return_text=True."""
-    if not ANTHROPIC_API_KEY:
-        return "" if return_text else {}
-    try:
-        r = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": ANTHROPIC_API_KEY,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": CLAUDE_MODEL,
-                "max_tokens": max_tokens,
-                "messages": [{"role": "user", "content": prompt}],
-            },
-            timeout=30
-        )
-        text = r.json()["content"][0]["text"].strip()
-        if return_text:
-            return text
-        # Strip markdown fences if present
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-        return json.loads(text.strip())
-    except Exception as e:
-        log.warning(f"Claude API call failed: {e}")
-        return "" if return_text else {}
-
-
-def claude_classify_activity(title: str, description: str, provider: str, known_activities: list) -> dict:
-    """Ask Claude to classify the activity type for a course."""
-    activities_list = ", ".join(known_activities) if known_activities else "skiing, climbing, mountaineering, hiking, biking, fishing, heli, cat, guided"
-    prompt = f"""You are classifying backcountry outdoor experiences for a booking aggregator.
-
-Known activity types: {activities_list}
-
-Course title: "{title}"
-Description: "{description}"
-Provider: "{provider}"
-
-Classify this course. If it matches a known activity type, use that exact value.
-If it is genuinely a new type not in the list, suggest a short lowercase slug (e.g. "via_ferrata", "ice_climbing").
-
-Also provide a short human-readable display label (e.g. "Via Ferrata", "Ice Climbing").
-
-Respond with JSON only, no other text:
-{{"activity": "the_canonical_value", "label": "Human Readable Label", "is_new": false, "confidence": "high", "reasoning": "one line explanation"}}"""
-
-    return claude_classify(prompt)
-
-
-def claude_classify_location(location_raw: str, known_locations: list) -> dict:
-    """Ask Claude to normalise a raw location string to a canonical value."""
-    locations_list = ", ".join(known_locations) if known_locations else "Whistler / Blackcomb, Squamish, North Shore / Seymour, Pemberton / Duffey, Garibaldi Park, Tantalus Range"
-    prompt = f"""You are normalising location strings for a backcountry booking aggregator in British Columbia, Canada.
-
-Known canonical locations: {locations_list}
-
-Raw location string: "{location_raw}"
-
-If this matches one of the known canonical locations, return that exact canonical value.
-If it is a genuinely new location not in the list, suggest a clean canonical name.
-
-Respond with JSON only, no other text:
-{{"location_canonical": "the_canonical_value", "is_new": false, "confidence": "high", "reasoning": "one line explanation"}}"""
-
-    return claude_classify(prompt)
-
-
-def detect_activity(title: str, description: str = "") -> str:
-    text = (title + " " + description).lower()
-    for activity, keywords in ACTIVITY_KEYWORDS.items():
-        if any(kw in text for kw in keywords):
-            return activity
-    return "guided"  # default
-
-
-def resolve_activity(title, description, mappings, provider=""):
-    """
-    Resolve activity using mappings table first, then Claude, then keyword detection.
-    Returns (activity, is_new, should_add_mapping)
-    """
-    text = (title + " " + description).lower()
-    for pattern, activity in mappings:
-        if pattern.lower() in text:
-            return activity, False, False
-    if ANTHROPIC_API_KEY:
-        known = get_known_activities(mappings) if mappings else []
-        result = claude_classify_activity(title, description, provider, known)
-        if isinstance(result, list) and result:
-            result = result[0]
-        if isinstance(result, dict) and result.get("activity"):
-            activity = result["activity"]
-            is_new = result.get("is_new", False)
-            label = result.get("label", activity.replace("_", " ").title())
-            log.info(f"Claude classified '{title}' as '{activity}' (new={is_new}): {result.get('reasoning','')}")
-            sb_upsert("activity_labels", [{"activity": activity, "label": label}])
-            return activity, is_new, True
-    return detect_activity(title, description), False, False
-
-
-def build_badge(activity: str, duration_days) -> str:
-    """Build a clean badge string from canonical activity and duration."""
-    label = ACTIVITY_LABELS.get(activity, activity.title())
-    if duration_days:
-        days = int(duration_days)
-        return f"{label} · {days} day{'s' if days > 1 else ''}"
-    return label
-
-
-def stable_id(provider_id: str, activity: str, date_sort: Optional[str], title: str) -> str:
-    if date_sort:
-        return f"{provider_id}-{activity}-{date_sort}"
-    # Fallback: hash of title
-    h = hashlib.md5(title.encode()).hexdigest()[:8]
-    return f"{provider_id}-{activity}-{h}"
 
 
 def is_future(date_sort: Optional[str]) -> bool:
@@ -441,9 +259,6 @@ def scrape_summit(provider):
                 courses.append({
                     "title":         title,
                     "provider_id":   provider["id"],
-                    "badge":         "",
-                    "activity":      "guided",
-                    "activity_raw":  "guided",
                     "location_raw":  location_raw,
                     "date_display":  date_display,
                     "date_sort":     date_sort,
@@ -479,13 +294,6 @@ def main():
     mappings = load_location_mappings()
     log.info(f"Loaded {len(mappings)} location mappings")
 
-    # Load activity mappings and labels from Supabase
-    activity_maps = load_activity_mappings_table()
-    log.info(f"Loaded {len(activity_maps)} activity mappings")
-    global ACTIVITY_LABELS
-    ACTIVITY_LABELS = load_activity_labels()
-    log.info(f"Loaded {len(ACTIVITY_LABELS)} activity labels")
-
     location_flags = []
 
     raw_courses = scrape_summit(provider)
@@ -499,20 +307,10 @@ def main():
         else:
             loc_canonical = None
         course_id = stable_id_v2(provider["id"], c.get("date_sort"), c["title"])
-        activity_canonical, act_is_new, act_add_mapping = resolve_activity(c["title"], "", activity_maps, provider["name"])
-        if act_add_mapping:
-            sb_insert("activity_mappings", {"title_contains": c["title"].lower()[:100], "activity": activity_canonical})
-            activity_maps.append((c["title"].lower()[:100], activity_canonical))
-        badge_canonical = build_badge(activity_canonical, c.get("duration_days"))
         processed.append({
             "id":                 course_id,
             "title":              c["title"],
             "provider_id":        provider["id"],
-            "badge":              badge_canonical,
-            "activity":           activity_canonical,
-            "activity_raw":       c.get("activity_raw", "guided"),
-            "activity_canonical": None,  # V2: null hides from V1 frontend
-            "badge_canonical":    badge_canonical,
             "location_raw":       loc_raw or None,
             "location_canonical": loc_canonical,
             "date_display":       c.get("date_display"),
@@ -533,7 +331,7 @@ def main():
 
     # Batch generate summaries
     if processed:
-        summary_inputs = [{"id": c["id"], "title": c["title"], "description": c.get("description",""), "provider": provider["name"], "activity": c.get("activity_canonical","guided")} for c in processed if c.get("description")]
+        summary_inputs = [{"id": c["id"], "title": c["title"], "description": c.get("description",""), "provider": provider["name"]} for c in processed if c.get("description")]
         if summary_inputs:
             summaries = generate_summaries_batch(summary_inputs)
             for c in processed:

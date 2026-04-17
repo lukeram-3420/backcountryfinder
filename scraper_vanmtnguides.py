@@ -27,7 +27,6 @@ from scraper_utils import (
     sb_upsert, stable_id_v2,
     update_provider_ratings,
     load_location_mappings, normalise_location,
-    load_activity_mappings, resolve_activity, build_badge,
     generate_summaries_batch,
     UTM,
 )
@@ -109,8 +108,7 @@ def main():
 
     # Mappings
     loc_mappings = load_location_mappings()
-    activity_maps = load_activity_mappings()
-    log.info(f"Loaded {len(loc_mappings)} location mappings, {len(activity_maps)} activity mappings")
+    log.info(f"Loaded {len(loc_mappings)} location mappings")
 
     today      = datetime.date.today()
     end_date   = today + datetime.timedelta(days=LOOKAHEAD_DAYS)
@@ -170,9 +168,6 @@ def main():
         if image_url and image_url.startswith("/"):
             image_url = f"https://{PROVIDER['tenant_slug']}.zaui.net{image_url}"
 
-        # Activity classification (three-tier via scraper_utils)
-        activity_canonical = resolve_activity(title, description, activity_maps) or "guided"
-
         # Location: title keyword → raw → canonical via scraper_utils
         loc_raw = resolve_location_raw(title)
         loc_canonical = normalise_location(loc_raw, loc_mappings)
@@ -183,7 +178,6 @@ def main():
         duration_days = act.get("durationDays") or None
         if duration_days == 0:
             duration_days = None
-        badge = build_badge(activity_canonical, duration_days)
 
         category_name = act.get("_category_name") or ""
 
@@ -196,11 +190,6 @@ def main():
                 "id":                 course_id,
                 "title":              title,
                 "provider_id":        PROVIDER["id"],
-                "activity":           activity_canonical,
-                "activity_raw":       category_name,
-                "activity_canonical": None,  # V2: null hides from V1 frontend
-                "badge":              badge,
-                "badge_canonical":    badge,
                 "location_raw":       loc_raw,
                 "location_canonical": loc_canonical,
                 "date_sort":          None,
@@ -250,11 +239,6 @@ def main():
                 "id":                 course_id,
                 "title":              title,
                 "provider_id":        PROVIDER["id"],
-                "activity":           activity_canonical,
-                "activity_raw":       category_name,
-                "activity_canonical": None,  # V2: null hides from V1 frontend
-                "badge":              badge,
-                "badge_canonical":    badge,
                 "location_raw":       loc_raw,
                 "location_canonical": loc_canonical,
                 "date_sort":          date_iso,
@@ -285,7 +269,6 @@ def main():
                     "title":       r["title"],
                     "description": r["description"],
                     "provider":    PROVIDER["name"],
-                    "activity":    r["activity_canonical"],
                 }
         if by_title:
             try:

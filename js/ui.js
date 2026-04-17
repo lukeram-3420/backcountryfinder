@@ -10,7 +10,6 @@ async function logClick(course) {
       },
       body: JSON.stringify({
         provider_name: (course.providers && course.providers.name) || course.provider_id || '',
-        course_type:   course.activity_canonical || course.activity_raw || '',
         location:      course.location_canonical || course.location_raw || '',
         price:         course.price || null,
         booking_url:   course.booking_url || '',
@@ -18,17 +17,6 @@ async function logClick(course) {
       })
     });
   } catch(e) { /* non-blocking — never interrupt the user */ }
-}
-
-async function loadActivityLabels() {
-  try {
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/activity_labels?select=activity,label`,
-      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
-    );
-    const rows = await res.json();
-    rows.forEach(r => { ACTIVITY_LABELS[r.activity] = r.label; });
-  } catch(e) { console.warn('Could not load activity labels:', e); }
 }
 
 function showPage(name){

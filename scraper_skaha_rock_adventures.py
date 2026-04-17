@@ -21,8 +21,6 @@ from bs4 import BeautifulSoup
 from scraper_utils import (
     log_availability_change, log_price_change,
     sb_get, sb_upsert, sb_insert,
-    load_activity_mappings, load_activity_labels,
-    resolve_activity, build_badge,
     stable_id_v2, is_future,
     generate_summaries_batch,
     update_provider_ratings,
@@ -168,7 +166,6 @@ def scrape_skaha() -> list:
             log.info(f"  No dates found — adding as flexible dates card")
             all_courses.append({
                 "title": course_meta["title"], "provider_id": provider_id,
-                "activity": course_meta["activity"], "activity_raw": course_meta["activity"],
                 "location_raw": "Penticton, BC", "date_display": "Flexible dates",
                 "date_sort": None, "duration_days": None, "price": price,
                 "spots_remaining": None, "avail": "open", "image_url": None,
@@ -186,7 +183,6 @@ def scrape_skaha() -> list:
                     date_display = entry["date_iso"]
                 all_courses.append({
                     "title": course_meta["title"], "provider_id": provider_id,
-                    "activity": course_meta["activity"], "activity_raw": course_meta["activity"],
                     "location_raw": "Penticton, BC", "date_display": date_display,
                     "date_sort": entry["date_iso"], "duration_days": None, "price": price,
                     "spots_remaining": None, "avail": entry["avail"], "image_url": None,
@@ -209,28 +205,15 @@ def main():
     # Update provider ratings from Google Places
     update_provider_ratings(SKAHA_PROVIDER["id"])
 
-    # Load activity mappings and labels from Supabase
-    activity_maps = load_activity_mappings()
-    log.info(f"Loaded {len(activity_maps)} activity mappings")
-    activity_labels = load_activity_labels()
-    log.info(f"Loaded {len(activity_labels)} activity labels")
-
     raw_courses = scrape_skaha()
     processed = []
     for c in raw_courses:
         loc_canonical = "Penticton / Skaha Bluffs"
         course_id = stable_id_v2(SKAHA_PROVIDER["id"], c.get("date_sort"), c["title"])
-        activity_canonical = resolve_activity(c["title"], c.get("description", ""), activity_maps)
-        badge_canonical = build_badge(activity_canonical, c.get("duration_days"), activity_labels)
         processed.append({
             "id":                 course_id,
             "title":              c["title"],
             "provider_id":        SKAHA_PROVIDER["id"],
-            "badge":              badge_canonical,
-            "activity":           activity_canonical,
-            "activity_raw":       c.get("activity_raw", c["activity"]),
-            "activity_canonical": None,  # V2: null hides from V1 frontend
-            "badge_canonical":    badge_canonical,
             "location_raw":       "Penticton, BC",
             "location_canonical": loc_canonical,
             "date_display":       c.get("date_display"),
@@ -255,7 +238,7 @@ def main():
         for c in processed:
             if c.get("description") and c["title"] not in seen_titles:
                 seen_titles[c["title"]] = c["id"]
-                unique_inputs.append({"id": c["id"], "title": c["title"], "description": c.get("description", ""), "provider": SKAHA_PROVIDER["name"], "activity": c.get("activity_canonical", "climbing")})
+                unique_inputs.append({"id": c["id"], "title": c["title"], "description": c.get("description", ""), "provider": SKAHA_PROVIDER["name"]})
         if unique_inputs:
             summaries = generate_summaries_batch(unique_inputs)
             title_to_summary = {}

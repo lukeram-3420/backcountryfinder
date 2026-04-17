@@ -12,19 +12,7 @@ async function loadProviders() {
       grid.innerHTML = '<p style="color:var(--text-tertiary);font-size:13px;">No providers listed yet.</p>';
       return;
     }
-    const coursesRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/provider_activities?select=provider_id,activity_canonical`,
-      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
-    );
-    const courses = await coursesRes.json();
-    const activityMap = {};
-    courses.forEach(c => {
-      if (!activityMap[c.provider_id]) activityMap[c.provider_id] = new Set();
-      if (c.activity_canonical) activityMap[c.provider_id].add(c.activity_canonical);
-    });
     grid.innerHTML = providers.map(p => {
-      const activities = [...(activityMap[p.id] || [])];
-      const tags = activities.map(a => `<span class="provider-tag">${ACTIVITY_LABELS[a] || a}</span>`).join('');
       const reviewsUrl = p.google_place_id ? `https://search.google.com/local/reviews?placeid=${p.google_place_id}` : null;
       const rating = p.rating
         ? reviewsUrl
@@ -43,7 +31,6 @@ async function loadProviders() {
             <div class="provider-card-loc">${p.location || ''}</div>
             ${rating}
             ${website}
-            ${tags ? `<div class="provider-card-tags">${tags}</div>` : ''}
           </div>
         </div>`;
     }).join('');

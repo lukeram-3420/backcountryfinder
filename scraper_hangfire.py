@@ -397,7 +397,6 @@ def main():
     processed = []
     for c in raw_courses:
         title = c["title"]
-        activity = "avalanche_safety"
 
         # Location: title keywords → raw → canonical via scraper_utils
         loc_raw = location_raw_from_title(title)
@@ -431,18 +430,11 @@ def main():
 
         course_id = stable_id_v2(provider["id"], date_sort, title)
         duration_days = c.get("duration_days")
-        dur_str = f" · {int(duration_days)} day{'s' if duration_days > 1 else ''}" if duration_days else ""
-        badge = f"Avalanche Safety{dur_str}"
 
         processed.append({
             "id":                 course_id,
             "title":              title,
             "provider_id":        provider["id"],
-            "badge":              badge,
-            "activity":           activity,
-            "activity_raw":       activity,
-            "activity_canonical": None,  # V2: null hides from V1 frontend
-            "badge_canonical":    badge,
             "location_raw":       loc_raw,
             "location_canonical": loc_canonical,
             "date_display":       date_display,
@@ -467,7 +459,7 @@ def main():
     if processed:
         summary_inputs = [
             {"id": c["id"], "title": c["title"], "description": c.get("description", ""),
-             "provider": provider["name"], "activity": c["activity"]}
+             "provider": provider["name"]}
             for c in processed if c.get("description")
         ]
         if summary_inputs:

@@ -26,44 +26,8 @@ import requests
 
 from scraper_utils import (
     sb_get, sb_upsert, sb_patch, send_email,
-    load_activity_mappings,
     SUPABASE_URL, SUPABASE_KEY,
 )
-
-# ── Constants ────────────────────────────────────────────────────────────────
-
-ACTIVITY_CONTRADICTIONS = {
-    "climbing": ["splitboard", "ski touring", "ski resort", "ski lift", "backcountry skiing", "downhill ski"],
-    "skiing":   ["rock climbing", "ice climbing", "trad climbing", "sport climbing"],
-    "hiking":   ["splitboard", "ski touring", "rock climbing", "ice climbing"],
-}
-
-# Order matters — first match wins. More specific rules must come before generic ones.
-# Titles containing these phrases accept EITHER activity without flagging:
-TITLE_ACTIVITY_EXCEPTIONS = [
-    "ski mountaineering",
-    "crevasse rescue",  # correctly avalanche_safety despite "crevasse" keyword
-    "crevasse",         # catch variants
-    "ast",              # avalanche skills training — always avalanche_safety
-    "avalanche skills", # same
-    "avalanche safety", # same
-    "sled ast",         # sledder AST variant
-    "ski & board ast",  # ski and board AST variant
-]
-
-TITLE_ACTIVITY_RULES = [
-    (["alpine climbing", "alpine rock"],                     "mountaineering"),
-    (["rock climbing", "ice climbing"],                      "climbing"),
-    (["ski traverse", "ski touring", "splitboard", "backcountry ski"], "skiing"),
-    (["hik"],                                                "hiking"),
-    (["mountaineer"],                                        "mountaineering"),
-]
-
-# These keywords use word-boundary matching (re.search with \b) to avoid false positives
-TITLE_ACTIVITY_RULES_WORD_BOUNDARY = [
-    (r"\bski\b",     "skiing"),
-    (r"\balpine\b",  "mountaineering"),
-]
 
 
 # ── Flag helpers ─────────────────────────────────────────────────────────────
@@ -202,7 +166,7 @@ def auto_clear_user_flags(provider_id: str, courses: list) -> tuple:
     flagged_courses = sb_get("courses", {
         "provider_id": f"eq.{provider_id}",
         "flagged": "eq.true",
-        "select": "id,title,flagged_reason,flagged_note,price,date_sort,avail,summary,activity,activity_canonical",
+        "select": "id,title,flagged_reason,flagged_note,price,date_sort,avail,summary",
     })
 
     if not flagged_courses:
@@ -240,13 +204,8 @@ def auto_clear_user_flags(provider_id: str, courses: list) -> tuple:
 
         elif reason == "bad_description":
             summary = (fc.get("summary") or "").strip()
-            activity = fc.get("activity") or fc.get("activity_canonical") or ""
             if summary:
-                # Check no contradiction
-                contradictions = ACTIVITY_CONTRADICTIONS.get(activity, [])
-                has_contradiction = any(kw in summary.lower() for kw in contradictions)
-                if not has_contradiction:
-                    can_clear = True
+                can_clear = True
 
         # button_broken and other → never auto-clear
 
@@ -276,7 +235,7 @@ def check_summaries(courses: list, auto_hidden: list) -> list:
     Priority stack per course:
       1. Admin suppression (validator_suppressions for 'summary mismatch')
          → skip the whole check.
-      2. Empty-summary / contradiction / bleed automated checks.
+      2. Empty-summary / bleed automated checks.
     """
     email_only = []
 
@@ -293,21 +252,6 @@ def check_summaries(courses: list, auto_hidden: list) -> list:
                 "value": "",
                 "id": c["id"],
             })
-
-    # Cross-activity contradiction → AUTO-HIDE
-    for c in courses:
-        if any_check_suppressed(c.get("title", ""), ["summary mismatch"]):
-            continue
-        summary = (c.get("summary") or "").lower()
-        activity = c.get("activity") or c.get("activity_canonical") or ""
-        if not summary or not activity:
-            continue
-        contradictions = ACTIVITY_CONTRADICTIONS.get(activity, [])
-        for kw in contradictions:
-            if kw in summary:
-                reason = f"summary mismatch: '{kw}' on {activity} course"
-                flag_course(c["id"], reason, auto_hidden, title=c.get("title",""))
-                break
 
     # Duplicate summaries across different titles → EMAIL ONLY
     # Without the source description stored in Supabase, the validator cannot
@@ -333,81 +277,6 @@ def check_summaries(courses: list, auto_hidden: list) -> list:
                 "value": summary_text[:80],
                 "id": c["id"],
             })
-
-    return email_only
-
-
-def _mapping_matches(title_lower: str, activity: str, activity_mappings: list) -> bool:
-    """True if an activity_mappings row has title_contains substring-matching
-    this title AND maps to this activity. Explicit mappings override keyword
-    detection — every admin 'Add mapping' action takes effect here.
-    """
-    if not activity_mappings:
-        return False
-    for pattern, mapped in activity_mappings:
-        if pattern and pattern in title_lower and mapped == activity:
-            return True
-    return False
-
-
-def check_activities(courses: list, auto_hidden: list, activity_mappings: list) -> list:
-    """Check 2: Activity mapping.
-
-    Priority stack per course (highest wins, short-circuits the check):
-      1. validator_suppressions matching 'null activity' or 'activity mismatch'
-         → skip entire check.
-      2. activity_mappings — if an explicit mapping matches the title AND the
-         mapped activity equals the course's current activity, skip entire
-         check. Admin mapping trumps all keyword detection.
-      3. TITLE_ACTIVITY_EXCEPTIONS list (crevasse / ski mountaineering / AST).
-      4. TITLE_ACTIVITY_RULES keyword lists.
-      5. TITLE_ACTIVITY_RULES_WORD_BOUNDARY regex rules.
-    """
-    email_only = []
-
-    for c in courses:
-        title = c.get("title", "")
-
-        # 1. Admin suppression — skip the check entirely.
-        if any_check_suppressed(title, ["null activity", "activity mismatch"]):
-            continue
-
-        activity = c.get("activity") or c.get("activity_canonical") or ""
-        title_lower = title.lower()
-
-        # 2. Explicit mapping present and matches → skip. Runs BEFORE the
-        #    null-activity check and BEFORE any keyword rules so admin
-        #    mappings trump all automated detection.
-        if _mapping_matches(title_lower, activity, activity_mappings):
-            continue
-
-        # Null activity → AUTO-HIDE (only fires if no mapping justified it)
-        if not activity:
-            flag_course(c["id"], "null activity", auto_hidden, title=title)
-            continue
-
-        # 3. Skip titles that legitimately span two activity types
-        if any(exc in title_lower for exc in TITLE_ACTIVITY_EXCEPTIONS):
-            continue
-
-        # 4. Title/activity mismatch via keyword rules → AUTO-HIDE
-        matched = False
-        for keywords, expected in TITLE_ACTIVITY_RULES:
-            if any(kw in title_lower for kw in keywords):
-                if activity != expected:
-                    reason = f"activity mismatch: title suggests {expected} but got {activity}"
-                    flag_course(c["id"], reason, auto_hidden, title=title)
-                matched = True
-                break
-
-        # 5. Word-boundary rules
-        if not matched:
-            for pattern, expected in TITLE_ACTIVITY_RULES_WORD_BOUNDARY:
-                if re.search(pattern, title_lower):
-                    if activity != expected:
-                        reason = f"activity mismatch: title suggests {expected} but got {activity}"
-                        flag_course(c["id"], reason, auto_hidden, title=title)
-                    break
 
     return email_only
 
@@ -764,7 +633,7 @@ def main():
     # Fetch all courses for this provider
     courses = sb_get("courses", {
         "provider_id": f"eq.{provider_id}",
-        "select": "id,title,activity,activity_canonical,summary,price,date_sort,date_display,avail,active,spots_remaining",
+        "select": "id,title,summary,price,date_sort,date_display,avail,active,spots_remaining",
     })
     current_count = len(courses)
     print(f"  Fetched {current_count} courses")
@@ -810,15 +679,6 @@ def main():
     _suppressions_cache = suppression_rows
     logging.info(f"Loaded {len(_suppressions_cache)} admin suppressions")
 
-    # Load activity mappings — explicit admin mappings override keyword-based
-    # mismatch detection in check_activities.
-    try:
-        activity_mappings = load_activity_mappings()
-    except Exception as e:
-        print(f"  ⚠ Could not load activity_mappings: {e}")
-        activity_mappings = []
-    logging.info(f"Loaded {len(activity_mappings)} activity mappings")
-
     # Get last run count
     last_count = None
     try:
@@ -841,7 +701,6 @@ def main():
     email_only = []
 
     email_only.extend(check_summaries(courses, auto_hidden))
-    email_only.extend(check_activities(courses, auto_hidden, activity_mappings))
     email_only.extend(check_prices(courses, auto_hidden, price_exceptions, provider_id))
     email_only.extend(check_dates(courses, auto_hidden))
     email_only.extend(check_availability(courses, auto_hidden))

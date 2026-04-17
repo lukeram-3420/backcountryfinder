@@ -23,16 +23,16 @@ WEBSITE       = "https://www.jasperhikesandtours.ca"
 BOOKING_BASE  = "https://rockyadventures.checkfront.com/reserve/"
 UTM           = "utm_source=backcountryfinder&utm_medium=referral"
 
-# Pages to scrape: (url, default_activity, default_location)
+# Pages to scrape: (url, default_location)
 PAGES = [
-    ("/ast1-course",         "mountaineering", "McBride, BC"),
-    ("/ski-courses",         "skiing",         "McBride, BC"),
-    ("/jasper-ski-tours",    "skiing",         "Jasper, AB"),
-    ("/mcbride-sled-skiing", "skiing",         "McBride, BC"),
-    ("/snowshoeing",         "snowshoeing",    "Jasper, AB"),
-    ("/summer-hikes",        "hiking",         "Jasper, AB"),
-    ("/winter-tours",        "guided",         "Jasper, AB"),
-    ("/wildlife-tours",      "guided",         "Jasper, AB"),
+    ("/ast1-course",         "McBride, BC"),
+    ("/ski-courses",         "McBride, BC"),
+    ("/jasper-ski-tours",    "Jasper, AB"),
+    ("/mcbride-sled-skiing", "McBride, BC"),
+    ("/snowshoeing",         "Jasper, AB"),
+    ("/summer-hikes",        "Jasper, AB"),
+    ("/winter-tours",        "Jasper, AB"),
+    ("/wildlife-tours",      "Jasper, AB"),
 ]
 
 HEADERS_SB = {
@@ -199,7 +199,7 @@ def avail_value(spots):
     return "open"
 
 # ── Page scraper ──────────────────────────────────────────────────────────────
-def scrape_page(path, default_activity, default_location):
+def scrape_page(path, default_location):
     url = WEBSITE + path
     session = requests_retry_session()
     r = session.get(url, timeout=20)
@@ -249,23 +249,6 @@ def scrape_page(path, default_activity, default_location):
         location = resolve_location_from_text(section_text, default_location)
         sold   = is_full(title) or is_full(section_text)
 
-        activity = default_activity
-        t = title.lower()
-        if "ast 1" in t or "ast1" in t:
-            activity = "mountaineering"
-        elif "ast 2" in t or "ast2" in t:
-            activity = "mountaineering"
-        elif "snowshoe" in t:
-            activity = "snowshoeing"
-        elif "hike" in t or "hiking" in t:
-            activity = "hiking"
-        elif "wildlife" in t:
-            activity = "guided"
-        elif "ski" in t or "sled" in t or "powder" in t or "backcountry ski" in t:
-            activity = "skiing"
-        elif "ice walk" in t or "canyon" in t:
-            activity = "guided"
-
         description = re.sub(r'\s+', ' ', section_text).strip()
 
         for (start, end, display) in dates:
@@ -288,9 +271,6 @@ def scrape_page(path, default_activity, default_location):
                 "id":                 course_id,
                 "provider_id":        PROVIDER_ID,
                 "title":              title,
-                "activity":           activity,
-                "activity_raw":       title,
-                "activity_canonical": None,  # V2: null hides from V1 frontend
                 "location_raw":       location,
                 "location_canonical": location,
                 "date_display":       display,
@@ -304,13 +284,11 @@ def scrape_page(path, default_activity, default_location):
                 "summary":            "",
                 "search_document":    "",
                 "description":        description,
-                "badge":              None,
-                "badge_canonical":    None,
                 "custom_dates":       False,
                 "scraped_at":         datetime.utcnow().isoformat(),
                 "active":             active,
             })
-            print(f"  ✓ {title} | {display} | {activity} | {location} | ${price} | {avail_value(spots)}")
+            print(f"  ✓ {title} | {display} | {location} | ${price} | {avail_value(spots)}")
 
     return courses
 
@@ -350,10 +328,10 @@ def main():
     all_courses = []
     errors = 0
 
-    for (path, activity, location) in PAGES:
+    for (path, location) in PAGES:
         print(f"\nScraping {path}...")
         try:
-            courses = scrape_page(path, activity, location)
+            courses = scrape_page(path, location)
             all_courses.extend(courses)
         except Exception as e:
             print(f"  ERROR on {path}: {e}")
@@ -375,7 +353,7 @@ def main():
         for c in all_courses:
             if c.get("description") and c["title"] not in seen_titles:
                 seen_titles[c["title"]] = c["id"]
-                unique_inputs.append({"id": c["id"], "title": c["title"], "description": c.get("description", ""), "provider": PROVIDER_NAME, "activity": c.get("activity", "")})
+                unique_inputs.append({"id": c["id"], "title": c["title"], "description": c.get("description", ""), "provider": PROVIDER_NAME})
         if unique_inputs:
             summaries = generate_summaries_batch(unique_inputs, provider_id=PROVIDER_ID)
             title_to_summary = {}

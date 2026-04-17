@@ -20,7 +20,6 @@ from scraper_utils import (
     log_availability_change, log_price_change,
     sb_get, sb_upsert, sb_insert,
     load_location_mappings, normalise_location,
-    load_activity_mappings, load_activity_labels, resolve_activity, build_badge,
     generate_summaries_batch,
     stable_id_v2, spots_to_avail,
     update_provider_ratings, send_scraper_summary,
@@ -247,8 +246,6 @@ def scrape_iag_style(provider):
                 courses.append({
                     "title":        title,
                     "provider_id":  provider["id"],
-                    "activity":     "guided",
-                    "activity_raw": "guided",
                     "location_raw": provider["location"],
                     "price":        price,
                     "date_display": date_display,
@@ -288,10 +285,6 @@ def main():
     # Load mappings
     mappings = load_location_mappings()
     log.info(f"Loaded {len(mappings)} location mappings")
-    activity_maps = load_activity_mappings()
-    log.info(f"Loaded {len(activity_maps)} activity mappings")
-    activity_labels = load_activity_labels()
-    log.info(f"Loaded {len(activity_labels)} activity labels")
 
     # Scrape
     raw_courses = scrape_iag_style(provider)
@@ -301,17 +294,10 @@ def main():
         if not loc_canonical:
             loc_canonical = "Vancouver Island"
         course_id = stable_id_v2(provider["id"], c.get("date_sort"), c["title"])
-        activity_canonical = resolve_activity(c["title"], "", activity_maps)
-        badge_canonical = build_badge(activity_canonical, c.get("duration_days"), activity_labels)
         processed.append({
             "id":                 course_id,
             "title":              c["title"],
             "provider_id":        provider["id"],
-            "badge":              badge_canonical,
-            "activity":           activity_canonical,
-            "activity_raw":       c.get("activity_raw", "guided"),
-            "activity_canonical": None,  # V2: null hides from V1 frontend
-            "badge_canonical":    badge_canonical,
             "location_raw":       c.get("location_raw"),
             "location_canonical": loc_canonical,
             "date_display":       c.get("date_display"),
@@ -337,7 +323,7 @@ def main():
         for c in processed:
             if c.get("description") and c["title"] not in seen_titles:
                 seen_titles[c["title"]] = c["id"]
-                unique_inputs.append({"id": c["id"], "title": c["title"], "description": c.get("description",""), "provider": provider["name"], "activity": c.get("activity_canonical","guided")})
+                unique_inputs.append({"id": c["id"], "title": c["title"], "description": c.get("description",""), "provider": provider["name"]})
         if unique_inputs:
             summaries = generate_summaries_batch(unique_inputs)
             title_to_summary = {}

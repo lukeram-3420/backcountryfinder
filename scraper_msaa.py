@@ -22,8 +22,7 @@ from scraper_utils import (
     log_availability_change, log_price_change,
     sb_get, sb_upsert, sb_insert, sb_patch,
     load_location_mappings, normalise_location,
-    load_activity_mappings, load_activity_labels, resolve_activity, build_badge,
-    detect_activity, generate_summaries_batch,
+    generate_summaries_batch,
     parse_date_sort, is_future, stable_id_v2,
     update_provider_ratings,
 )
@@ -188,14 +187,9 @@ def scrape_rezdy_page(provider: dict, url: str) -> list:
                 if loc_match:
                     location_raw = loc_match.group(0).title()
 
-                # Activity detection
-                activity = detect_activity(title, desc_text)
-
                 courses.append({
                     "title":         title,
                     "provider_id":   provider["id"],
-                    "activity":      activity,
-                    "activity_raw":  activity,
                     "location_raw":  location_raw,
                     "date_display":  None,
                     "date_sort":     None,
@@ -322,12 +316,6 @@ def main():
     mappings = load_location_mappings()
     log.info(f"Loaded {len(mappings)} location mappings")
 
-    # Load activity mappings and labels from Supabase
-    activity_maps = load_activity_mappings()
-    log.info(f"Loaded {len(activity_maps)} activity mappings")
-    activity_labels = load_activity_labels()
-    log.info(f"Loaded {len(activity_labels)} activity labels")
-
     location_flags = []
 
     # Scrape Rezdy catalog pages (static HTML — no Playwright needed)
@@ -354,10 +342,6 @@ def main():
                 if not loc_canonical:
                     log.warning(f"Unmatched location: '{loc_raw}' for '{c['title']}'")
                     location_flags.append({"location_raw": loc_raw, "provider_id": provider["id"], "course_title": c["title"]})
-
-            # Resolve canonical activity (returns str)
-            activity_canonical = resolve_activity(c["title"], c.get("description", ""), activity_maps)
-            badge_canonical = build_badge(activity_canonical, c.get("duration_days"), activity_labels)
 
             # Render product page with Playwright for description + dates
             booking_url = c.get("booking_url")
@@ -397,11 +381,6 @@ def main():
                 "id":                 course_id,
                 "title":              c["title"],
                 "provider_id":        provider["id"],
-                "badge":              badge_canonical,
-                "activity":           activity_canonical,
-                "activity_raw":       c.get("activity_raw", "guided"),
-                "activity_canonical": None,  # V2: null hides from V1 frontend
-                "badge_canonical":    badge_canonical,
                 "location_raw":       loc_raw or None,
                 "location_canonical": loc_canonical,
                 "date_display":       date_display,
@@ -432,7 +411,6 @@ def main():
                 "title":       c["title"],
                 "description": c.get("description", ""),
                 "provider":    provider["name"],
-                "activity":    c.get("activity_canonical", c.get("activity", "")),
             }
             for c in processed if c.get("description")
         ]

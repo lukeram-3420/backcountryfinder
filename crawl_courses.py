@@ -38,22 +38,6 @@ SUPABASE_KEY = (
 
 PAGE = 1000
 
-# Rough activity-from-title fingerprint — used only to flag *suspected* mismatches,
-# never to auto-correct. Admin still decides.
-ACTIVITY_KEYWORDS = {
-    "skiing":           ["ski touring", "backcountry ski", "splitboard", "avy", "avalanche", "ast "],
-    "hiking":           ["hike", "hiking", "backpack", "trek"],
-    "climbing":         ["climb", "rock climb", "multi-pitch", "rappel", "crag", "trad ", "sport climb"],
-    "mountaineering":   ["mountaineer", "glacier travel", "alpine climb", "crampon", "crevasse"],
-    "biking":           ["mtb", "mountain bike", "cycling"],
-    "fishing":          ["fly fish", "angling", "fishing"],
-    "heli":             ["heli skiing", "heli ski", "heli tour"],
-    "cat":              ["cat ski", "cat skiing"],
-    "via_ferrata":      ["via ferrata"],
-    "snowshoeing":      ["snowshoe"],
-    "avalanche_safety": ["ast 1", "ast 2", "avalanche skills"],
-}
-
 
 def fetch_v2_courses():
     """Paginate through every V2 row, returning a flat list."""
@@ -62,7 +46,7 @@ def fetch_v2_courses():
     while True:
         url = (
             f"{SUPABASE_URL}/rest/v1/courses"
-            f"?select=id,title,provider_id,activity,activity_canonical,location_raw,location_canonical,"
+            f"?select=id,title,provider_id,activity_canonical,location_raw,location_canonical,"
             f"date_display,date_sort,duration_days,price,currency,spots_remaining,avail,"
             f"booking_url,booking_mode,active,custom_dates,summary,scraped_at,"
             f"flagged,flagged_reason,flagged_note,auto_flagged,flag_reason,"
@@ -86,31 +70,15 @@ def fetch_v2_courses():
     return rows
 
 
-def title_suggests_activity(title: str, current: str):
-    """Return a suggested canonical activity if title keywords disagree with `current`."""
-    t = (title or "").lower()
-    # ski mountaineering straddles skiing <-> mountaineering; accept either
-    if "ski" in t and "mountaineer" in t:
-        return None
-    for canon, kws in ACTIVITY_KEYWORDS.items():
-        if any(kw in t for kw in kws):
-            return None if canon == current else canon
-    return None
-
-
 def classify(courses):
     """Run every check against every row. Returns (issues, by_provider, medians)."""
     issues = defaultdict(list)
     by_provider = defaultdict(Counter)
 
-    # Price medians per activity — for outlier detection
-    by_act = defaultdict(list)
-    for c in courses:
-        p = c.get("price")
-        a = c.get("activity")
-        if p and p > 0 and a:
-            by_act[a].append(p)
-    medians = {a: median(ps) for a, ps in by_act.items() if ps}
+    # Global price median — for outlier detection
+    all_prices = [c["price"] for c in courses if c.get("price") and c["price"] > 0]
+    global_median = median(all_prices) if all_prices else 0
+    medians = {"all": global_median} if global_median else {}
 
     # Duplicate detection: provider_id + title + date_sort
     dup = defaultdict(list)
@@ -128,7 +96,6 @@ def classify(courses):
                 "id": c["id"],
                 "provider_id": pid,
                 "title": c.get("title"),
-                "activity": c.get("activity"),
                 "price": c.get("price"),
                 "date_sort": c.get("date_sort"),
                 "avail": c.get("avail"),
@@ -141,8 +108,6 @@ def classify(courses):
         # Structural
         if not c.get("title"):
             flag("missing_title", "title is null/empty", "critical")
-        if not c.get("activity"):
-            flag("null_activity", "activity is null", "critical")
         if not c.get("avail"):
             flag("null_avail", "avail is null")
 
@@ -152,16 +117,8 @@ def classify(courses):
             flag("null_price", "price is null")
         elif p <= 0:
             flag("bad_price", f"price = {p}", "critical")
-        else:
-            a = c.get("activity")
-            if a and a in medians and p > 5 * medians[a]:
-                flag("price_outlier", f"${p} > 5× median ${medians[a]:.0f} for {a}")
-
-        # Activity/title mismatch
-        if c.get("title") and c.get("activity"):
-            sugg = title_suggests_activity(c["title"], c["activity"])
-            if sugg:
-                flag("activity_mismatch", f"title suggests '{sugg}', marked '{c['activity']}'")
+        elif global_median and p > 5 * global_median:
+            flag("price_outlier", f"${p} > 5× global median ${global_median:.0f}")
 
         # Summary
         if not c.get("summary"):
@@ -277,15 +234,15 @@ def render_markdown(courses, issues, by_provider, medians):
             lines.append(f"_…and {len(rows) - 10} more_")
         lines.append("")
 
-    # Price medians reference
-    lines.append("## Price medians by activity")
+    # Price median reference
+    lines.append("## Price median (global)")
     lines.append("Used for the `price_outlier` check (>5× median).")
     lines.append("")
-    lines.append("| Activity | Median price | Sample size |")
-    lines.append("|---|---:|---:|")
-    for a, m in sorted(medians.items()):
-        n = sum(1 for c in courses if c.get("activity") == a and c.get("price"))
-        lines.append(f"| {a} | ${m:.0f} | {n} |")
+    if medians.get("all"):
+        n = sum(1 for c in courses if c.get("price"))
+        lines.append(f"Global median: **${medians['all']:.0f}** across {n} priced courses.")
+    else:
+        lines.append("No priced courses to compute a median.")
     lines.append("")
 
     return "\n".join(lines)

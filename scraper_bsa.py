@@ -55,30 +55,7 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 
-# ── Activity + location resolution ───────────────────────────────────────────
-
-ACTIVITY_MAP = {
-    "ast 1":          "skiing",
-    "ast 2":          "skiing",
-    "ast1":           "skiing",
-    "ast2":           "skiing",
-    "avalanche":      "skiing",
-    "ski tour":       "skiing",
-    "skiing":         "skiing",
-    "snowboard":      "skiing",
-    "splitboard":     "skiing",
-    "steep":          "skiing",
-    "heli":           "heli",
-    "climbing":       "climbing",
-    "mountaineer":    "mountaineering",
-    "alpine":         "mountaineering",
-    "via ferrata":    "via_ferrata",
-    "hike":           "hiking",
-    "trek":           "hiking",
-    "rappel":         "rappelling",
-    "snowshoe":       "snowshoeing",
-    "hut":            "huts",
-}
+# ── Location resolution ──────────────────────────────────────────────────────
 
 LOCATION_MAP = {
     "squamish":    "Squamish, BC",
@@ -91,23 +68,6 @@ LOCATION_MAP = {
     "logan":       "Yukon, YT",
     "patagonia":   None,   # skip — international
 }
-
-
-def resolve_activity(title: str, url: str = "") -> str:
-    combined = (title + " " + url).lower()
-    for kw, act in ACTIVITY_MAP.items():
-        if kw in combined:
-            return act
-    if "/trip/" in url:
-        if "ski" in combined:
-            return "skiing"
-    if "climb" in combined:
-        return "climbing"
-    if "mountaineer" in combined or "alpine" in combined:
-        return "mountaineering"
-    if "hike" in combined or "trek" in combined:
-        return "hiking"
-    return "guided"
 
 
 def resolve_location(title: str, description: str = "") -> str:
@@ -269,11 +229,6 @@ def parse_dates_from_text(text: str) -> list[dict]:
 
 # ── Course page scraping ──────────────────────────────────────────────────────
 
-def stable_id_bsa(provider_id: str, activity: str, date_sort: str, title: str) -> str:
-    h = hashlib.md5(title.encode()).hexdigest()[:6]
-    return f"{provider_id}-{activity}-{date_sort}-{h}"
-
-
 def scrape_course_page(url: str) -> list[dict]:
     soup = fetch(url)
     if not soup:
@@ -317,7 +272,6 @@ def scrape_course_page(url: str) -> list[dict]:
     combined_text = " ".join(unique_texts)
     dates = parse_dates_from_text(combined_text) if combined_text else []
 
-    activity = resolve_activity(title, url)
     location = resolve_location(title, description)
     booking_url = append_utm(url)
 
@@ -329,8 +283,6 @@ def scrape_course_page(url: str) -> list[dict]:
                 "id":               cid,
                 "provider_id":      PROVIDER["id"],
                 "title":            title,
-                "activity":         activity,
-                "activity_canonical": None,  # V2: null hides from V1 frontend
                 "location_raw":     location,
                 "location_canonical": location,
                 "date_display":     d["date_str"],
@@ -351,8 +303,6 @@ def scrape_course_page(url: str) -> list[dict]:
             "id":               cid,
             "provider_id":      PROVIDER["id"],
             "title":            title,
-            "activity":         activity,
-            "activity_canonical": None,  # V2: null hides from V1 frontend
             "location_raw":     location,
             "location_canonical": location,
             "date_display":     None,
@@ -446,7 +396,7 @@ def main():
         for c in deduplicated_rows:
             if c.get("description") and c["title"] not in seen_titles:
                 seen_titles[c["title"]] = c["id"]
-                unique_inputs.append({"id": c["id"], "title": c["title"], "description": c.get("description", ""), "provider": PROVIDER["name"], "activity": c.get("activity", "")})
+                unique_inputs.append({"id": c["id"], "title": c["title"], "description": c.get("description", ""), "provider": PROVIDER["name"]})
         if unique_inputs:
             summaries = generate_summaries_batch(unique_inputs, provider_id=PROVIDER["id"])
             title_to_summary = {}

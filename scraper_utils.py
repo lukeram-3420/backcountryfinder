@@ -9,13 +9,12 @@ Public API:
   Supabase:  sb_get, sb_upsert, sb_insert, sb_patch
   Places:    find_place_id, get_place_details, update_provider_ratings
   Location:  load_location_mappings, normalise_location
-  Activity:  load_activity_mappings, load_activity_labels, resolve_activity, build_badge
   Claude:    claude_classify, generate_summaries_batch
   Dates:     parse_date_sort, is_future
-  IDs:       stable_id
+  IDs:       stable_id_v2, title_hash
   Avail:     spots_to_avail
   Email:     send_email, send_scraper_summary
-  Logging:   title_hash, log_availability_change, log_price_change
+  Logging:   log_availability_change, log_price_change
   Two-pass:  fetch_detail_pages
 """
 
@@ -49,33 +48,6 @@ PLACES_API_URL = "https://maps.googleapis.com/maps/api/place"
 CLAUDE_MODEL   = "claude-haiku-4-5-20251001"
 
 UTM = "utm_source=backcountryfinder&utm_medium=referral"
-
-ACTIVITY_LABELS_DEFAULTS = {
-    "skiing":         "Backcountry Skiing",
-    "climbing":       "Rock Climbing",
-    "mountaineering": "Mountaineering",
-    "hiking":         "Hiking",
-    "biking":         "Mountain Biking",
-    "fishing":        "Fly Fishing",
-    "heli":           "Heli Skiing",
-    "cat":            "Cat Skiing",
-    "huts":           "Alpine Huts",
-    "guided":         "Guided Tour",
-    "glissading":     "Glissading",
-    "rappelling":     "Rappelling",
-    "snowshoeing":    "Snowshoeing",
-    "via_ferrata":    "Via Ferrata",
-}
-
-ACTIVITY_KEYWORDS = {
-    "skiing":         ["ast", "avalanche", "backcountry ski", "ski touring", "splitboard", "avy", "heli ski", "cat ski"],
-    "hiking":         ["hik", "backpack", "navigation", "wilderness travel", "heli-accessed hik", "heli access"],
-    "climbing":       ["climb", "rock", "multi-pitch", "rappel", "belay", "trad", "sport climb", "via ferrata", "ferrata"],
-    "mountaineering": ["glacier", "mountaineer", "alpine", "crampon", "crevasse", "scramble", "summit", "alpine climb"],
-    "biking":         ["bike", "biking", "mtb", "mountain bike", "cycling"],
-    "fishing":        ["fish", "fly fish", "angl", "cast", "river guide"],
-    "heli":           ["heli adventure", "heli tour", "heli experience"],
-}
 
 
 # ── Supabase helpers ─────────────────────────────────────────────────────────
@@ -266,88 +238,6 @@ Respond with JSON only: {{"location_canonical": "value", "is_new": false}}"""
     return raw
 
 
-# ── Activity resolution ──────────────────────────────────────────────────────
-
-def load_activity_mappings() -> list:
-    """Load activity_mappings table → [(title_contains_lower, activity)]."""
-    try:
-        rows = sb_get("activity_mappings", {"select": "title_contains,activity"})
-        mappings = [(r["title_contains"].lower(), r["activity"]) for r in rows]
-        return sorted(mappings, key=lambda x: len(x[0]), reverse=True)
-    except Exception as e:
-        log.warning(f"Could not load activity mappings: {e}")
-        return []
-
-
-def load_activity_labels() -> dict:
-    """Load activity_labels table → {activity: label}."""
-    try:
-        rows = sb_get("activity_labels", {"select": "activity,label"})
-        return {r["activity"]: r["label"] for r in rows}
-    except Exception as e:
-        log.warning(f"Could not load activity labels: {e}")
-        return {}
-
-
-def detect_activity(title: str, description: str = "") -> str:
-    """Keyword-based activity detection fallback."""
-    text = (title + " " + description).lower()
-    for activity, keywords in ACTIVITY_KEYWORDS.items():
-        if any(kw in text for kw in keywords):
-            return activity
-    return "guided"
-
-
-def resolve_activity(title: str, description: str, mappings: list) -> str:
-    """
-    Three-tier activity resolution:
-    1. Mapping table match
-    2. Claude classification (if ANTHROPIC_API_KEY set)
-    3. Keyword fallback
-    Returns canonical activity string.
-    """
-    text = (title + " " + description).lower()
-    for pattern, activity in mappings:
-        if pattern in text:
-            return activity
-    if ANTHROPIC_API_KEY:
-        known = list(set(a for _, a in mappings))
-        result = claude_classify(
-            f"""Classify this backcountry course activity type.
-Known types: {", ".join(known) if known else "skiing, climbing, mountaineering, hiking, guided"}
-Title: "{title}"
-Description: "{description}"
-Respond with JSON only: {{"activity": "value", "label": "Human Label", "is_new": false}}"""
-        )
-        if result.get("activity"):
-            activity = result["activity"]
-            label = result.get("label", activity.replace("_", " ").title())
-            sb_upsert("activity_labels", [{"activity": activity, "label": label}])
-            # Queue for admin review — do NOT write directly to activity_mappings
-            sb_insert("pending_mappings", {
-                "title_contains": title.lower()[:100],
-                "suggested_activity": activity,
-                "description": description[:500] if description else None,
-                "provider_id": None,
-                "course_title": title,
-                "reviewed": False,
-            })
-            mappings.append((title.lower()[:100], activity))
-            log.info(f"Claude classified '{title}' → '{activity}' (pending admin review)")
-            return activity
-    return detect_activity(title, description)
-
-
-def build_badge(activity: str, duration_days, activity_labels: dict = None) -> str:
-    """Build a badge string like 'Mountaineering · 3 days'."""
-    labels = activity_labels or ACTIVITY_LABELS_DEFAULTS
-    label = labels.get(activity, activity.replace("_", " ").title())
-    if duration_days:
-        days = int(duration_days)
-        return f"{label} · {days} day{'s' if days > 1 else ''}"
-    return label
-
-
 # ── Claude API ───────────────────────────────────────────────────────────────
 
 def claude_classify(prompt: str, max_tokens: int = 256) -> dict:
@@ -389,7 +279,7 @@ def generate_summaries_batch(courses: list, provider_id: str = None) -> dict:
       - display_summary: 2 sentences for the course card (user-facing)
       - search_document: keyword-rich text for Algolia (never shown to users)
 
-    courses: list of dicts with keys: id, title, description, provider, activity.
+    courses: list of dicts with keys: id, title, description, provider.
     provider_id: optional — used for course_summaries upsert. If not provided,
       falls back to each course dict's "provider_id" key.
 
@@ -431,7 +321,6 @@ def generate_summaries_batch(courses: list, provider_id: str = None) -> dict:
             items += f"""---
 ID: {c["id"]}
 Provider: {c["provider"]}
-Activity: {c["activity"]}
 Title: {c["title"]}
 Location: {loc}
 Description: {desc}
@@ -656,17 +545,6 @@ def is_future(date_sort: Optional[str]) -> bool:
         return datetime.strptime(date_sort, "%Y-%m-%d").date() >= date.today()
     except ValueError:
         return True
-
-
-# ── Stable ID ────────────────────────────────────────────────────────────────
-
-def stable_id(provider_id: str, activity: str, date_sort: Optional[str], title: str) -> str:
-    """Generate a stable course ID: {provider}-{activity}-{date}-{title_hash} or hash fallback."""
-    if date_sort:
-        title_hash = hashlib.md5(title.encode()).hexdigest()[:6]
-        return f"{provider_id}-{activity}-{date_sort}-{title_hash}"
-    h = hashlib.md5(title.encode()).hexdigest()[:8]
-    return f"{provider_id}-{activity}-{h}"
 
 
 # ── Availability ─────────────────────────────────────────────────────────────

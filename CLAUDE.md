@@ -13,7 +13,7 @@ Whenever CLAUDE.md is updated, output the full contents of the updated CLAUDE.md
 ### UX conventions
 - Every tab in admin.html has a "How to use this tab" collapsible help section at the top
 - Whenever a UX change is made to any tab — new button, new section, new behaviour — the "How to use this tab" text for that tab must be updated to reflect the change in the same commit
-- This applies to all tabs: Providers, Activity Mappings, Location Mappings, Summary Review, Flags, Audit Log, Pipeline, Settings
+- This applies to all tabs: Providers, Location Mappings, Summary Review, Flags, Audit Log, Pipeline, Settings. (Activity Mappings tab is scheduled for removal in a fast-follow commit alongside the activity mapping elimination initiative — see [data_quality_initiatives.md](data_quality_initiatives.md).)
 - After any successful write action in the admin panel (save, approve, reject, clear, regenerate, whitelist, add mapping, mark as expected), the actioned row must be immediately removed from the UI. The user should never have to re-action something they have already actioned. Rows only reappear after the next data refresh or page reload.
 
 ### Claude Code behaviour
@@ -53,27 +53,24 @@ Two nav components render the same four entries: **topnav** (desktop, `<nav clas
 - **Micro-toast** (`#micro-toast`) — transient small confirmation for save / share actions.
 
 **Key UI components:**
-- **Course card** — built by `buildCard(c)` ([index.html:1035](index.html#L1035)). Used in the Search grid, My List grid, and the shared-list preview inside the Email-list modal.
-- **Provider card** — built inline in `loadProviders()` ([index.html:1544](index.html#L1544)). Shows logo (or text fallback), star rating (links to Google reviews when `google_place_id` present), website link, activity tags derived from the `provider_activities` view.
-- **Filter bar** — three controls at the top of `#page-search`: `#search-activity`, `#search-location`, `#search-date`. Activity → location dropdown dependency is wired through `updateLocationsForActivity(activity)` ([index.html:1016](index.html#L1016) query). Each control change calls `debouncedSearch()` → `fetchCourses()`.
+- **Course card** — built by `buildCard(c)` in [js/cards.js](js/cards.js). Used in the Search grid, My List grid, and the shared-list preview inside the Email-list modal. No activity/badge render — hero image is `c.image_url` with a single `FALLBACK_IMG` constant (defined in [index.html](index.html)) when missing.
+- **Provider card** — built in `loadProviders()` in [js/providers.js](js/providers.js). Shows logo (or text fallback), star rating (links to Google reviews when `google_place_id` present), website link. No activity tags.
+- **Filter bar** — active controls on `#page-search` are the Algolia searchbox and `#search-date`. Activity and location dropdowns were removed in V2 Phase 4 — free-text search against `search_document` covers both.
 - **Save/share controls** (My List toolbar) — clear list, email my list, share list (popover with copy-link / WhatsApp / SMS / email buttons).
 
-**The six Supabase queries covered by the `flagged=not.is.true&auto_flagged=not.is.true` rule** (see "Frontend filter rule" below):
+**Supabase queries covered by the `flagged=not.is.true&auto_flagged=not.is.true` rule** (see "Frontend filter rule" below):
 
 | # | Section | Location | Table / filter |
 |---|---------|----------|----------------|
-| 1 | Main listing (Search grid) | [index.html:896](index.html#L896) `fetchCourses()` | `courses?select=*,providers(...)` + filters + paginated |
-| 2 | Activity dropdown | [index.html:973](index.html#L973) `loadActivitiesDropdown()` | `courses?select=activity_canonical&active=eq.true` |
-| 3 | Location dropdown (activity-scoped) | [index.html:1016](index.html#L1016) `updateLocationsForActivity()` | `courses?select=location_canonical&activity_canonical=eq.{…}` |
-| 4 | Saved courses | [index.html:1169](index.html#L1169) `renderSaved()` | `courses?select=*,providers(...)&or=(id.eq.…)` |
-| 5 | Shared-list preview in banner | [index.html:1380](index.html#L1380) `renderSharedBannerPreview()` | `courses?select=*,providers(name)&or=(id.eq.…)` |
-| 6 | Shared-list preview in Email modal | [index.html:1454](index.html#L1454) `populateEmailListPreview()` | `courses?select=*,providers(name,rating)&or=(id.eq.…)` |
+| 1 | Saved courses | [js/saved.js](js/saved.js) `renderSaved()` | `courses?select=*,providers(...)&or=(id.eq.…)` |
+| 2 | Shared-list preview in banner | [js/saved.js](js/saved.js) `renderSharedBannerPreview()` | `courses?select=*,providers(name)&or=(id.eq.…)` |
+| 3 | Shared-list preview in Email modal | [js/saved.js](js/saved.js) `populateEmailListPreview()` | `courses?select=*,providers(name,rating)&or=(id.eq.…)` |
+
+The main Search grid is served by Algolia (`courses_v2` index) — it applies its own filters at sync time in [algolia_sync.py](algolia_sync.py) (`active=eq.true&flagged=not.is.true&auto_flagged=not.is.true&activity_canonical=is.null`), so the live frontend only needs the flagged filter on the three direct Supabase reads above.
 
 Additional reads that do **not** need the flagged filter (no course visibility concern):
-- `activity_labels` ([index.html:768](index.html#L768)) — canonical slug → display-label map for filter dropdowns and provider tags.
-- `location_mappings` ([index.html:993](index.html#L993)) — baseline location dropdown options when no activity filter is active.
-- `providers` ([index.html:1240](index.html#L1240)) — resolve `?provider=` deep-link label.
-- `providers` + `provider_activities` ([index.html:1549](index.html#L1549), [index.html:1558](index.html#L1558)) — Providers page grid.
+- `providers` — resolve `?provider=` deep-link label.
+- `providers` — Providers page grid in [js/providers.js](js/providers.js).
 
 **Writes from the frontend** (all direct REST with anon key — no edge function for these):
 - `click_events` ([index.html:736](index.html#L736)) — book-now click telemetry.
@@ -88,7 +85,7 @@ Writes that trigger server-side work go through the edge functions documented el
 - **Scrapers:** Python 3.11 — `requests`, `beautifulsoup4`, `playwright` (for JS-rendered sites)
 - **Database:** Supabase (PostgreSQL) — URL: `https://owzrztaguehebkatnatc.supabase.co`
 - **Serverless:** Supabase Edge Functions (Deno/TypeScript)
-- **AI Classification:** Claude Haiku for activity/location normalization when mapping tables fail; also generates course summaries in batches, deduplicated by title
+- **AI Classification:** Claude Haiku for location normalisation when the mapping table misses; also generates two-field course summaries (`display_summary` + `search_document`) in batches, deduplicated by title. Activity classification has been retired — scrapers no longer emit an activity field (see V2 notes below).
 - **Email:** Resend API
 - **CI/CD:** GitHub Actions — manual-trigger scraper workflows + auto-deploy for Edge Functions
 
@@ -115,7 +112,7 @@ In production, scrapers run via GitHub Actions with `workflow_dispatch` (manual 
 - **Stable ID format (V2 — active):** `{provider_id}-{date_sort}-{title_hash}` or `{provider_id}-flex-{title_hash}` (title_hash = first 8 chars of md5(title.strip().lower())). No activity segment. See V2 section below.
 - **Stable ID format (V1 — legacy, still in DB):** `{provider_id}-{activity}-{date_sort}-{title_hash}` (title_hash = first 6 chars of md5(title)). V1 rows have `activity_canonical` populated; V2 rows have `activity_canonical = NULL`.
 - **Availability (`avail`) values:** `open`, `low`, `critical`, `sold` — sold courses set `active=false`
-- **Activity canonical values** (use exactly these): `skiing`, `climbing`, `mountaineering`, `hiking`, `biking`, `fishing`, `heli`, `cat`, `huts`, `guided`, `glissading`, `rappelling`, `snowshoeing`, `via_ferrata`, `avalanche_safety`
+- **Activity:** retired. Scrapers no longer populate `activity`, `activity_raw`, `badge`, or `badge_canonical` on V2 rows. The four columns stay on the schema until V2 Phase 7 cutover, then drop. The Algolia index exposes no `activity` facet — free-text search on `search_document` handles activity-style queries via synonyms (skiing/backcountry skiing/ski touring/splitboarding etc.).
 - **Location canonical format:** `"City, Province"` e.g. `"Canmore, AB"` — for ranges use `"Area Name, BC"` e.g. `"Rogers Pass, BC"`
 - **Playwright scrapers** get their own standalone file (e.g. `scraper_yamnuska.py`), never added to `scraper.py`
 - **GitHub Actions workflows:** `.github/workflows/scraper-{id}.yml`
@@ -133,7 +130,7 @@ Scrapers must never include any of these in any upsert payload.
 Scrapers must never reference columns in upsert payloads, SELECT queries, or PATCH calls that are not defined in the Database Schema section of this file. Before writing any database interaction code, Claude Code must verify the column exists in the schema defined here. If a column is needed that does not exist in the schema, stop and explicitly tell the user — never assume the column exists or write code that depends on it without confirmation. Never add ALTER TABLE statements to migration files or print them as suggestions without flagging this to the user first.
 
 ### Mapping tables are admin-write-only
-Scrapers must never write directly to `activity_mappings` or `location_mappings`. When Claude Haiku classifies a new activity or normalises a new location in `scraper_utils.py`, the suggestion is queued to `pending_mappings` or `pending_location_mappings` for review in the admin panel. The approved mapping is only inserted into the live mapping table when an admin clicks Approve. This prevents scrapers from silently polluting the canonical mapping tables with LLM-generated guesses.
+Scrapers must never write directly to `location_mappings`. When `normalise_location` in `scraper_utils.py` calls Claude Haiku for an unknown location, the suggestion is queued to `pending_location_mappings` for review in the admin panel. The approved mapping is only inserted into the live mapping table when an admin clicks Approve. This prevents scrapers from silently polluting the canonical mapping table with LLM-generated guesses. (This policy applies to location only — `activity_mappings` / `pending_mappings` are retired; scrapers no longer resolve activity at all.)
 
 **All scrapers must import `normalise_location` from `scraper_utils`** — it returns a single canonical string and internally queues unknown locations to `pending_location_mappings`. Never define a local `normalise_location` returning a `(canonical, is_new, add_mapping)` tuple; that legacy signature was removed from `scraper.py`, `scraper_altus.py`, `scraper_cwms.py`, and `scraper_summit.py`, and the paired `sb_insert("location_mappings", ...)` call sites were deleted.
 
@@ -148,16 +145,16 @@ The validator clears user report flags (`flagged=false`) when:
 - `wrong_price` → price is now present, positive, and not >5x median
 - `wrong_date` → date_sort is valid and in the future
 - `sold_out` → avail is not 'open' (confirms the sold-out state)
-- `bad_description` → summary is present and passes contradiction checks
+- `bad_description` → summary is present (activity-contradiction sub-check retired alongside activity elimination)
 - `button_broken` → **never auto-cleared**, manual resolution only
 - `other` → **never auto-cleared**, manual resolution only
 
 ### Frontend filter rule
-All 6 courses queries in `index.html` must include both filters:
+All direct Supabase courses queries in the `/js/` modules must include both filters:
 ```
 flagged=not.is.true&auto_flagged=not.is.true
 ```
-This applies to: main listing, activity dropdown, location dropdown, saved courses, shared courses (2 queries).
+This applies to: saved courses, shared-list banner preview, shared-list email modal preview. The main Search grid is served by Algolia and inherits the filter at sync time.
 
 ### Title-based exclusion
 Scrapers may define a module-level `EXCLUDE_TITLES` list of lowercased title strings to filter non-course products (subscription clubs, merchandise, gift cards, membership products, digital downloads, Thinkific subscriptions) from a provider's catalog. Apply the check as `title.lower().strip() in EXCLUDE_TITLES` in the source parsing function, before any detail-page fetch or further processing. Filter at both pass 1 (listing) and pass 2 (detail) for two-pass scrapers.
@@ -179,16 +176,17 @@ Reference implementation: `extract_schedule_text(soup)` in `scraper_altus.py` �
 
 ### Scraping Pipeline
 
-Each provider has a dedicated scraping function in `scraper.py` (or a standalone file for Playwright-based providers). The flow is:
+Each standalone scraper (`scraper_{id}.py`) follows the same flow:
 
 1. **Fetch** listings from provider (REST API, HTML scraping, or Playwright for JS-rendered pages)
-2. **Normalize** activity type via three-tier resolution: mapping tables → Claude classification → regex fallback
-3. **Normalize** location via `location_mappings` table + Google Places API + Claude
-4. **Generate** stable IDs: `{provider_id}-{activity}-{date_sort}-{title_hash}`
-5. **Upsert** to Supabase `courses` table
-6. **Validate** via `validate_provider.py` (auto-hide bad rows, auto-clear resolved user flags)
+2. **Normalise** location via `location_mappings` table → Claude (suggestions queued to `pending_location_mappings` for admin review)
+3. **Generate** stable IDs: `{provider_id}-{date_sort}-{title_hash}` (V2 — no activity segment)
+4. **Upsert** to Supabase `courses` table (no `activity`, `activity_raw`, `badge`, or `badge_canonical` fields)
+5. **Generate summaries** via `generate_summaries_batch` → Haiku produces `display_summary` + `search_document`
+6. **Log intelligence** via `log_availability_change` + `log_price_change` (append-only on change)
+7. **Validate** via `validate_provider.py` (auto-hide bad rows, auto-clear resolved user flags)
 
-Key helper functions in `scraper.py`: `sb_get()`, `sb_upsert()`, `resolve_activity()`, `normalise_location()`, `parse_date_sort()`, `spots_to_avail()`.
+Key helper functions exposed by `scraper_utils.py`: `sb_get()`, `sb_upsert()`, `normalise_location()`, `parse_date_sort()`, `spots_to_avail()`, `stable_id_v2()`, `title_hash()`, `generate_summaries_batch()`, `log_availability_change()`, `log_price_change()`.
 
 ### Provider-Specific Scrapers
 
@@ -223,7 +221,7 @@ All functions use inline HTML email templates, CORS headers, and `verify_jwt = f
 
 Availability: `open` (5+) → `low` (1-4) → `critical` (1-2) → `sold` (0, sets `active=false`).
 
-Key Supabase tables: `courses` (listings), `activity_mappings` / `location_mappings` (normalization rules), `activity_labels` (Claude-learned classifications), `location_flags` (unresolved locations for review), `notifications` (watchlist subscriptions), `reports` (user course reports), `scraper_run_log` (course count per provider per run).
+Key Supabase tables: `courses` (listings), `location_mappings` (location normalisation rules), `pending_location_mappings` (Haiku suggestions awaiting admin review), `location_flags` (unresolved locations for review), `notifications` (watchlist subscriptions), `reports` (user course reports), `scraper_run_log` (course count per provider per run). Legacy tables `activity_mappings`, `pending_mappings`, `activity_labels` persist for now but are no longer written or read by any running code; they drop at V2 Phase 7 cutover.
 
 ## Adding a New Provider
 
@@ -268,22 +266,12 @@ Both systems produce identical output (rows upserted to the `courses` table with
 | `load_location_mappings` | `() -> dict` | Load `location_mappings` table → `{raw_lower: canonical}`. |
 | `normalise_location` | `(raw: str, mappings: dict) -> Optional[str]` | Three-tier resolution: exact match → substring → Claude → return raw. Claude suggestions go to `pending_location_mappings` for admin review — scrapers never write directly to `location_mappings`. |
 
-#### Activity
-
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `load_activity_mappings` | `() -> list` | Load `activity_mappings` table → `[(title_contains_lower, activity)]`, sorted longest-first. |
-| `load_activity_labels` | `() -> dict` | Load `activity_labels` table → `{activity: label}`. |
-| `detect_activity` | `(title: str, description: str = "") -> str` | Keyword-based activity detection fallback. Returns canonical activity string. |
-| `resolve_activity` | `(title: str, description: str, mappings: list) -> str` | Three-tier: mapping table → Claude classification → keyword fallback. Claude classifications go to `pending_mappings` for admin review — scrapers never write directly to `activity_mappings`. |
-| `build_badge` | `(activity: str, duration_days, activity_labels: dict = None) -> str` | Build badge string like `"Mountaineering · 3 days"`. |
-
 #### Claude AI
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
 | `claude_classify` | `(prompt: str, max_tokens: int = 256) -> dict` | Call Claude Haiku, return parsed JSON. Returns `{}` on failure. |
-| `generate_summaries_batch` | `(courses: list, provider_id: str = None) -> dict` | Batch-generate two-field summaries (Phase 1 V2): `display_summary` (user-facing) + `search_document` (Algolia keywords). Input: list of `{id, title, description, provider, activity}`. Returns `{course_id: {"summary": str, "search_document": str}}`. Internally upserts both fields to `course_summaries` table. `provider_id` param used for upsert; falls back to each course dict's `provider_id` key. Processes in batches of 12 with single retry on failure. |
+| `generate_summaries_batch` | `(courses: list, provider_id: str = None) -> dict` | Batch-generate two-field summaries (Phase 1 V2): `display_summary` (user-facing) + `search_document` (Algolia keywords). Input: list of `{id, title, description, provider}`. Returns `{course_id: {"summary": str, "search_document": str}}`. Internally upserts both fields to `course_summaries` table. `provider_id` param used for upsert; falls back to each course dict's `provider_id` key. Processes in batches of 12 with single retry on failure. |
 
 #### Dates & IDs
 
@@ -291,7 +279,8 @@ Both systems produce identical output (rows upserted to the `courses` table with
 |----------|-----------|-------------|
 | `parse_date_sort` | `(date_str: str) -> Optional[str]` | Extract `YYYY-MM-DD` from various date string formats. |
 | `is_future` | `(date_sort: Optional[str]) -> bool` | Returns `True` if date is today or later (or unparseable). |
-| `stable_id` | `(provider_id: str, activity: str, date_sort: Optional[str], title: str) -> str` | Generate stable ID: `{provider}-{activity}-{date}-{title_hash}` or hash fallback. |
+| `title_hash` | `(title: str) -> str` | Stable 8-char md5 hash of stripped lowercase title. Single source of truth for title hashing across `stable_id_v2`, log functions, and Algolia objectIDs. |
+| `stable_id_v2` | `(provider_id: str, date_sort: Optional[str], title: str) -> str` | V2 stable course ID: `{provider}-{date}-{title_hash_8}` or `{provider}-flex-{title_hash_8}`. No activity segment. |
 
 #### Availability & URLs
 
@@ -350,24 +339,23 @@ Post-scrape validation script. Runs after any provider scraper completes. Read-o
 **Behaviour:**
 1. Resets all `auto_flagged` rows for this provider (clean slate)
 2. Fetches all courses for the provider
-3. Runs 7 checks (see below)
+3. Runs 6 checks (see below — activity mapping check retired)
 4. Auto-clears resolved user report flags
 5. Logs course count to `scraper_run_log`
 6. Writes email-only warnings to `validator_warnings` (deletes existing rows for the provider first, then inserts fresh). No email is sent — the admin Flags tab replaces the old email report.
 
-**7 checks — AUTO-HIDE vs EMAIL ONLY:**
+**6 checks — AUTO-HIDE vs EMAIL ONLY:**
 
 | Check | AUTO-HIDE (sets `auto_flagged=true`) | EMAIL ONLY |
 |-------|--------------------------------------|------------|
-| 1. Summary quality | Contradicts activity, duplicate summary bleed | Empty/null summary |
-| 2. Activity mapping | Null activity, title/activity mismatch | — |
-| 3. Price sanity | Zero or negative price | Null price (when peers have prices), >5x median outlier (skipped for titles matching `validator_price_exceptions`) |
-| 4. Date sanity | Past date with `active=true` | >2 years in the future |
-| 5. Availability | — | Null avail, all-sold warning |
-| 6. Duplicates | All but first occurrence of same title+date (titles in `validator_whitelist` are skipped) | — |
-| 7. Course count | — | >30% drop vs last run |
+| 1. Summary quality | — | Empty/null summary, duplicate summary bleed across different titles |
+| 2. Price sanity | Zero or negative price | Null price (when peers have prices), >5x median outlier (skipped for titles matching `validator_price_exceptions`) |
+| 3. Date sanity | Past date with `active=true` | >2 years in the future |
+| 4. Availability | — | Null avail, all-sold warning |
+| 5. Duplicates | All but first occurrence of same title+date (titles in `validator_whitelist` are skipped) | — |
+| 6. Course count | — | >30% drop vs last run |
 
-**Exceptions:** "Ski Mountaineering" titles accept either skiing or mountaineering. Price outliers skip courses with "Logan", "Expedition", or "Traverse" in the title.
+**Exceptions:** Price outliers skip courses with "Logan", "Expedition", or "Traverse" in the title.
 
 ### Validator priority stack
 Admin decisions always take precedence over automated validator rules.
@@ -377,27 +365,25 @@ any keyword or automated checks:
 1. `validator_suppressions` — explicit admin "ignore this" decision.
    If a suppression matches (provider_id + title_contains + flag_reason),
    skip the check entirely. Highest priority.
-2. `activity_mappings` — explicit admin activity assignment. If a mapping
-   matches the course title AND the mapped activity equals the course's
-   current activity, skip the mismatch check. Admin mapping trumps all
-   keyword detection.
-3. `validator_price_exceptions` — explicit admin "this price is correct"
+2. `validator_price_exceptions` — explicit admin "this price is correct"
    decision. Skip the outlier check for matching titles.
-4. `validator_whitelist` — explicit admin "this duplicate is intentional"
+3. `validator_whitelist` — explicit admin "this duplicate is intentional"
    decision. Skip the duplicate check for matching titles.
 
 The validator is a safety net for unreviewed courses only. Once an admin
 has made any explicit decision about a course, the validator must respect
-it permanently. Keyword rules and automated checks only fire when no admin
-decision exists for that course and check type.
+it permanently. Automated checks only fire when no admin decision exists
+for that course and check type. (The legacy `activity_mappings` branch in
+this stack was removed alongside the activity-mismatch check — scrapers
+no longer emit `activity`.)
 
 ### How to add a new provider — checklist
 
 1. **Create `scraper_{id}.py`** importing from `scraper_utils`:
    - Provider config dict at the top (id, name, website, location)
-   - Provider-specific activity/location maps if needed
+   - Provider-specific location map if needed
    - HTML parsing functions specific to the provider's website
-   - `main()` function that: updates ratings → loads mappings → scrapes → resolves activities/locations → generates summaries → deduplicates → upserts
+   - `main()` function that: updates ratings → loads location mappings → scrapes → normalises locations → generates summaries → deduplicates → upserts → logs availability + price
    - `if __name__ == "__main__": main()`
 
 2. **Create `.github/workflows/scraper-{id}.yml`** with `workflow_dispatch` trigger only:
@@ -417,9 +403,8 @@ decision exists for that course and check type.
    ```
 
 4. **Run Supabase SQL**:
-   - INSERT provider row into `providers` table
+   - INSERT provider row into `providers` table (with `active=false`)
    - INSERT any known `location_mappings` for the provider's locations
-   - INSERT any known `activity_mappings` for the provider's course titles
 
 5. **Use two-pass pattern** if the listing page doesn't contain full detail data (dates, prices). See `scraper_aaa.py` + `scraper_aaa_details.py` as reference.
 
@@ -549,20 +534,20 @@ Pushes V2 courses from Supabase to Algolia index. Reads all active, non-flagged 
 
 ### Tabs
 1. **Providers** — stats row (providers / courses / auto-hidden / user flags), provider table with active toggle, last run, course count, status badge, per-provider "Run" and "Validate" buttons (Validate calls `admin-trigger-scraper` with `workflow_id='validate-provider.yml'` + `inputs={provider_id}`), and "Run all" button. Column headers are clickable to sort (Provider / Last run / Courses / Status), default is alphabetical by name.
-2. **Activity Mappings** — pending + approved activity mappings with inline Edit and Delete. Header has an **"Add mapping"** button that opens an inline form (Title contains + Activity dropdown sourced from `activity_labels`) and POSTs directly to `/rest/v1/activity_mappings` with the authenticated session token. Approved rows edit `title_contains` + activity dropdown (fetched dynamically from `activity_labels`). Course counts are on-demand via a "Load counts" button — one `countRows()` query per mapping using `title=ilike.*{title_contains}*`, results cached for the session. Column headers (title_contains / Activity / Courses / Created) are clickable to sort ascending/descending; Courses is only sortable after counts are loaded. Default is alphabetical by `title_contains`.
+2. **Activity Mappings** (deprecated — scheduled for removal in the fast-follow commit after Initiative 1) — original description retained for historical reference: pending + approved activity mappings with inline Edit and Delete. Nothing writes to `activity_mappings` or `pending_mappings` anymore; the tab and its four admin edge functions (`admin-approve-mapping`, `admin-reject-mapping`, `admin-update-mapping`, `admin-delete-mapping`) will be deleted in a follow-up.
 3. **Location Mappings** — pending + approved location mappings with inline Edit and Delete. Header has an **"Add mapping"** button that opens an inline form (Location raw + Location canonical text inputs) and POSTs directly to `/rest/v1/location_mappings` with the authenticated session token. Approved rows edit both `location_raw` and `location_canonical`. Course counts are on-demand via a "Load counts" button — one `countRows()` query per unique `location_canonical`, results cached for the session. Column headers (Raw / Canonical / Courses / Created) are clickable to sort ascending/descending; Courses is only sortable after counts are loaded. Default is alphabetical by `location_raw`.
 
 ### Sortable headers (shared pattern)
 Three tables (Providers, Activity Mappings, Location Mappings) use a shared sort helper in `admin.html` (`cmpValues`, `sortIndicator`, `sortableHeader`, `toggleSortState`). Clicking a header toggles asc/desc on that column or switches to a new column (asc first). Nulls always sink to the bottom regardless of direction. Text sorts via `.toLowerCase().localeCompare()`. Numeric sorts cast via `Number(...)`.
 4. **Summary Review** — all `course_summaries` rows where `approved=false`. Two fields per row: **Card description** (editable textarea, maps to `courses.summary`) and **Search document** (read-only textarea, maps to `courses.search_document`, Algolia keywords only). Approve / Reject / Regenerate buttons per row. Regenerate re-runs Haiku to produce both fields fresh.
-5. **Flags** — Stats row (User reports / Auto-hidden / Warnings). Header buttons: "Reload flags" (re-runs `loadFlagsTab`), "Re-validate all ↗" (loops `admin-trigger-scraper` over all active providers with 500ms spacing), "Copy fixable flags prompt" (bundles wrong_price, wrong_date, bad_description, sold_out flags for Claude Code). User reports section (only `button_broken` and `other` get a Mark resolved button). Validator auto-flags section is **grouped by `(title, flag_reason)`** so 20 identical mismatch rows collapse to one row with an occurrences badge. Each group offers a root-cause fix action based on the reason: `activity mismatch:` / `null activity` → **Add mapping** (inline form, pre-fills title + suggested activity, calls `admin-approve-mapping` then bulk-clears the group's auto-flags); `summary mismatch:` / `summary bleed` → **Regenerate** (calls `admin-regenerate-summary` per course id then bulk-clears); `invalid price:` → **Mark as expected** (bulk-clear with note that next run may re-flag unless a code-level exception is added); A third **Warnings** subsection below auto-flags surfaces the `validator_warnings` table (email-only issues persisted by `validate_provider.py`): grouped by `(title, check_type)`, actions per type — `price_outlier` → Mark as expected (opens inline form for `title_contains`, scope, reason → writes a permanent row to `validator_price_exceptions` and deletes the warning rows; future runs skip the outlier check for matching titles); `summary_empty` → Regenerate (loops `admin-regenerate-summary` then deletes); `null_price` / `null_avail` / `future_date` → View (opens booking URL); `count_drop` → View provider (switches to Providers tab); `all_sold` → informational only. `duplicate:` → **Diagnose** (calls `admin-diagnose-duplicate` which sends the rows to Claude Haiku and returns `{verdict, reason, claude_code_prompt}`). Whitelist verdict → **Whitelist** button records one row per provider in `validator_whitelist` then bulk-clears. Fix-scraper verdict → **Copy fix prompt ↗** copies the Claude Code instruction to clipboard. Haiku failure falls back to a "Diagnosis unavailable" note. `validator_whitelist` is not yet consumed by `validate_provider.py` — that is a future wiring step. **Clear all** is always present as a secondary option and loops `admin-clear-auto-flag` over every course id in the group.
+5. **Flags** — Stats row (User reports / Auto-hidden / Warnings). Header buttons: "Reload flags" (re-runs `loadFlagsTab`), "Re-validate all ↗" (loops `admin-trigger-scraper` over all active providers with 500ms spacing), "Copy fixable flags prompt" (bundles wrong_price, wrong_date, bad_description, sold_out flags for Claude Code). User reports section (only `button_broken` and `other` get a Mark resolved button). Validator auto-flags section is **grouped by `(title, flag_reason)`** so identical rows collapse to one row with an occurrences badge. Each group offers a root-cause fix action based on the reason: `summary mismatch:` / `summary bleed` → **Regenerate** (calls `admin-regenerate-summary` per course id then bulk-clears); `invalid price:` → **Mark as expected** (bulk-clear with note that next run may re-flag unless a code-level exception is added); A **Warnings** subsection below auto-flags surfaces the `validator_warnings` table (email-only issues persisted by `validate_provider.py`): grouped by `(title, check_type)`, actions per type — `price_outlier` → Mark as expected (opens inline form for `title_contains`, scope, reason → writes a permanent row to `validator_price_exceptions` and deletes the warning rows; future runs skip the outlier check for matching titles); `summary_empty` → Regenerate (loops `admin-regenerate-summary` then deletes); `null_price` / `null_avail` / `future_date` → View (opens booking URL); `count_drop` → View provider (switches to Providers tab); `all_sold` → informational only. `duplicate:` → **Diagnose** (calls `admin-diagnose-duplicate` which sends the rows to Claude Haiku and returns `{verdict, reason, claude_code_prompt}`). Whitelist verdict → **Whitelist** button records one row per provider in `validator_whitelist` then bulk-clears. Fix-scraper verdict → **Copy fix prompt ↗** copies the Claude Code instruction to clipboard. Haiku failure falls back to a "Diagnosis unavailable" note. **Clear all** is always present as a secondary option and loops `admin-clear-auto-flag` over every course id in the group. (`activity mismatch:` / `null activity` reasons no longer appear — the validator's activity check was removed alongside activity elimination.)
 6. **Audit Log** — last 100 rows of `admin_log` with search filter.
 7. **Pipeline** — Provider onboarding tracker backed by `provider_pipeline` table. Header has an **"Add provider"** button that opens an inline URL-only form: `admin-analyse-provider` runs Haiku web_search + Google Places lookup, slugifies the returned name, then POSTs to `provider_pipeline` (status='candidate', `id` = slug). Each non-live row (candidate/scouted/scraper_built) has a **"Copy prompt ↗"** button that copies a Claude Code instruction to the clipboard for building the scraper. **Client-side hide of already-live providers:** on every tab load, `loadPipelineTab` fetches active providers alongside pipeline rows and builds `activeProviderKeys = {domains, names}`. `renderPipelineTable` hides any pipeline row whose normalised website domain or lowercase name is in those sets. Domain comparison uses `domainOf()` which normalises via lowercase → strip `https?://` → strip `www.` → strip trailing `/`. No PATCH writes happen during display — the pipeline's own `status` column is not updated by the UI's filter logic; the status PATCH only fires via the inline Edit form. Excludes `status='skip'` from display. Columns: Name (linked to website), Location, **Rating** (`★ X.X (N)` / `★ —` / `—`), Platform, Complexity, Status (coloured badge: candidate=grey, scouted=blue, scraper_built=yellow, live=green, skip=faded), Priority (1/2/3), Notes (truncated to ~60 chars with full-text tooltip), Edit + Copy prompt. Inline edit lets you change status/platform/priority/notes plus the Google enrichment fields (`google_place_id`, `rating`, `review_count`). Name/Platform/Status/Priority headers are sortable. Pipeline `id` is a text slug — onclick handlers must quote it (`editPipelineRow('${id}')`) or it will be evaluated as a global variable.
-8. **Settings** — CRUD for `activity_labels` (canonical activity slugs + display labels), used as the source of truth for the dropdowns in Activity Mappings. Static reference for the canonical location format (`City, Province`). **Discovery Cloud** — two lists (activity terms + location terms) that drive the weekly automated provider discovery search queries. Each term shows a weight bar, quality indicator (X found / Y skipped — warning at >80% skip rate with 5+ total), last-used date, and an active toggle. Admin can add manual terms or disable auto-generated ones. Populated by `refresh_discovery_cloud.py`, consumed by `discover_providers.py`.
+8. **Settings** — Static reference for the canonical location format (`City, Province`). **Discovery Cloud** — two lists (activity terms + location terms) that drive the weekly automated provider discovery search queries. Each term shows a weight bar, quality indicator (X found / Y skipped — warning at >80% skip rate with 5+ total), last-used date, and an active toggle. Admin can add manual terms or disable auto-generated ones. Populated by `refresh_discovery_cloud.py`, consumed by `discover_providers.py`.
 
 ### Admin-facing tables (create in Supabase if not already)
 - `admin_log` — `id bigserial, user_email text, action text, detail jsonb, created_at timestamptz default now()`
-- `pending_mappings` — pending activity mapping suggestions (columns: `id, course_title, title_contains, provider_id, description, suggested_activity, reviewed bool, created_at`)
+- `pending_mappings` — retired; scraper-side Claude activity classification no longer runs, so this table receives no new rows. Drops at V2 Phase 7.
 - `pending_location_mappings` — pending location mapping suggestions (columns: `id, location_raw, suggested_canonical, reviewed bool, created_at`)
 - `course_summaries` — unique on `(provider_id, title)`. Columns: `id, provider_id, title, course_id, summary, description_hash, approved bool, approved_at, pending_reason, created_at`
 - `validator_price_exceptions` — persistent price-outlier exceptions populated from the Flags tab Warnings "Mark as expected" inline form. Columns: `id bigserial, title_contains text not null, provider_id text, reason text, created_at timestamptz default now()`. A row means: if a course title contains `title_contains` (case-insensitive substring) and matches the scope (`provider_id` or null = global), skip the >5x median price outlier warning. **Consumed by `validate_provider.py`'s Check 3 and `write_warnings()`** — outlier warnings matching an exception are never written to `validator_warnings`. Zero/negative price auto-hides ignore this table.
@@ -575,10 +560,10 @@ All live in `supabase/functions/admin-*/index.ts`. Every one verifies the JWT, c
 
 | Function | Purpose |
 |----------|---------|
-| `admin-approve-mapping` | Insert into `activity_mappings`, mark `pending_mappings.reviewed=true` |
-| `admin-reject-mapping` | Mark `pending_mappings.reviewed=true` |
-| `admin-update-mapping` | Update `activity_mappings.activity` by id |
-| `admin-delete-mapping` | Delete an `activity_mappings` row by id (does not touch `courses`) |
+| `admin-approve-mapping` | **Deprecated** — to be deleted in fast-follow. Previously inserted into `activity_mappings`. |
+| `admin-reject-mapping` | **Deprecated** — to be deleted in fast-follow. |
+| `admin-update-mapping` | **Deprecated** — to be deleted in fast-follow. |
+| `admin-delete-mapping` | **Deprecated** — to be deleted in fast-follow. |
 | `admin-approve-location` | Insert into `location_mappings`, mark `pending_location_mappings.reviewed=true` |
 | `admin-reject-location` | Mark `pending_location_mappings.reviewed=true` |
 | `admin-update-location` | Update `location_mappings.location_raw` + `location_canonical` by id |
@@ -603,9 +588,6 @@ All live in `supabase/functions/admin-*/index.ts`. Every one verifies the JWT, c
 - Scrapers never touch either set.
 
 ## Filter behaviour
-
-### Activity → location dependency
-When the activity filter changes, the location dropdown is rebuilt to only show locations where that activity has active unflagged courses. This is handled by `updateLocationsForActivity(activity)` in `index.html`. When activity is reset to all, `loadLocationsDropdown()` is called to restore all locations. If the previously selected location is not available in the new activity's locations, the location filter is reset to all.
 
 ### Empty states
 - No filters + 0 results → maintenance state: '🏔 Updating course listings / Check back in 45 minutes' with pulsing scraper status pill. Shows when courses table is empty and no filters are active.
@@ -644,11 +626,11 @@ Never wait for manual confirmation to commit.
 ### courses
 | column | type | notes |
 |---|---|---|
-| id | text | stable ID: `{provider_id}-{activity}-{date_sort}-{title_hash}` or hash fallback |
+| id | text | V2 stable ID: `{provider_id}-{date_sort}-{title_hash}` or `{provider_id}-flex-{title_hash}`. V1 legacy: `{provider_id}-{activity}-{date_sort}-{title_hash}` |
 | title | text | |
 | provider_id | text | |
-| badge | text | |
-| activity | text | canonical: `skiing` `climbing` `mountaineering` `hiking` `biking` `fishing` `heli` `cat` `huts` `guided` `glissading` `rappelling` `snowshoeing` `via_ferrata` `avalanche_safety` |
+| badge | text | **Deprecated** — no longer written. Drops at V2 Phase 7. |
+| activity | text | **Deprecated** — no longer written. Drops at V2 Phase 7. |
 | location_raw | text | raw string from site |
 | location_canonical | text | `City, Province` e.g. `Squamish, BC` |
 | date_display | text | human readable e.g. `March 3 (4 Days)` |
@@ -662,9 +644,9 @@ Never wait for manual confirmation to commit.
 | active | boolean | false for sold out courses |
 | scraped_at | timestamptz | |
 | created_at | timestamptz | |
-| activity_raw | text | |
-| activity_canonical | text | |
-| badge_canonical | text | |
+| activity_raw | text | **Deprecated** — no longer written. Drops at V2 Phase 7. |
+| activity_canonical | text | V1 distinguishing column; V2 rows set it to NULL. Drops at Phase 7. |
+| badge_canonical | text | **Deprecated** — no longer written. Drops at V2 Phase 7. |
 | custom_dates | boolean | |
 | summary | text | 1-2 sentences, generated by Claude Haiku |
 | search_document | text | V2 — Algolia search field, never shown to users |
@@ -699,13 +681,10 @@ Never wait for manual confirmation to commit.
 | certifications | text | e.g. 'ACMG, IFMGA' |
 | booking_platform | text | e.g. 'rezdy', 'checkfront', 'zaui', 'woocommerce' |
 
-### activity_mappings
-| column | type | notes |
-|---|---|---|
-| id | integer | auto |
-| title_contains | text | keyword to match against course title |
-| activity | text | canonical activity value |
-| created_at | timestamptz | |
+### activity_mappings (retired)
+Legacy table from the V1 activity-classification pipeline. No longer read or
+written by any running code. Drops at V2 Phase 7 cutover alongside
+`pending_mappings` and `activity_labels`.
 
 ### location_mappings
 | column | type | notes |
@@ -797,8 +776,9 @@ V2 is an incremental migration on the live system. V1 and V2 coexist in the same
 | 3 | Algolia index bootstrap | Complete |
 | 4 | V2 frontend (Algolia InstantSearch) | Complete |
 | 4.5 | `index.html` modularisation | Complete |
+| — | Activity mapping elimination (Initiative 1 of data quality mission) | Complete — scrapers, validator, Algolia, frontend, docs updated; admin-tab removal is a fast-follow commit |
 | 5 | Velocity signals (fill rate, price trend) | Not started — needs 4+ weeks of log data |
-| 6 | Validator simplification (4 checks) | Not started |
+| 6 | Validator simplification | Partially done — activity check removed; full simplification pending |
 | 7 | Drop V1 columns + tables post-cutover | Not started |
 
 ### V2 stable ID format
@@ -810,7 +790,7 @@ All 14 standalone scrapers now emit V2 IDs via `stable_id_v2()` in `scraper_util
 - No activity segment. Platform-agnostic. Three segments, always three.
 - `title_hash_8` = `md5(title.strip().lower())[:8]` via the `title_hash()` function.
 - `title_hash()` is the SINGLE source of truth for title hashing — used by `stable_id_v2`, log functions, and future Algolia objectIDs. Never compute an inline md5 of titles elsewhere.
-- The old V1 `stable_id()` function still exists in `scraper_utils.py` but is no longer called by any scraper.
+- The old V1 `stable_id()` function has been deleted from `scraper_utils.py`. Local copies still exist in a few scraper files (scraper.py legacy monolith, plus dead references in scraper_hangfire/bsa/jht) but nothing calls them.
 
 ### V1/V2 row coexistence
 - V2 rows write `activity_canonical = None`. This makes them invisible to the V1 frontend, which filters on `activity_canonical=eq.{value}`.
@@ -845,14 +825,14 @@ All existing V1 courses backfilled with `currency='CAD'`. All existing providers
 No backfill needed — V1 rows are deleted on cutover, and all new scraper runs generate both fields. Algolia (Phase 3) goes live after cutover, so there is no consumer for `search_document` on pre-cutover rows.
 
 ### V2 Phase 3 — Algolia index bootstrap (implemented)
-`algolia_sync.py` pushes V2 courses to Algolia index `courses_v2`. Uses `replace_all_objects` for atomic full replacement — stale records are automatically removed. Configured with searchable attributes, facets, custom ranking, and activity/location synonyms. Runs automatically after every `scraper-all.yml` run (every 6 hours) with `--skip-settings`. Also available as standalone `sync-algolia.yml` workflow for manual triggers or settings reconfiguration.
+`algolia_sync.py` pushes V2 courses to Algolia index `courses_v2`. Uses `replace_all_objects` for atomic full replacement — stale records are automatically removed. Configured with searchable attributes, facets, custom ranking, and activity/location synonyms (synonyms retained as free-text relevance boosters even after the activity facet was removed). Runs automatically after every `scraper-all.yml` run (every 6 hours) with `--skip-settings`. Also available as standalone `sync-algolia.yml` workflow for manual triggers or settings reconfiguration.
 
 ### V2 Phase 4 — V2 frontend (implemented)
 Algolia InstantSearch is live in `index.html` and replaces the Supabase-backed search stack on the Search page:
 - **Search box** wired via `connectSearchBox`
-- **Activity dropdown + Location dropdown** replaced with Algolia `connectMenu` widgets (the old `loadActivitiesDropdown` / `updateLocationsForActivity` / `loadLocationsDropdown` Supabase queries are no longer called)
+- **Activity + Location dropdowns** fully removed — free-text Algolia search on `search_document` covers both. The Location synonyms + provider-name searchable attrs + date numericFilter handle the filter use cases the dropdowns used to serve.
 - **Date filter** converted to a unix-timestamp `numericFilter` against `date_sort`
-- **Provider deep link** (`?provider=`) now applies as an Algolia `facetFilters` constraint rather than a Supabase `eq.` filter
+- **Provider deep link** (`?provider=`) applies as an Algolia `facetFilters` constraint rather than a Supabase `eq.` filter
 - Old Supabase search functions are commented out (not deleted) as a fallback reference until V1 cutover
 - `courses_v2` is the single source of truth for the search grid, synced every 6 hours by `scraper-all.yml`'s final step and on-demand via `sync-algolia.yml`
 
@@ -889,16 +869,16 @@ JS extracted into `/js/` modules. Classic script tags, not ES modules — functi
 |------|----------|
 | `/js/cards.js`     | `buildCard()`, `mapHit()`, `renderCards()`, `utmUrl()` |
 | `/js/saved.js`     | saved-list primitives (`getSaved`/`setSaved`/`isSaved`), `toggleSave`, `renderSaved`, shared-list (`getSharedIds`, `initSharedCourses`, `saveSharedCourses`, `dismissSharedBanner`), share popover (`buildSharePopoverHTML`, `positionPopover`, `toggleSavedShare`, `closeAllPopovers`, `copyShareLink`, `nativeShare`), `clearMyList`, `openEmailListModal`, `submitEmailList` |
-| `/js/ui.js`        | `showPage`, `logClick`, `loadActivityLabels`, notify / email / provider modals, toast + micro-toast, skeleton/loading utilities, `addRemoveReadyListeners`, report strip (`openReport`, `selectChip`, `closeReport`, `resetReport`, `submitReport`, `reportObserver`), `initUI()` (logo hover + tagline animation) |
+| `/js/ui.js`        | `showPage`, `logClick`, notify / email / provider modals, toast + micro-toast, skeleton/loading utilities, `addRemoveReadyListeners`, report strip (`openReport`, `selectChip`, `closeReport`, `resetReport`, `submitReport`, `reportObserver`), `initUI()` (logo hover + tagline animation) |
 | `/js/providers.js` | `loadProviders()` (providers page grid) |
 | `/js/search.js`    | Algolia InstantSearch (`searchClient`, `search`, `customSearchBox`, `customInfiniteHits`, `customConfigure`), date/provider filters (`updateDateChip`, `clearDateFilter`, `applyConfigFilters`), provider deep-link helpers (`setProviderFilter`, `clearProviderFilter`, `initProviderFilter`), `debouncedSearch` legacy stub, commented-out V1 Supabase query blocks, `initSearch()` |
 
-`index.html` now contains only: HTML structure, CSS, constants (`SUPABASE_URL`, `SUPABASE_KEY`, `ALGOLIA_APP_ID` etc.), shared state (`currentFilters`, `currentCourses`, `ACTIVITY_LABELS`, etc.), and a ~5-line `DOMContentLoaded` init sequence that calls `loadActivityLabels()`, `initSearch()`, `initUI()`, `initSharedCourses()`.
+`index.html` now contains only: HTML structure, CSS, constants (`SUPABASE_URL`, `SUPABASE_KEY`, `ALGOLIA_APP_ID`, `FALLBACK_IMG` etc.), shared state (`currentFilters`, `currentCourses`, etc.), and a ~5-line `DOMContentLoaded` init sequence that calls `initSearch()`, `initUI()`, `initSharedCourses()`.
 
 **Rules for future changes:**
 - All new JS goes into the relevant `/js/` module — never back into `index.html` inline
 - Script tags in `<head>` use `defer` and load in order: `cards.js`, `saved.js`, `ui.js`, `providers.js`, `search.js`. `defer` means modules execute *after* HTML parsing (including the body `<script>` that defines constants) but before `DOMContentLoaded`, so top-level code in a module can reference body-script constants (`ALGOLIA_APP_ID`, `SUPABASE_URL`, etc.) safely — no need to defer instantiation into `initXxx()` functions for ordering reasons
-- Shared mutable state (`currentCourses`, `currentFilters`, `ACTIVITY_LABELS`, `totalCount` etc.) lives as top-level `let` in `index.html`; modules read/write by name
+- Shared mutable state (`currentCourses`, `currentFilters`, `totalCount` etc.) lives as top-level `let` in `index.html`; modules read/write by name
 - Credentials/URLs (`SUPABASE_URL`, `ALGOLIA_APP_ID` etc.) stay in `index.html`; modules reference them as globals
 - Never drop `defer` from a module tag without migrating any body-script dependencies into `<head>` first — it is the load-order guarantee that keeps this pattern stable
 
@@ -907,8 +887,13 @@ New card design discussed and approved. Claude Code to build against `/js/cards.
 
 ### V2 phases remaining (not yet implemented)
 - **Phase 5:** Velocity signal calculation (fill rate, price trend — needs 4+ weeks of log data)
-- **Phase 6:** Validator simplification (4 checks, admin tabs removed)
-- **Phase 7:** Drop V1 columns + tables after cutover
+- **Phase 6:** Validator simplification (remaining admin-tab retirements; activity check already removed)
+- **Phase 7:** Drop V1 columns + tables after cutover (includes `activity`, `activity_raw`, `activity_canonical`, `badge`, `badge_canonical` from `courses` and the `activity_mappings`, `pending_mappings`, `activity_labels` tables)
+
+### Data quality mission (parallel track)
+See [data_quality_initiatives.md](data_quality_initiatives.md) for the two-initiative plan.
+- **Initiative 1 — Activity mapping elimination:** scraper-side + shared helpers + frontend + validator + Algolia + docs **complete**. Admin-tab removal (+ 4 edge functions) pending as a fast-follow commit.
+- **Initiative 2 — Location mapping refinement:** not started; runs after Initiative 1's fast-follow lands.
 
 ### One-time setup SQL
 

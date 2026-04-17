@@ -27,7 +27,6 @@ from scraper_utils import (
     log_availability_change, log_price_change,
     sb_get, sb_upsert, sb_insert,
     load_location_mappings, normalise_location,
-    load_activity_mappings, load_activity_labels, resolve_activity, build_badge,
     claude_classify, generate_summaries_batch,
     parse_date_sort, is_future, stable_id_v2,
     update_provider_ratings, send_email,
@@ -444,7 +443,6 @@ def scrape_yamnuska() -> list:
                 all_courses.append({
                     **entry,
                     "provider_id":   provider_id,
-                    "activity_raw":  "",
                     "duration_days": None,
                     "summary":       "",
                     "search_document": "",
@@ -489,10 +487,8 @@ def main():
 
     update_provider_ratings(PROVIDER["id"])
 
-    loc_mappings    = load_location_mappings()
-    activity_maps   = load_activity_mappings()
-    activity_labels = load_activity_labels()
-    log.info(f"Loaded {len(loc_mappings)} location mappings, {len(activity_maps)} activity mappings")
+    loc_mappings = load_location_mappings()
+    log.info(f"Loaded {len(loc_mappings)} location mappings")
 
     raw_courses = scrape_yamnuska()
 
@@ -507,19 +503,12 @@ def main():
         loc_raw       = c.get("location_raw") or PROVIDER["location"]
         loc_canonical = normalise_location(loc_raw, loc_mappings) or loc_raw
 
-        activity_canonical = resolve_activity(c["title"], c.get("description", ""), activity_maps)
-        badge_canonical    = build_badge(activity_canonical, c.get("duration_days"), activity_labels)
-        course_id          = stable_id_v2(PROVIDER["id"], c.get("date_sort"), c["title"])
+        course_id = stable_id_v2(PROVIDER["id"], c.get("date_sort"), c["title"])
 
         processed.append({
             "id":                 course_id,
             "title":              c["title"],
             "provider_id":        PROVIDER["id"],
-            "badge":              badge_canonical,
-            "activity":           activity_canonical,
-            "activity_raw":       c.get("activity_raw", ""),
-            "activity_canonical": None,  # V2: null hides from V1 frontend
-            "badge_canonical":    badge_canonical,
             "location_raw":       loc_raw,
             "location_canonical": loc_canonical,
             "date_display":       c.get("date_display"),
@@ -551,7 +540,6 @@ def main():
                     "title":       c["title"],
                     "description": c.get("description", ""),
                     "provider":    PROVIDER["name"],
-                    "activity":    c.get("activity_canonical", "guided"),
                 })
         if unique_inputs:
             summaries        = generate_summaries_batch(unique_inputs)

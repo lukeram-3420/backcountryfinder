@@ -11,7 +11,7 @@ function renderCards(courses, append=false){
   if(!grid)return;
   if(!courses||courses.length===0){
     if(!append){
-      const noFiltersActive = !currentFilters.activity && !currentFilters.location && !currentFilters.provider;
+      const noFiltersActive = !currentFilters.location && !currentFilters.provider;
       if (noFiltersActive) {
         grid.innerHTML=`<div class="empty-state" style="grid-column:1/-1;"><div class="empty-icon" style="font-size:52px;">🏔</div><h3>Updating course listings</h3><p>We're pulling in fresh data. Check back in about 45 minutes.</p><div class="status-pill"><span class="status-dot"></span><span>Scraper running now</span></div></div>`;
       } else {
@@ -42,17 +42,13 @@ function buildCard(c) {
   const providerName = provider.name || c.provider_id || '';
   const rating = provider.rating ? `★ ${provider.rating}` : '';
   const location = c.location_canonical || c.location_raw || '';
-  const activity = c.activity_canonical || c.activity_raw || c.activity || 'guided';
-  const badge = c.badge_canonical || c.badge || ACTIVITY_LABELS[activity] || activity.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-  const imgUrl = c.image_url || IMG[activity] || IMG.hiking;
+  const imgUrl = c.image_url || FALLBACK_IMG;
   const bookingUrl = c.booking_url || '#';
   const safeTitle = (c.title||'').replace(/'/g,"\\'");
 
   // Serialize course data for click tracking — escape for safe inline use
   const courseJson = JSON.stringify({
     provider_id:        c.provider_id || '',
-    activity_canonical: c.activity_canonical || '',
-    activity_raw:       c.activity_raw || '',
     location_canonical: c.location_canonical || '',
     location_raw:       c.location_raw || '',
     price:              c.price || null,
@@ -62,9 +58,8 @@ function buildCard(c) {
 
   return `<div class="course-card">
     <div class="card-img">
-      <img src="${imgUrl}" alt="${c.title}" loading="lazy" onerror="this.src='${IMG[c.activity]||IMG.hiking}'">
+      <img src="${imgUrl}" alt="${c.title}" loading="lazy" onerror="this.src='${FALLBACK_IMG}'">
       <div class="card-overlay">
-        <div class="card-badge">${badge}</div>
         <div class="card-provider-tag">${providerName}</div>
       </div>
     </div>
@@ -137,11 +132,6 @@ function mapHit(hit) {
     custom_dates: hit.custom_dates || false,
     location_canonical: hit.location_canonical || '',
     location_raw: hit.location_raw || '',
-    activity_canonical: null,
-    activity_raw: hit.activity || '',
-    activity: hit.activity || '',
-    badge_canonical: null,
-    badge: hit.badge || '',
     image_url: hit.image_url,
     price: hit.price,
     currency: hit.currency || 'CAD',

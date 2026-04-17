@@ -123,7 +123,6 @@ def map_record(course):
         "title": course.get("title"),
         "search_document": course.get("search_document"),
         "summary": course.get("summary"),
-        "activity": course.get("activity"),
         "location": course.get("location_raw"),
         "location_canonical": course.get("location_canonical"),
         "location_raw": course.get("location_raw"),
@@ -134,7 +133,6 @@ def map_record(course):
         "currency": course.get("currency"),
         "avail": course.get("avail"),
         "spots_remaining": course.get("spots_remaining"),
-        "badge": course.get("badge"),
         "image_url": course.get("image_url"),
         "booking_url": course.get("booking_url"),
         "booking_mode": course.get("booking_mode"),
@@ -198,7 +196,7 @@ def push_records(client, records, dry_run=False):
         log.info(f"DRY RUN — would push {len(records)} records (full replace)")
         for r in records[:3]:
             log.info(f"  Sample: {r.get('objectID')} | {r.get('title')} | "
-                     f"activity={r.get('activity')} | location={r.get('location_canonical')} | "
+                     f"location={r.get('location_canonical')} | "
                      f"price={r.get('price')} | search_doc={'yes' if r.get('search_document') else 'no'}")
         if len(records) > 3:
             log.info(f"  ... and {len(records) - 3} more")

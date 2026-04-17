@@ -726,33 +726,25 @@ const ALGOLIA_APP_ID = 'GFJACG4KYQ';
 const ALGOLIA_SEARCH_KEY = '5a535334c72b08b3ccf5700a388cc8fa';
 const ALGOLIA_INDEX = 'courses_v2';
 
-const IMG = {
-  skiing:        "https://images.unsplash.com/photo-1673994841979-a8d3983d4a51?w=800&q=80&fit=crop",
-  climbing:      "https://images.unsplash.com/photo-1698352607376-fb224335f560?w=800&q=80&fit=crop",
-  mountaineering:"https://plus.unsplash.com/premium_photo-1694475628847-78f7060d4132?w=800&q=80&fit=crop",
-  biking:        "https://images.unsplash.com/photo-1603614068906-c1ea9b6819ab?w=800&q=80&fit=crop",
-  hiking:        "https://images.unsplash.com/photo-1607895521752-bb2ddf4ef6e3?w=800&q=80&fit=crop",
-  fishing:       "https://images.unsplash.com/photo-1541512416146-3cf58d6b27cc?w=800&q=80&fit=crop",
-};
+// Single neutral hero image used when a course has no image_url of its own.
+const FALLBACK_IMG = "https://images.unsplash.com/photo-1607895521752-bb2ddf4ef6e3?w=800&q=80&fit=crop";
 
 // ── DATA STATE ──
 let currentSort = 'date';
 let currentPage = 0;
 let totalCount = 0;
 let isLoading = false;
-let currentFilters = { activity: '', location: '', date: '', provider: '' };
+let currentFilters = { location: '', date: '', provider: '' };
 const PAGE_SIZE = 12;
 const CACHE_KEY = 'bcf_cache';
 const CACHE_TTL = 30 * 60 * 1000;
 
-// Activity labels — populated by loadActivityLabels() in /js/ui.js
-let ACTIVITY_LABELS = {};
 // Latest list of courses rendered on the page — populated by the Algolia hits connector in /js/search.js and read by save/share/email flows
 let currentCourses = [];
 
 // ── INIT ──
 document.addEventListener('DOMContentLoaded', () => {
-  loadActivityLabels().then(() => initSearch());
+  initSearch();
   initUI();
   initSharedCourses();
 });
