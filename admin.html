@@ -1983,17 +1983,26 @@ function domainOf(url) {
 }
 
 async function pipelinePatch(filterQuery, payload) {
+  // Use return=representation so we can check the response body length.
+  // With return=minimal, Supabase returns 204 even when 0 rows match — which
+  // would silently hide a missing RLS UPDATE policy or a stale id. Explicit
+  // length check surfaces the real failure mode.
   const res = await fetch(`${SUPABASE_URL}/rest/v1/provider_pipeline?${filterQuery}`, {
     method: 'PATCH',
     headers: {
       'apikey': SUPABASE_KEY,
       'Authorization': `Bearer ${session.access_token}`,
       'Content-Type': 'application/json',
-      'Prefer': 'return=minimal',
+      'Prefer': 'return=representation',
     },
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(`PATCH ${res.status}: ${await res.text()}`);
+  const rows = await res.json().catch(() => []);
+  if (!Array.isArray(rows) || rows.length === 0) {
+    throw new Error('0 rows updated — likely missing RLS UPDATE policy on provider_pipeline (see admin.html SQL block)');
+  }
+  return rows;
 }
 
 async function pipelineFetch(query) {
