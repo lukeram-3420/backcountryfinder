@@ -124,24 +124,6 @@ jobs:
       - name: Validate Canadian Rockies Hiking by Yamnuska
         run: python validate_provider.py canadian-rockies-hiking-by-yamnuska
         continue-on-error: true
-      # Canmore Adventures — grouped Zaui scraper. All 4 groups run
-      # back-to-back each tick for full-catalogue coverage without the
-      # count-drop badge.
-      - name: Canmore Adventures (group 0)
-        run: python scraper_canmore_adventures.py --group 0
-        continue-on-error: true
-      - name: Canmore Adventures (group 1)
-        run: python scraper_canmore_adventures.py --group 1
-        continue-on-error: true
-      - name: Canmore Adventures (group 2)
-        run: python scraper_canmore_adventures.py --group 2
-        continue-on-error: true
-      - name: Canmore Adventures (group 3)
-        run: python scraper_canmore_adventures.py --group 3
-        continue-on-error: true
-      - name: Validate Canmore Adventures
-        run: python validate_provider.py canmore-adventures
-        continue-on-error: true
       - name: Sync Algolia
         run: python algolia_sync.py --skip-settings
         continue-on-error: true
