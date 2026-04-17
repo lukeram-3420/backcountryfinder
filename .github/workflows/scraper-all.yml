@@ -112,11 +112,19 @@ jobs:
       - name: Validate Hangfire Training
         run: python validate_provider.py hangfire
         continue-on-error: true
+<<<<<<< claude/review-docs-scraper-dBoKn
       - name: Girth Hitch Guiding
         run: python scraper_girth_hitch_guiding.py
         continue-on-error: true
       - name: Validate Girth Hitch Guiding
         run: python validate_provider.py girth-hitch-guiding
+=======
+      - name: Banff Adventures
+        run: python scraper_banff_adventures.py --group 0   # grouped scraper: add steps for --group 1/2/3 too, or accept the yellow drop badge
+        continue-on-error: true
+      - name: Validate Banff Adventures
+        run: python validate_provider.py banff-adventures
+>>>>>>> main
         continue-on-error: true
       - name: Sync Algolia
         run: python algolia_sync.py --skip-settings

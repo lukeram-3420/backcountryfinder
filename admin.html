@@ -194,7 +194,7 @@
   <div class="main">
     <!-- TAB: PROVIDERS -->
     <div class="tab-panel" id="panel-providers">
-      <details class="instructions"><summary>How to use this tab</summary><p>Toggle a provider off to hide all their courses from the site. Click Run to trigger a fresh scrape for that provider. Click Validate to run the validator — use this after fixing a mapping or summary to confirm the flag is resolved without waiting for the next cron run. <strong>Scraper</strong> is Yes/No based on whether we already have scraper coverage for this provider's booking platform. The set is derived live from the distinct <code>booking_platform</code> values across all active providers (auto-grows as new platforms are onboarded — no hardcoded list). A "No" here usually means <code>providers.booking_platform</code> is null / <code>unknown</code> — backfill it by running <code>backfill_platforms.py</code> or via the Pipeline tab's Detect button. Last run shows the most recent scraper execution per provider. A yellow <strong>⚠ drop ↗</strong> badge appears on the status cell when the last scrape returned &gt;30% fewer courses than the previous run — click it to jump to the GitHub Actions workflow for that provider and investigate the scraper run (Initiative 7). Use Validate after Run to confirm fixes were applied. Validate alone is useful after fixing summaries — for mapping or scraper fixes, always Run first then Validate. Run all triggers a full scrape of all providers — expect 45-60 minutes. Column headers are clickable to sort ascending or descending.</p></details>
+      <details class="instructions"><summary>How to use this tab</summary><p>Toggle a provider off to hide all their courses from the site. Toggling the active switch (in either direction) automatically dispatches the <code>sync-algolia.yml</code> workflow so the frontend Search grid updates within ~30 seconds instead of waiting for the next 6-hour cron. Click Run to trigger a fresh scrape for that provider. Click Validate to run the validator — use this after fixing a mapping or summary to confirm the flag is resolved without waiting for the next cron run. <strong>Scraper</strong> classifies how the provider is being scraped. Shows the platform name (<code>rezdy</code> / <code>zaui</code> / <code>checkfront</code> / <code>woocommerce</code> / <code>squarespace</code>) if we have reusable adapter code — a new provider on that platform can be onboarded by cloning the pattern. Shows <strong>bespoke</strong> if the scraper is hand-written for that specific site (custom HTML, Rails, custom WordPress, Playwright-specific, etc.) — onboarding a similar site still needs a dedicated scraper. Shows a dash if no scraper run has been recorded yet. If a provider is showing bespoke when you'd expect a platform name, run <code>backfill_platforms.py</code> — detection may have missed the signature because <code>providers.website</code> points at a marketing page rather than the booking subdomain. Last run shows the most recent scraper execution per provider. A yellow <strong>⚠ drop ↗</strong> badge appears on the status cell when the last scrape returned &gt;30% fewer courses than the previous run — click it to jump to the GitHub Actions workflow for that provider and investigate the scraper run (Initiative 7). Use Validate after Run to confirm fixes were applied. Validate alone is useful after fixing summaries — for mapping or scraper fixes, always Run first then Validate. Run all triggers a full scrape of all providers — expect 45-60 minutes. Column headers are clickable to sort ascending or descending.</p></details>
       <div class="stats-row" id="stats-row">
         <div class="stat-card"><div class="stat-label">Providers</div><div class="stat-value" id="stat-providers">—</div></div>
         <div class="stat-card"><div class="stat-label">Courses</div><div class="stat-value" id="stat-courses">—</div></div>
@@ -638,8 +638,25 @@ async function countRows(table, filterQuery = '') {
 }
 
 // Providers table state
-let cachedProviders = [];       // enriched: {id, name, active, lastRun, visible, af, uf}
+let cachedProviders = [];       // enriched: {id, name, active, lastRun, visible, af, uf, scraperKind}
 let providersSort = { col: 'name', dir: 'asc' };
+
+// Booking platforms for which we have reusable adapter code: a new provider
+// on one of these platforms can be scraped by cloning the existing pattern
+// with minimal change. Providers whose scraper doesn't match any of these
+// (including generic 'wordpress' / 'unknown') are labelled 'bespoke' —
+// their scraper is hand-written for that site. Mirror against
+// PLATFORM_REFERENCE in copyPipelinePrompt (admin.html) when adding a new
+// reusable pattern.
+const REUSABLE_PLATFORMS = new Set([
+  'rezdy',       // scraper_altus, scraper_msaa (shared Rezdy API pattern)
+  'zaui',        // scraper_vanmtnguides (+ scraper_zaui_utils)
+  'checkfront',  // scraper_aaa
+  'woocommerce', // scraper_cwms (WooCommerce REST)
+  'squarespace', // scraper_jht
+  // NOT included — each WP site needs a bespoke parser:
+  //   'wordpress', 'unknown', 'custom', ''
+]);
 
 async function fetchRunLog() {
   // Direct REST (anon key) — resilient against the JS client's RLS quirks.
@@ -687,17 +704,6 @@ async function loadProvidersTab() {
       if (!prevRunByProvider[r.provider_id]) { prevRunByProvider[r.provider_id] = r; }
     }
 
-    // Derive the set of platforms we have scraper coverage for: any
-    // booking_platform value that appears on at least one active provider.
-    // A provider's "Scraper built" = Yes iff its own platform is in this set.
-    // Self-maintaining — no hardcoded list; when a new platform is onboarded
-    // (Altus → Rezdy, VMG → Zaui etc.) it joins the set automatically.
-    const scrapedPlatforms = new Set(
-      providers
-        .filter(p => p.active && p.booking_platform && p.booking_platform !== 'unknown')
-        .map(p => p.booking_platform.toLowerCase())
-    );
-
     const perProvider = await Promise.all(providers.map(async p => {
       const pFilter = `provider_id=eq.${encodeURIComponent(p.id)}`;
       const [visible, af, uf] = await Promise.all([
@@ -705,16 +711,27 @@ async function loadProvidersTab() {
         countRows('courses', `${pFilter}&auto_flagged=eq.true`),
         countRows('courses', `${pFilter}&flagged=eq.true`),
       ]);
+      // Three-state scraper classification:
+      //   no lastRun                           → '' (no scraper yet)
+      //   lastRun + platform in REUSABLE set   → platform name (green)
+      //   lastRun otherwise                    → 'bespoke'     (amber)
+      // "wordpress" is NOT a reusable platform — each WP site needs its own
+      // parser (scraper_srg, scraper_bsa, scraper_summit are all bespoke
+      // despite each matching the wordpress signature).
+      const lastRun = lastRunByProvider[p.id] || null;
       const pl = (p.booking_platform || '').toLowerCase();
-      const scraperBuilt = !!pl && pl !== 'unknown' && scrapedPlatforms.has(pl);
+      let scraperKind;
+      if (!lastRun) scraperKind = '';
+      else if (REUSABLE_PLATFORMS.has(pl)) scraperKind = pl;
+      else scraperKind = 'bespoke';
       return {
         ...p,
         visible,
         af,
         uf,
-        lastRun: lastRunByProvider[p.id] || null,
+        lastRun,
         prevRun: prevRunByProvider[p.id] || null,
-        scraperBuilt,
+        scraperKind,
       };
     }));
     cachedProviders = perProvider;
@@ -727,7 +744,9 @@ async function loadProvidersTab() {
 function providerSortValue(p, col) {
   switch (col) {
     case 'name':     return p.name;
-    case 'scraper':  return p.scraperBuilt ? 1 : 0;
+    // Sort alphabetically by the displayed label ('bespoke', 'rezdy', 'zaui'
+    // etc.). Empty scraperKind sorts to the bottom via cmpValues' null-sink.
+    case 'scraper':  return p.scraperKind || null;
     case 'courses':  return Number(p.visible) || 0;
     case 'status':   return (p.af > 0) ? 1 : 0; // 0 clean, 1 hidden (amber user-flag sits with clean for this sort)
     case 'last_run': return p.lastRun ? p.lastRun.run_at : null;
@@ -763,9 +782,14 @@ function renderProvidersTable() {
     const wf = WORKFLOW_MAP[p.id] || `scraper-${p.id}.yml`;
     const runBtn = `<button class="btn btn-small" onclick="window.triggerScraper('${wf}')">Run</button>`;
     const validateBtn = `<button class="btn btn-small" id="validate-btn-${esc(p.id)}" onclick="window.triggerValidate('${esc(p.id)}')">Validate</button>`;
-    const scraperBadge = p.scraperBuilt
-      ? '<span class="badge badge-green">Yes</span>'
-      : '<span class="badge badge-red">No</span>';
+    let scraperBadge;
+    if (!p.scraperKind) {
+      scraperBadge = '<span style="color:var(--text-tertiary);">—</span>';
+    } else if (p.scraperKind === 'bespoke') {
+      scraperBadge = '<span class="badge badge-amber">bespoke</span>';
+    } else {
+      scraperBadge = `<span class="badge badge-green">${esc(p.scraperKind)}</span>`;
+    }
     return `<tr>
       <td><strong>${esc(p.name)}</strong><div class="meta-line"><code>${esc(p.id)}</code></div></td>
       <td>${scraperBadge}</td>
@@ -790,7 +814,22 @@ window.sortProviders = (col) => {
 window.toggleProvider = async (id, active) => {
   try {
     await callEdge('admin-toggle-provider', { provider_id: id, active });
-    toast(`Provider ${id} ${active ? 'enabled' : 'disabled'}`);
+    // Auto-trigger Algolia sync so the frontend Search grid reflects the
+    // change without a 6-hour cron wait. Fire-and-forget — if the dispatch
+    // fails we still consider the toggle a success; admin can re-run the
+    // sync manually from the Actions tab. Applies to both directions:
+    //   ON  → courses need to appear in courses_v2
+    //   OFF → stale records need to be removed from courses_v2
+    // (algolia_sync.py uses replace_all_objects so OFF sync drops them.)
+    let syncNote = '';
+    try {
+      await callEdge('admin-trigger-scraper', { workflow_id: 'sync-algolia.yml' });
+      syncNote = ' — Algolia sync running (~30s)';
+    } catch (syncErr) {
+      console.warn('Algolia sync dispatch failed:', syncErr);
+      syncNote = ' — Algolia sync dispatch failed, run sync-algolia.yml manually';
+    }
+    toast(`Provider ${id} ${active ? 'enabled' : 'disabled'}${syncNote}`);
   } catch (e) {
     toast('Failed: ' + e.message, true);
     loadProvidersTab();
