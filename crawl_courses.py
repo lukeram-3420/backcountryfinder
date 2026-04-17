@@ -25,7 +25,6 @@ import os
 import sys
 from collections import Counter, defaultdict
 from datetime import date, datetime
-from statistics import median
 
 import requests
 
@@ -71,14 +70,9 @@ def fetch_v2_courses():
 
 
 def classify(courses):
-    """Run every check against every row. Returns (issues, by_provider, medians)."""
+    """Run every check against every row. Returns (issues, by_provider)."""
     issues = defaultdict(list)
     by_provider = defaultdict(Counter)
-
-    # Global price median — for outlier detection
-    all_prices = [c["price"] for c in courses if c.get("price") and c["price"] > 0]
-    global_median = median(all_prices) if all_prices else 0
-    medians = {"all": global_median} if global_median else {}
 
     # Duplicate detection: provider_id + title + date_sort
     dup = defaultdict(list)
@@ -111,14 +105,11 @@ def classify(courses):
         if not c.get("avail"):
             flag("null_avail", "avail is null")
 
-        # Price
+        # Price — Initiative 4: zero/negative only. Null and >5x-median
+        # checks retired; validator no longer acts on them.
         p = c.get("price")
-        if p is None:
-            flag("null_price", "price is null")
-        elif p <= 0:
-            flag("bad_price", f"price = {p}", "critical")
-        elif global_median and p > 5 * global_median:
-            flag("price_outlier", f"${p} > 5× global median ${global_median:.0f}")
+        if p is not None and p <= 0:
+            flag("bad_price", f"price = {p} (auto-hidden by validator, escalates after 24h)", "critical")
 
         # Summary
         if not c.get("summary"):
@@ -176,7 +167,7 @@ def classify(courses):
     return issues, by_provider, medians
 
 
-def render_markdown(courses, issues, by_provider, medians):
+def render_markdown(courses, issues, by_provider):
     lines = []
     total = len(courses)
     providers = sorted({c.get("provider_id") for c in courses if c.get("provider_id")})
@@ -236,17 +227,6 @@ def render_markdown(courses, issues, by_provider, medians):
             lines.append(f"_…and {len(rows) - 10} more_")
         lines.append("")
 
-    # Price median reference
-    lines.append("## Price median (global)")
-    lines.append("Used for the `price_outlier` check (>5× median).")
-    lines.append("")
-    if medians.get("all"):
-        n = sum(1 for c in courses if c.get("price"))
-        lines.append(f"Global median: **${medians['all']:.0f}** across {n} priced courses.")
-    else:
-        lines.append("No priced courses to compute a median.")
-    lines.append("")
-
     return "\n".join(lines)
 
 
@@ -263,18 +243,17 @@ def main():
         courses = [c for c in courses if c.get("provider_id") == args.provider]
     print(f"Fetched {len(courses)} V2 courses", file=sys.stderr)
 
-    issues, by_provider, medians = classify(courses)
+    issues, by_provider = classify(courses)
 
     if args.json:
         payload = {
             "total": len(courses),
             "issues": dict(issues),
             "by_provider": {k: dict(v) for k, v in by_provider.items()},
-            "medians": medians,
         }
         out = json.dumps(payload, indent=2, default=str)
     else:
-        out = render_markdown(courses, issues, by_provider, medians)
+        out = render_markdown(courses, issues, by_provider)
 
     if args.out:
         with open(args.out, "w") as f:

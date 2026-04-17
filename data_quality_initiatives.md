@@ -4,7 +4,7 @@ Living reference for the data-quality cleanup mission. Each initiative below is 
 
 Order of execution: **Initiative 1 → 2 → 3 → 5 → 4.** Activity is a pure deletion (low risk, unblocks the audit backlog); location is a behaviour change (medium risk, benefits from cleaner audit ground); Summary Review is a workflow redesign (low-to-medium risk, benefits from the validator being quiet); Date sanity is an active provider-outreach loop (medium risk, benefits from every other queue being tame); Price sanity ports that same active-loop shape to the remaining passive warnings, re-using the course-id-scoped suppression mechanic.
 
-**Status (2026-04-17):** Initiatives 1, 2, 3, and 5 shipped. Initiative 4 planned (this document). Initiative 1 scraper-side in `5157faa`, admin fast-follow in `c83bd4a`. Initiative 2 in `5abb3f1`. Initiative 3 plan in `cd13bcc`, implementation in `615c5e9`. Initiative 5 plan in `8885144`, implementation in `300eae3`.
+**Status (2026-04-17):** Initiatives 1, 2, 3, 4, and 5 shipped. Initiative 1 scraper-side in `5157faa`, admin fast-follow in `c83bd4a`. Initiative 2 in `5abb3f1`. Initiative 3 plan in `cd13bcc`, implementation in `615c5e9`. Initiative 5 plan in `8885144`, implementation in `300eae3`. Initiative 4 plan in `1b5604c` (corrected scope replacing rejected `39eb59b` two-condition version), implementation in this commit.
 
 ---
 

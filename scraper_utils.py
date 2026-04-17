@@ -779,6 +779,7 @@ def log_price_change(course: dict) -> None:
             "date_sort": ds,
             "price": price,
             "currency": currency,
+            "bad_data": price <= 0,
         })
     except Exception as e:
         log.warning(f"price log failed for {pid}/{th}: {e}")

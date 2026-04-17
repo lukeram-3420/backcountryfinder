@@ -17,9 +17,7 @@ Usage:
 
 import hashlib
 import logging
-import re
 import sys
-import statistics
 from collections import defaultdict
 from datetime import datetime, date, timedelta
 
@@ -124,17 +122,6 @@ def reset_flags(provider_id: str):
     )
 
 
-def is_price_exception(title: str, provider_id: str, exceptions: list) -> bool:
-    """Return True if the title matches a validator_price_exceptions entry
-    for this provider (or globally when exc_provider is None)."""
-    title_lower = (title or "").strip().lower()
-    for (contains, exc_provider) in exceptions:
-        if contains and contains in title_lower:
-            if exc_provider is None or exc_provider == provider_id:
-                return True
-    return False
-
-
 def reset_warnings(provider_id: str):
     """Delete existing validator_warnings rows for this provider (clean slate)."""
     headers = {
@@ -146,20 +133,14 @@ def reset_warnings(provider_id: str):
     resp.raise_for_status()
 
 
-def write_warnings(provider_id: str, provider_name: str, email_only: list, price_exceptions: list):
-    """Write collected email-only warnings to validator_warnings table.
-
-    Price outlier warnings matching a validator_price_exceptions entry are
-    filtered out before writing.
-    """
+def write_warnings(provider_id: str, provider_name: str, email_only: list):
+    """Write collected email-only warnings to validator_warnings table."""
     if not email_only:
         return
     rows = []
     for i in email_only:
         check_type = i.get("check_type")
         if not check_type:
-            continue
-        if check_type == "price_outlier" and is_price_exception(i.get("title", ""), provider_id, price_exceptions):
             continue
         rows.append({
             "provider_id": provider_id,
@@ -189,10 +170,6 @@ def auto_clear_user_flags(provider_id: str, courses: list) -> tuple:
     if not flagged_courses:
         return [], []
 
-    # Build lookup for median price
-    prices = [c["price"] for c in courses if c.get("price") and c["price"] > 0]
-    median_price = statistics.median(prices) if prices else 0
-
     cleared = []
     still_open = []
 
@@ -202,7 +179,7 @@ def auto_clear_user_flags(provider_id: str, courses: list) -> tuple:
 
         if reason == "wrong_price":
             price = fc.get("price")
-            if price is not None and price > 0 and (median_price == 0 or price <= median_price * 5):
+            if price is not None and price > 0:
                 can_clear = True
 
         elif reason == "wrong_date":
@@ -359,53 +336,41 @@ def check_summaries(courses: list, auto_hidden: list, summary_exceptions: set) -
     return email_only
 
 
-def check_prices(courses: list, auto_hidden: list, price_exceptions: list, provider_id: str) -> list:
-    """Check 3: Price sanity.
+def check_prices(courses: list, auto_hidden: list, price_escalation_ids: set) -> list:
+    """Check 2: Price sanity (Initiative 4 — active provider loop).
+
+    One condition: zero/negative price auto-hides on first detection. Null
+    price is ignored entirely — some listings legitimately omit a displayed
+    price and the frontend renders gracefully. No median comparison.
+
+    `price_escalation_ids` is the pre-computed set of course_ids (reconstructed
+    from course_price_log rows 24+ hours old). Any zero/negative course in
+    that set has its flag_reason upgraded to 'invalid_price_escalated' — the
+    admin UI filters on that suffix to render the Flags tab Price escalations
+    section.
 
     Priority stack per course:
-      1. validator_suppressions matching 'invalid price' → skip entire check.
-      2. validator_price_exceptions → skip the >5x median outlier warning
-         (runs just before the outlier branch, below).
-      3. Automated null-price / zero-or-negative / outlier checks.
+      1. validator_suppressions (course_id-scoped Clears) matching
+         'invalid_price' → skip the check.
+      2. Zero/negative auto-hide + 24h escalation upgrade.
     """
-    email_only = []
-    prices = [c["price"] for c in courses if c.get("price") and c["price"] > 0]
-    has_prices = len(prices) > 0
-    median_price = statistics.median(prices) if prices else 0
+    email_only: list = []
 
     for c in courses:
-        # 1. Admin suppression — skip entire check.
-        if any_check_suppressed(c.get("title", ""), ["invalid price"]):
+        cid = c.get("id") or ""
+        title = c.get("title", "")
+
+        # 1. Admin suppression — course-id-scoped Clears write here.
+        if any_check_suppressed(title, ["invalid_price"], course_id=cid):
             continue
 
         price = c.get("price")
+        if price is None or price > 0:
+            continue
 
-        if price is None and has_prices:
-            email_only.append({
-                "check": "Price sanity",
-                "check_type": "null_price",
-                "title": c["title"],
-                "issue": "Price is null (other courses have prices)",
-                "value": "null",
-                "id": c["id"],
-            })
-        elif price is not None and price <= 0:
-            flag_course(c["id"], f"invalid price: {price}", auto_hidden, title=c.get("title",""))
-        elif price is not None and median_price > 0 and price > median_price * 5:
-            title_lower = c["title"].lower()
-            if any(kw in title_lower for kw in ("logan", "expedition", "traverse")):
-                continue
-            if is_price_exception(c["title"], provider_id, price_exceptions):
-                logging.info(f"Skipping price exception: {c['title']}")
-                continue
-            email_only.append({
-                "check": "Price sanity",
-                "check_type": "price_outlier",
-                "title": c["title"],
-                "issue": f"Price ${price} is >5x median (${median_price:.0f})",
-                "value": str(price),
-                "id": c["id"],
-            })
+        # 2. Zero/negative — auto-hide + optional escalation.
+        reason = "invalid_price_escalated" if cid in price_escalation_ids else "invalid_price"
+        flag_course(cid, reason, auto_hidden, title=title)
 
     return email_only
 
@@ -428,6 +393,37 @@ def load_escalation_candidates(provider_id: str) -> set:
         logging.warning(f"load_escalation_candidates: {e}")
         return set()
     return {r["course_id"] for r in rows if r.get("course_id")}
+
+
+def load_price_escalation_candidates(provider_id: str) -> set:
+    """Initiative 4 — return the set of course_ids that have a log row in
+    course_price_log older than 24 hours. Any zero/negative-priced course in
+    this set has been in the bad-price state long enough to warrant a
+    provider touchpoint, so check_prices upgrades flag_reason to
+    'invalid_price_escalated'.
+
+    Reconstructs course_ids from (provider_id, date_sort, title_hash) per V2
+    id format: '{provider}-{date_sort or flex}-{title_hash}'. course_price_log
+    has no course_id column — the V2 id is derivable from its grouping keys.
+    """
+    cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+    try:
+        rows = sb_get("course_price_log", {
+            "provider_id": f"eq.{provider_id}",
+            "logged_at": f"lte.{cutoff}",
+            "select": "title_hash,date_sort",
+        })
+    except Exception as e:
+        logging.warning(f"load_price_escalation_candidates: {e}")
+        return set()
+    ids: set = set()
+    for r in rows:
+        th = r.get("title_hash")
+        if not th:
+            continue
+        ds = r.get("date_sort") or "flex"
+        ids.add(f"{provider_id}-{ds}-{th}")
+    return ids
 
 
 def check_dates(courses: list, auto_hidden: list, escalation_ids: set) -> list:
@@ -770,18 +766,6 @@ def main():
         pid = row.get("provider_id")
         whitelisted.add((title, pid if pid else None))
 
-    # Load price exceptions
-    exception_rows = []
-    try:
-        exception_rows = sb_get("validator_price_exceptions", {"select": "title_contains,provider_id"})
-    except Exception as e:
-        print(f"  ⚠ Could not load validator_price_exceptions: {e}")
-    price_exceptions = [
-        ((r.get("title_contains") or "").strip().lower(), r.get("provider_id"))
-        for r in exception_rows
-    ]
-    logging.info(f"Loaded {len(price_exceptions)} price exceptions")
-
     # Load admin suppressions (from "Clear all" in the Flags tab). A suppression
     # row prevents the validator from re-flagging the same (title, flag_reason
     # category) combo on subsequent runs.
@@ -803,6 +787,12 @@ def main():
     # auto-hidden course in this set, routing it to the Flags tab.
     escalation_ids = load_escalation_candidates(provider_id)
     logging.info(f"Loaded {len(escalation_ids)} escalation candidates (24h+)")
+
+    # Initiative 4 — same pattern, sourced from course_price_log. Any
+    # zero/negative-priced course with a price-log row 24h+ old escalates
+    # to the Flags tab Price escalations section.
+    price_escalation_ids = load_price_escalation_candidates(provider_id)
+    logging.info(f"Loaded {len(price_escalation_ids)} price escalation candidates (24h+)")
 
     # Initiative 3 — load summary exceptions for this provider. Entries are
     # admin-saved summary hashes; the bleed check skips any group matching.
@@ -851,7 +841,7 @@ def main():
     email_only = []
 
     email_only.extend(check_summaries(courses, auto_hidden, summary_exceptions))
-    email_only.extend(check_prices(courses, auto_hidden, price_exceptions, provider_id))
+    email_only.extend(check_prices(courses, auto_hidden, price_escalation_ids))
     email_only.extend(check_dates(courses, auto_hidden, escalation_ids))
     email_only.extend(check_availability(courses, auto_hidden))
     email_only.extend(check_duplicates(courses, auto_hidden, whitelisted, provider_id))
@@ -891,7 +881,7 @@ def main():
 
     # Write email-only warnings to validator_warnings table (replaces email report)
     try:
-        write_warnings(provider_id, provider_name, email_only, price_exceptions)
+        write_warnings(provider_id, provider_name, email_only)
     except Exception as e:
         print(f"  ⚠ Could not write validator_warnings: {e}")
 
