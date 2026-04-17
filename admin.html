@@ -294,7 +294,7 @@
     <!-- TAB: PIPELINE -->
     <div class="tab-panel hidden" id="panel-pipeline">
       <details class="instructions"><summary>How to use this tab</summary><p><strong>Discovery Cloud</strong> (top) controls the search terms the weekly <code>refresh_discovery_cloud.py</code> + <code>discover_providers.py</code> cron uses to find new providers. Activity terms come from course-title bigrams across 2+ providers; location terms come from provider locations + location mappings. Add a manual term to search for niches not yet in your data. Click <strong>Remove</strong> to block a term — it stays in the table greyed out and the refresh script will not re-add it on its next run. Click <strong>Restore</strong> to un-block. <strong>Quality</strong> shows "X found / Y skipped" — &gt;80% skip rate (with 5+ total) gets a warning.</p>
-      <p><strong>Provider pipeline</strong> (bottom): providers already live in the Providers tab are auto-hidden. This list shows candidates still to be onboarded. Click <strong>Add provider</strong> to paste a URL — Claude Haiku fetches the site and pre-fills name, location, platform, complexity, priority, plus Google Places rating. Click <strong>Copy prompt ↗</strong> on any row to copy a Claude Code instruction for building the scraper. Column headers for Name, Platform, Status, Priority are clickable to sort. Click Edit to change status/platform/priority/notes inline.</p></details>
+      <p><strong>Provider pipeline</strong> (bottom): providers already live in the Providers tab are auto-hidden. This list shows candidates still to be onboarded. Click <strong>Add provider</strong> to paste a URL — Claude Haiku fetches the site and pre-fills name, location, platform, complexity, priority, plus Google Places rating. Click the small <strong>Detect</strong> button in the Platform column to re-run signature detection (fetches the homepage, matches against <code>PLATFORM_SIGNATURES</code>) — useful for rows Haiku guessed wrong. Click <strong>Copy prompt ↗</strong> on any row to copy a Claude Code instruction for building the scraper. Column headers for Name, Platform, Status, Priority are clickable to sort. Click Edit to change status/platform/priority/notes inline.</p></details>
 
       <!-- Discovery Cloud -->
       <div class="section">
@@ -758,12 +758,13 @@ function renderProvidersTable() {
     const runBtn = `<button class="btn btn-small" onclick="window.triggerScraper('${wf}')">Run</button>`;
     const validateBtn = `<button class="btn btn-small" id="validate-btn-${esc(p.id)}" onclick="window.triggerValidate('${esc(p.id)}')">Validate</button>`;
     const platformLabel = p.booking_platform ? esc(p.booking_platform) : '<span style="color:var(--text-tertiary);">—</span>';
+    const detectBtn = `<button class="btn btn-small" id="detect-btn-provider-${esc(p.id)}" onclick="window.detectProviderPlatform('providers','${esc(p.id)}')" title="Fetch the provider's homepage and re-detect its booking platform">Detect</button>`;
     const scraperBadge = p.scraperBuilt
       ? '<span class="badge badge-green">Yes</span>'
       : '<span class="badge badge-red">No</span>';
     return `<tr>
       <td><strong>${esc(p.name)}</strong><div class="meta-line"><code>${esc(p.id)}</code></div></td>
-      <td>${platformLabel}</td>
+      <td>${platformLabel} ${detectBtn}</td>
       <td>${scraperBadge}</td>
       <td><label class="toggle"><input type="checkbox" ${p.active ? 'checked' : ''} onchange="window.toggleProvider('${esc(p.id)}', this.checked)"><span class="toggle-slider"></span></label></td>
       <td>${p.lastRun ? fmt(p.lastRun.run_at) : '—'}</td>
@@ -792,6 +793,30 @@ window.toggleProvider = async (id, active) => {
     loadProvidersTab();
   }
 };
+
+// Shared by both tabs. `table` is 'providers' or 'provider_pipeline', `id` is
+// the row's id column value. Resolves the website URL from the matching cache
+// entry (so the caller only has to pass the id), calls admin-detect-platform,
+// which PATCHes booking_platform server-side, then refreshes the local cache
+// so the UI reflects the new value without a full page reload.
+async function runDetectPlatform(table, id, btnId) {
+  const source = table === 'providers' ? cachedProviders : cachedPipeline;
+  const row = source.find(r => String(r.id) === String(id));
+  const url = row && (row.website || (table === 'providers' ? null : row.website));
+  if (!url) { toast('No website on row', true); return; }
+  const btn = btnId ? document.getElementById(btnId) : null;
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    const data = await callEdge('admin-detect-platform', { table, id, url });
+    toast(`Platform: ${data.platform}`);
+    if (table === 'providers') loadProvidersTab(); else loadPipelineTab();
+  } catch (e) {
+    toast('Failed: ' + e.message, true);
+    if (btn) { btn.disabled = false; btn.textContent = 'Detect'; }
+  }
+}
+window.detectProviderPlatform = (table, id) =>
+  runDetectPlatform(table, id, `detect-btn-${table === 'providers' ? 'provider' : 'pipeline'}-${id}`);
 
 window.triggerScraper = (workflow_id) => {
   confirmAction('Run scraper', `Trigger ${workflow_id}?`, async () => {
@@ -2104,11 +2129,15 @@ function renderPipelineTable() {
         const copyBtn = showCopy
           ? `<button class="btn btn-small" id="copy-pp-${r.id}" onclick="window.copyPipelinePrompt(${idArg})">Copy prompt ↗</button>`
           : '';
+        const detectBtn = r.website
+          ? `<button class="btn btn-small" id="detect-btn-pipeline-${esc(r.id)}" onclick="window.detectProviderPlatform('provider_pipeline',${idArg})" title="Fetch the homepage and re-detect the booking platform">Detect</button>`
+          : '';
+        const platformCell = (esc(r.platform || '') || '—') + (detectBtn ? ' ' + detectBtn : '');
         return `<tr>
           <td>${nameCell}</td>
           <td>${esc(r.location || '')}</td>
           <td>${ratingCell(r)}</td>
-          <td>${esc(r.platform || '') || '—'}</td>
+          <td>${platformCell}</td>
           <td>${esc(r.complexity || '') || '—'}</td>
           <td>${statusBadge(r.status)}</td>
           <td>${r.priority ?? '—'}</td>
