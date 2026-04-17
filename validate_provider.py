@@ -15,6 +15,7 @@ Usage:
     python validate_provider.py <provider_id>
 """
 
+import hashlib
 import logging
 import re
 import sys
@@ -26,6 +27,7 @@ import requests
 
 from scraper_utils import (
     sb_get, sb_upsert, sb_patch, send_email,
+    generate_summaries_batch,
     SUPABASE_URL, SUPABASE_KEY,
 )
 
@@ -202,12 +204,9 @@ def auto_clear_user_flags(provider_id: str, courses: list) -> tuple:
             if fc.get("avail") != "open":
                 can_clear = True
 
-        elif reason == "bad_description":
-            summary = (fc.get("summary") or "").strip()
-            if summary:
-                can_clear = True
-
-        # button_broken and other → never auto-clear
+        # bad_description / button_broken / other → never auto-clear.
+        # Per Initiative 3, every user-flagged bad_description reaches the
+        # admin via the Summary Review tab for explicit acknowledgement.
 
         if can_clear:
             sb_patch("courses", f"id=eq.{fc['id']}", {
@@ -229,54 +228,118 @@ def auto_clear_user_flags(provider_id: str, courses: list) -> tuple:
 
 # ── Checks ───────────────────────────────────────────────────────────────────
 
-def check_summaries(courses: list, auto_hidden: list) -> list:
-    """Check 1: Summary quality.
+def _summary_hash(text: str) -> str:
+    """md5 of the stripped summary text. Matches the hash key scheme used
+    when admin saves write to validator_summary_exceptions."""
+    return hashlib.md5((text or "").strip().encode("utf-8")).hexdigest()
+
+
+def backfill_missing_summaries(courses: list, provider_id: str, provider_name: str) -> list:
+    """Initiative 3 — inline regeneration safety net. For any course with a
+    null/empty summary, call generate_summaries_batch() with the title as
+    the description seed (scrapers strip real description before upsert).
+    Writes results directly to courses.summary + courses.search_document.
+
+    Courses that still have no summary after this call are returned — they
+    surface in the Summary Review tab via the null-summary row source. The
+    validator does NOT auto-flag them.
+
+    Safety net, not quality floor: a mediocre title-seeded summary is
+    strictly better than a blank card.
+    """
+    missing = [c for c in courses if not (c.get("summary") or "").strip()]
+    if not missing:
+        return []
+
+    logging.info(f"Backfilling {len(missing)} missing summaries via inline Haiku…")
+    # generate_summaries_batch skips inputs with empty description, so seed
+    # with the title itself — same fallback admin-regenerate-summary uses.
+    inputs = [{
+        "id":          c["id"],
+        "title":       c["title"],
+        "description": c["title"],
+        "provider":    provider_name,
+        "provider_id": provider_id,
+    } for c in missing]
+    try:
+        results = generate_summaries_batch(inputs, provider_id=provider_id) or {}
+    except Exception as e:
+        logging.warning(f"backfill_missing_summaries: generate_summaries_batch failed: {e}")
+        results = {}
+
+    patched = 0
+    for c in missing:
+        r = results.get(c["id"]) or {}
+        summary = (r.get("summary") or "").strip() if isinstance(r, dict) else str(r or "").strip()
+        search_doc = r.get("search_document", "") if isinstance(r, dict) else ""
+        if not summary:
+            continue
+        try:
+            sb_patch("courses", f"id=eq.{c['id']}", {
+                "summary": summary,
+                "search_document": search_doc,
+            })
+            c["summary"] = summary
+            c["search_document"] = search_doc
+            patched += 1
+        except Exception as e:
+            logging.warning(f"backfill_missing_summaries: patch failed for {c['id']}: {e}")
+
+    logging.info(f"Backfill patched {patched}/{len(missing)} missing summaries")
+    # Return the courses still missing a summary (for reporting only)
+    return [c for c in missing if not (c.get("summary") or "").strip()]
+
+
+def check_summaries(courses: list, auto_hidden: list, summary_exceptions: set) -> list:
+    """Check 1: Summary quality (Initiative 3 — bleed-only).
 
     Priority stack per course:
       1. Admin suppression (validator_suppressions for 'summary mismatch')
          → skip the whole check.
-      2. Empty-summary / bleed automated checks.
+      2. validator_summary_exceptions — admin-saved summary text. If the
+         course's current (provider_id, md5(summary)) is in the exception
+         cache, skip the bleed check. One admin save clears the whole
+         collision group — including the other side on the NEXT run.
+      3. Bleed auto-hide: identical summary text across DIFFERENT titles
+         within the same provider. Second (and subsequent) occurrences
+         are auto-flagged with flag_reason='summary_bleed'. The first
+         occurrence stays visible and un-touched.
+
+    Empty-summary detection was retired — callers use
+    backfill_missing_summaries() before this function runs. Any course
+    that still has a null summary after backfill surfaces in the Summary
+    Review tab via the admin-side row query; it is NOT auto-flagged.
     """
-    email_only = []
+    email_only: list = []
 
-    # Empty summaries → EMAIL ONLY
-    for c in courses:
-        if any_check_suppressed(c.get("title", ""), ["summary mismatch"]):
-            continue
-        if not c.get("summary"):
-            email_only.append({
-                "check": "Summary quality",
-                "check_type": "summary_empty",
-                "title": c["title"],
-                "issue": "Summary is empty or null",
-                "value": "",
-                "id": c["id"],
-            })
-
-    # Duplicate summaries across different titles → EMAIL ONLY
-    # Without the source description stored in Supabase, the validator cannot
-    # reliably distinguish intentional shared summaries from genuine bleed.
-    summary_to_courses = defaultdict(list)
+    # Group by stripped summary text. Only texts shared across different
+    # course titles within this provider are bleed candidates.
+    summary_to_courses: dict = defaultdict(list)
     for c in courses:
         s = (c.get("summary") or "").strip()
         if s:
             summary_to_courses[s].append(c)
+
     for summary_text, group in summary_to_courses.items():
         titles = set(c["title"] for c in group)
         if len(titles) <= 1:
-            continue  # same title — intentional reuse
-        for c in group:
-            if any_check_suppressed(c.get("title", ""), ["summary mismatch"]):
+            continue  # same title across multiple rows = intentional reuse
+
+        # Exception lookup — skip the whole group if admin has reviewed
+        # this text for this provider.
+        if _summary_hash(summary_text) in summary_exceptions:
+            logging.info(f"Skipping summary bleed — admin-reviewed exception exists (titles: {', '.join(list(titles)[:3])}…)")
+            continue
+
+        # Stable ordering: first course by id keeps its summary visible.
+        # Every subsequent course in the group is auto-hidden.
+        ordered = sorted(group, key=lambda x: x.get("id") or "")
+        for c in ordered[1:]:
+            if any_check_suppressed(c.get("title", ""), ["summary mismatch", "summary_bleed"]):
                 continue
             other_titles = [t for t in titles if t != c["title"]]
-            email_only.append({
-                "check": "Summary quality",
-                "check_type": "summary_empty",
-                "title": c["title"],
-                "issue": f"Possible summary bleed: shared with {other_titles[0][:60]}",
-                "value": summary_text[:80],
-                "id": c["id"],
-            })
+            reason = f"summary_bleed: shares text with '{(other_titles[0] or '')[:80]}'"
+            flag_course(c["id"], reason, auto_hidden, title=c.get("title", ""))
 
     return email_only
 
@@ -679,6 +742,31 @@ def main():
     _suppressions_cache = suppression_rows
     logging.info(f"Loaded {len(_suppressions_cache)} admin suppressions")
 
+    # Initiative 3 — load summary exceptions for this provider. Entries are
+    # admin-saved summary hashes; the bleed check skips any group matching.
+    summary_exception_rows = []
+    try:
+        summary_exception_rows = sb_get("validator_summary_exceptions", {
+            "provider_id": f"eq.{provider_id}",
+            "select": "summary_hash",
+        })
+    except Exception as e:
+        print(f"  ⚠ Could not load validator_summary_exceptions: {e}")
+    summary_exceptions = {r["summary_hash"] for r in summary_exception_rows if r.get("summary_hash")}
+    logging.info(f"Loaded {len(summary_exceptions)} summary exceptions")
+
+    # Initiative 3 — inline backfill for null/empty summaries. Patches
+    # courses.summary + courses.search_document in place using a title-only
+    # seed so the bleed check below sees the fresh text. Safety net, not
+    # quality floor — admin reviews failures via the Summary Review tab.
+    print("  Backfilling missing summaries inline…")
+    try:
+        still_missing = backfill_missing_summaries(courses, provider_id, provider_name)
+        if still_missing:
+            print(f"  ⚠ {len(still_missing)} courses still have no summary after backfill — surfaced in Summary Review tab")
+    except Exception as e:
+        print(f"  ⚠ backfill_missing_summaries failed: {e}")
+
     # Get last run count
     last_count = None
     try:
@@ -700,7 +788,7 @@ def main():
     auto_hidden = []
     email_only = []
 
-    email_only.extend(check_summaries(courses, auto_hidden))
+    email_only.extend(check_summaries(courses, auto_hidden, summary_exceptions))
     email_only.extend(check_prices(courses, auto_hidden, price_exceptions, provider_id))
     email_only.extend(check_dates(courses, auto_hidden))
     email_only.extend(check_availability(courses, auto_hidden))

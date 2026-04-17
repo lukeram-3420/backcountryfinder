@@ -4,7 +4,7 @@ Living reference for the data-quality cleanup mission. Each initiative below is 
 
 Order of execution: **Initiative 1 → Initiative 2 → Initiative 3.** Activity is a pure deletion (low risk, unblocks the audit backlog); location is a behaviour change (medium risk, benefits from cleaner audit ground); Summary Review is a workflow redesign (low-to-medium risk, benefits from the validator being quiet).
 
-**Status (2026-04-17):** Initiatives 1 and 2 shipped. Initiative 1 scraper-side in `5157faa`, admin fast-follow in `c83bd4a`. Initiative 2 in `5abb3f1`. Initiative 3 planned below; implementation to follow.
+**Status (2026-04-17):** all three initiatives shipped. Initiative 1 scraper-side in `5157faa`, admin fast-follow in `c83bd4a`. Initiative 2 in `5abb3f1`. Initiative 3 plan in `cd13bcc`, implementation follows this note.
 
 ---
 

@@ -241,16 +241,16 @@
 
     <!-- TAB: SUMMARIES -->
     <div class="tab-panel hidden" id="panel-summaries">
-      <details class="instructions"><summary>How to use this tab</summary><p>Each summary has two fields: <strong>Card description</strong> (editable, shown to users on course cards) and <strong>Search document</strong> (read-only, keyword text for Algolia search — never shown to users). Edit the card description if needed, then Approve to publish both fields. If the search document looks wrong, click Regenerate to get fresh outputs for both fields. Courses with bad_description user flags appear here — approving a corrected summary unhides the course immediately.</p></details>
+      <details class="instructions"><summary>How to use this tab</summary><p>Exception inbox — summaries go live automatically. Only three cases land here: (1) <strong>summary bleed</strong> — the validator detected identical text on two different course titles and auto-hid the second occurrence, (2) <strong>generation failed</strong> — the validator's inline backfill could not produce a summary for a course with null text (visible card, blank summary), (3) <strong>user bad_description reports</strong> — someone flagged the description as bad. Edit the <strong>Card description</strong> textarea (shown on cards) as needed, then click <strong>Save</strong>. Save writes the text, clears any auto-flag or user flag on the course, and records an exception so the validator does not re-flag the same summary text on future runs. Click <strong>Regenerate</strong> for a fresh Haiku pass if you want a different starting point. The <strong>Search document</strong> is keyword text for Algolia and is not shown to users.</p></details>
       <div class="section">
-        <h2>Pending summaries</h2>
+        <h2>Exceptions</h2>
         <div id="summaries-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
       </div>
     </div>
 
     <!-- TAB: FLAGS -->
     <div class="tab-panel hidden" id="panel-flags">
-      <details class="instructions"><summary>How to use this tab</summary><p>Auto-hidden courses are hidden from the site until the flag is resolved. Use Diagnose on duplicates to let Haiku determine if it is safe to whitelist or needs a scraper fix. Use Regenerate to fix empty or mismatched summaries. Warnings are courses still visible on the site but with data quality issues — use Mark as expected to permanently suppress price outliers. Click Re-validate all to refresh flags and warnings after making fixes. Flags and warnings auto-refresh after each validate run. Column headers in the User Reports and Auto-flags tables are clickable to sort ascending or descending.</p></details>
+      <details class="instructions"><summary>How to use this tab</summary><p>Auto-hidden courses are hidden from the site until the flag is resolved. Use Diagnose on duplicates to let Haiku determine if it is safe to whitelist or needs a scraper fix. Summary-related issues (bleed, user bad_description reports, generation failures) go to the Summary Review tab — this tab only surfaces duplicates, price problems, and date/availability issues. Warnings are courses still visible on the site but with data quality issues — use Mark as expected to permanently suppress price outliers. Click Re-validate all to refresh flags and warnings after making fixes. Flags and warnings auto-refresh after each validate run. Column headers in the User Reports and Auto-flags tables are clickable to sort ascending or descending.</p></details>
       <div class="stats-row" style="grid-template-columns:repeat(3,1fr);">
         <div class="stat-card"><div class="stat-label">User reports</div><div class="stat-value" id="stat-flags-user">—</div></div>
         <div class="stat-card"><div class="stat-label">Auto-hidden</div><div class="stat-value" id="stat-flags-auto" style="color:var(--red);">—</div></div>
@@ -1048,71 +1048,122 @@ window.saveLocationMapping = async (id) => {
   } catch (e) { toast('Failed: ' + e.message, true); }
 };
 
-// ── Tab 3: Summaries ─────────────────────────────
+// ── Tab 3: Summary Review (Initiative 3 — exception inbox) ──────
+// Three row sources merged client-side: summary bleed auto-flags,
+// bad_description user reports, and null-summary generation failures.
+let cachedSummaryExceptions = [];
+
+function sumKey(course_id) { return btoa(String(course_id)).replace(/[^A-Za-z0-9]/g, ''); }
+
 async function loadSummariesTab() {
+  const target = document.getElementById('summaries-wrap');
+  target.innerHTML = '<div class="loading"><span class="spinner"></span>Loading…</div>';
   try {
-    const rows = await sbSelect('course_summaries', { eq: { approved: false }, order: { col: 'created_at', ascending: false } });
-    if (!rows.length) {
-      document.getElementById('summaries-wrap').innerHTML = '<div class="loading">No pending summaries</div>';
+    const [bleed, userFlagged, nullSummary] = await Promise.all([
+      sb.from('courses')
+        .select('id,provider_id,title,summary,search_document,flag_reason')
+        .eq('auto_flagged', true)
+        .like('flag_reason', 'summary_bleed%')
+        .limit(500),
+      sb.from('courses')
+        .select('id,provider_id,title,summary,search_document,flagged_reason,flagged_note')
+        .eq('flagged', true)
+        .eq('flagged_reason', 'bad_description')
+        .limit(500),
+      sb.from('courses')
+        .select('id,provider_id,title,summary,search_document')
+        .is('summary', null)
+        .eq('active', true)
+        .limit(500),
+    ]);
+
+    const merged = new Map();
+    (bleed.data || []).forEach(r => merged.set(r.id, { ...r, _reason: 'summary_bleed', _label: 'Bleed', _note: r.flag_reason || '' }));
+    (userFlagged.data || []).forEach(r => {
+      if (!merged.has(r.id)) merged.set(r.id, { ...r, _reason: 'bad_description', _label: 'User flag', _note: r.flagged_note || '' });
+    });
+    (nullSummary.data || []).forEach(r => {
+      if (!merged.has(r.id)) merged.set(r.id, { ...r, _reason: 'generation_failed', _label: 'Generation failed', _note: '' });
+    });
+
+    cachedSummaryExceptions = [...merged.values()];
+    if (!cachedSummaryExceptions.length) {
+      target.innerHTML = '<div class="loading">No exceptions — summary queue is clean ✓</div>';
       return;
     }
-    document.getElementById('summaries-wrap').innerHTML = rows.map(r => {
-      const key = btoa(r.provider_id + '|' + r.title).replace(/=/g,'');
-      const hasSD = (r.search_document || '').trim();
+
+    target.innerHTML = cachedSummaryExceptions.map(r => {
+      const key = sumKey(r.id);
+      const badgeClass = r._reason === 'summary_bleed' ? 'badge-amber'
+        : r._reason === 'bad_description' ? 'badge-red' : 'badge-grey';
+      const noteLine = r._note ? `<div class="meta-line" style="margin-top:4px;">${esc(r._note)}</div>` : '';
       return `
       <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;margin-bottom:12px;">
-        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;gap:10px;flex-wrap:wrap;">
           <strong>${esc(r.title)}</strong>
-          <div><code>${esc(r.provider_id)}</code> ${r.pending_reason ? `<span class="badge badge-amber">${esc(r.pending_reason)}</span>` : ''}</div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <code>${esc(r.provider_id)}</code>
+            <span class="badge ${badgeClass}">${esc(r._label)}</span>
+          </div>
         </div>
-        <label style="font-size:12px;color:var(--text-muted);margin-bottom:4px;display:block;">Card description (editable)</label>
+        ${noteLine}
+        <label style="font-size:12px;color:var(--text-muted);margin:8px 0 4px;display:block;">Card description (editable)</label>
         <textarea id="sum-${key}">${esc(r.summary || '')}</textarea>
-        ${hasSD ? `<label style="font-size:12px;color:var(--text-muted);margin:8px 0 4px;display:block;">Search document (read-only)</label>
-        <textarea id="sd-${key}" readonly style="background:var(--bg-alt);opacity:0.8;cursor:default;">${esc(r.search_document)}</textarea>` : ''}
+        <label style="font-size:12px;color:var(--text-muted);margin:8px 0 4px;display:block;">Search document (read-only)</label>
+        <textarea id="sd-${key}" readonly style="background:var(--bg-alt);opacity:0.8;cursor:default;">${esc(r.search_document || '')}</textarea>
         <div class="row-actions" style="margin-top:10px;">
-          <button class="btn btn-small btn-primary" onclick="window.approveSummary('${esc(r.provider_id)}', '${esc(r.title).replace(/'/g, "&#39;")}', '${esc(r.course_id || '')}')">Approve</button>
-          <button class="btn btn-small btn-danger" onclick="window.rejectSummary('${esc(r.provider_id)}', '${esc(r.title).replace(/'/g, "&#39;")}')">Reject</button>
-          <button class="btn btn-small" onclick="window.regenerateSummary('${esc(r.provider_id)}', '${esc(r.title).replace(/'/g, "&#39;")}')">Regenerate</button>
+          <button class="btn btn-small btn-primary" onclick="window.saveSummary('${esc(r.id)}')">Save</button>
+          <button class="btn btn-small" onclick="window.regenerateExceptionSummary('${esc(r.id)}')">Regenerate</button>
         </div>
       </div>`;
     }).join('');
   } catch (e) {
-    document.getElementById('summaries-wrap').innerHTML = `<div class="loading">Error: ${esc(e.message)}</div>`;
+    target.innerHTML = `<div class="loading">Error: ${esc(e.message)}</div>`;
   }
 }
-function sumKey(pid, title) { return btoa(pid + '|' + title).replace(/=/g, ''); }
-window.approveSummary = async (provider_id, title, course_id) => {
-  title = title.replace(/&#39;/g, "'");
-  const summary = document.getElementById('sum-' + sumKey(provider_id, title)).value.trim();
-  try { await callEdge('admin-approve-summary', { provider_id, title, summary, course_id }); toast('Summary approved'); loadSummariesTab(); }
-  catch (e) { toast('Failed: ' + e.message, true); }
-};
-window.rejectSummary = (provider_id, title) => {
-  title = title.replace(/&#39;/g, "'");
-  confirmAction('Reject summary', 'Mark this summary as rejected?', async () => {
-    try { await callEdge('admin-reject-summary', { provider_id, title }); toast('Summary rejected'); loadSummariesTab(); }
-    catch (e) { toast('Failed: ' + e.message, true); }
-  });
-};
-window.regenerateSummary = async (provider_id, title) => {
-  title = title.replace(/&#39;/g, "'");
+
+window.saveSummary = async (course_id) => {
+  const row = cachedSummaryExceptions.find(r => r.id === course_id);
+  if (!row) { toast('Row not found in cache', true); return; }
+  const key = sumKey(course_id);
+  const summary = document.getElementById('sum-' + key).value.trim();
+  if (!summary) { toast('Summary cannot be empty', true); return; }
+  const search_document = document.getElementById('sd-' + key).value;
   try {
-    // Fetch a description from any matching course row
-    const { data } = await sb.from('courses').select('description').eq('provider_id', provider_id).eq('title', title).limit(1);
-    const description = data?.[0]?.description || title;
-    const res = await callEdge('admin-regenerate-summary', { provider_id, title, description });
-    // Update textareas inline if response has new values
-    const key = sumKey(provider_id, title);
+    await callEdge('admin-save-summary', {
+      course_id,
+      summary,
+      search_document,
+      reason: row._reason,
+    });
+    toast('Saved · flag cleared · exception recorded');
+    // Optimistic removal — row drops from the tab immediately
+    cachedSummaryExceptions = cachedSummaryExceptions.filter(r => r.id !== course_id);
+    loadSummariesTab();
+  } catch (e) { toast('Failed: ' + e.message, true); }
+};
+
+window.regenerateExceptionSummary = async (course_id) => {
+  const row = cachedSummaryExceptions.find(r => r.id === course_id);
+  if (!row) { toast('Row not found in cache', true); return; }
+  const key = sumKey(course_id);
+  try {
+    // Scrapers strip description before upsert, so Haiku falls back to
+    // the title as the description seed — same as the validator backfill.
+    const res = await callEdge('admin-regenerate-summary', {
+      provider_id: row.provider_id,
+      title: row.title,
+      description: row.title,
+    });
     if (res?.summary) {
-      const sumEl = document.getElementById('sum-' + key);
-      if (sumEl) sumEl.value = res.summary;
+      const el = document.getElementById('sum-' + key);
+      if (el) el.value = res.summary;
     }
     if (res?.search_document) {
-      const sdEl = document.getElementById('sd-' + key);
-      if (sdEl) sdEl.value = res.search_document;
+      const el = document.getElementById('sd-' + key);
+      if (el) el.value = res.search_document;
     }
-    toast('Regenerated');
-    loadSummariesTab();
+    toast('Regenerated — click Save to commit');
   } catch (e) { toast('Failed: ' + e.message, true); }
 };
 
@@ -1207,7 +1258,6 @@ window.sortAutoFlags = (col) => {
 
 function parseFlagAction(reason) {
   const r = (reason || '').toLowerCase();
-  if (r.startsWith('summary mismatch') || r.startsWith('summary bleed')) return { type: 'regenerate' };
   if (r.startsWith('duplicate')) return { type: 'duplicate' };
   if (r.startsWith('invalid price')) return { type: 'mark_expected' };
   return { type: 'none' };
@@ -1215,8 +1265,6 @@ function parseFlagAction(reason) {
 
 function prettyReason(reason) {
   if (!reason) return '—';
-  const m = reason.match(/^summary mismatch: '([^']+)'/i);
-  if (m) return `Summary mismatch: contains "${m[1]}"`;
   if (/^duplicate/i.test(reason)) return 'Duplicate: same title and date as another row';
   if (/^invalid price/i.test(reason)) return reason.replace(/^invalid price/i, 'Invalid price');
   if (/^past date/i.test(reason)) return 'Past date but still active';
@@ -1226,7 +1274,8 @@ function prettyReason(reason) {
 async function loadAutoFlags() {
   try {
     const { data } = await sb.from('courses').select('id,title,provider_id,flag_reason,booking_url').eq('auto_flagged', true).limit(2000);
-    const rows = data || [];
+    // summary_bleed auto-flags live in the Summary Review tab, not here.
+    const rows = (data || []).filter(r => !(r.flag_reason || '').startsWith('summary_bleed'));
     if (!rows.length) {
       autoFlagGroups = [];
       document.getElementById('auto-flags-wrap').innerHTML = '<div class="loading">No auto-flags</div>';
@@ -1273,9 +1322,7 @@ function renderAutoFlags() {
     const viewBtn = g.booking_url ? `<a class="btn btn-small" href="${esc(g.booking_url)}" target="_blank">View</a>` : '';
     let actionBtn = '';
     let note = '';
-    if (g.action.type === 'regenerate') {
-      actionBtn = `<button class="btn btn-small btn-primary" onclick="window.regenerateGroup('${sk}')">Regenerate</button>`;
-    } else if (g.action.type === 'mark_expected') {
+    if (g.action.type === 'mark_expected') {
       actionBtn = `<button class="btn btn-small btn-primary" onclick="window.markPriceExpected('${sk}')">Mark as expected</button>`;
     } else if (g.action.type === 'duplicate') {
       const dx = autoFlagDiagnosis[g.key];
@@ -1367,37 +1414,6 @@ window.clearGroup = (sk) => {
       } catch (e) { toast('Failed: ' + e.message, true); }
     }
   );
-};
-
-window.regenerateGroup = (sk) => {
-  const g = findGroupBySafeKey(sk); if (!g) return;
-  confirmAction('Regenerate summaries', `Regenerate summary for ${g.occurrences} course${g.occurrences === 1 ? '' : 's'} via Claude Haiku?`, async () => {
-    try {
-      for (const id of g.courseIds) {
-        const { data } = await sb.from('courses').select('provider_id,description').eq('id', id).limit(1);
-        const row = data?.[0];
-        if (!row) continue;
-        const resp = await callEdge('admin-regenerate-summary', {
-          provider_id: row.provider_id,
-          title: g.title,
-          description: row.description || g.title,
-        });
-        const newSummary = resp?.summary || '';
-        if (newSummary) {
-          await callEdge('admin-approve-summary', {
-            provider_id: row.provider_id,
-            title: g.title,
-            summary: newSummary,
-            course_id: id,
-          });
-        }
-      }
-      await clearGroupCourseIds(g.courseIds);
-      toast(`Regenerated · published · ${g.occurrences} flag${g.occurrences === 1 ? '' : 's'} cleared`);
-      removeAutoFlagGroup(g.key);
-      loadFlagsStats();
-    } catch (e) { toast('Failed: ' + e.message, true); }
-  });
 };
 
 window.markPriceExpected = (sk) => {
@@ -1504,7 +1520,6 @@ function prettyWarning(check_type, reason) {
     case 'all_sold':       return 'All dates sold out';
     case 'future_date':    return `Far future date: ${reason}`;
     case 'count_drop':     return `Course count drop: ${reason}`;
-    case 'summary_empty':  return `Missing or poor summary: ${reason}`;
     default:               return reason || check_type;
   }
 }
@@ -1573,8 +1588,6 @@ function renderWarnings() {
     let note = '';
     if (g.check_type === 'price_outlier') {
       actionBtn = `<button class="btn btn-small btn-primary" onclick="window.warningMarkExpected('${sk}')">Mark as expected</button>`;
-    } else if (g.check_type === 'summary_empty') {
-      actionBtn = `<button class="btn btn-small btn-primary" onclick="window.warningRegenerate('${sk}')">Regenerate</button>`;
     } else if (g.check_type === 'null_price' || g.check_type === 'null_avail' || g.check_type === 'future_date') {
       actionBtn = `<button class="btn btn-small" onclick="window.warningView('${sk}')">View</button>`;
     } else if (g.check_type === 'count_drop') {
@@ -1667,28 +1680,6 @@ window.savePriceException = async (sk) => {
     removeWarningGroup(g.key);
     loadFlagsStats();
   } catch (e) { toast('Failed: ' + e.message, true); }
-};
-
-window.warningRegenerate = (sk) => {
-  const g = findWarningGroupBySafeKey(sk); if (!g) return;
-  confirmAction('Regenerate summaries', `Regenerate summary for ${g.occurrences} course${g.occurrences === 1 ? '' : 's'} via Claude Haiku?`, async () => {
-    try {
-      for (const id of g.courseIds) {
-        const { data } = await sb.from('courses').select('provider_id,description').eq('id', id).limit(1);
-        const row = data?.[0];
-        if (!row) continue;
-        await callEdge('admin-regenerate-summary', {
-          provider_id: row.provider_id,
-          title: g.title,
-          description: row.description || g.title,
-        });
-      }
-      await deleteWarningRows(g.warningIds);
-      toast(`Regenerated and cleared ${g.occurrences}`);
-      removeWarningGroup(g.key);
-      loadFlagsStats();
-    } catch (e) { toast('Failed: ' + e.message, true); }
-  });
 };
 
 window.warningView = async (sk) => {

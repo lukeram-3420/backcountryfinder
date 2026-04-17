@@ -29,6 +29,7 @@ jobs:
           supabase functions deploy admin-approve-summary --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --no-verify-jwt
           supabase functions deploy admin-reject-summary --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --no-verify-jwt
           supabase functions deploy admin-regenerate-summary --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --no-verify-jwt
+          supabase functions deploy admin-save-summary --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --no-verify-jwt
           supabase functions deploy admin-resolve-flag --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --no-verify-jwt
           supabase functions deploy admin-clear-auto-flag --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --no-verify-jwt
           supabase functions deploy admin-toggle-provider --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --no-verify-jwt
