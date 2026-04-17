@@ -112,6 +112,12 @@ jobs:
       - name: Validate Hangfire Training
         run: python validate_provider.py hangfire
         continue-on-error: true
+      - name: Banff Adventures
+        run: python scraper_banff_adventures.py --group 0   # grouped scraper: add steps for --group 1/2/3 too, or accept the yellow drop badge
+        continue-on-error: true
+      - name: Validate Banff Adventures
+        run: python validate_provider.py banff-adventures
+        continue-on-error: true
       - name: Sync Algolia
         run: python algolia_sync.py --skip-settings
         continue-on-error: true
