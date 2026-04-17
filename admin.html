@@ -2315,8 +2315,8 @@ window.copyPipelinePrompt = async (id) => {
   // scraper-all.yml is what the prompt needs to flag explicitly.
   const isGrouped = rawPlatform === 'zaui';
   const runLine = isGrouped
-    ? `    run: python scraper_${moduleId}.py --group 0   # grouped scraper: add steps for --group 1/2/3 too, or accept the yellow drop badge`
-    : `    run: python scraper_${moduleId}.py`;
+    ? `         run: python scraper_${moduleId}.py --group 0   # grouped scraper: add steps for --group 1/2/3 too, or accept the yellow drop badge`
+    : `         run: python scraper_${moduleId}.py`;
 
   const lines = [
     '⚠️ Before proceeding: confirm you were launched with --dangerously-skip-permissions. If not, stop and tell the user to relaunch with `claude --dangerously-skip-permissions`.',
