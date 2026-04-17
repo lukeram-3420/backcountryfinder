@@ -360,146 +360,123 @@ Current far-future courses (>2yr) are EMAIL ONLY warnings. On the first validate
 
 ---
 
-## Initiative 4 — Price sanity + provider improvement loop
+## Initiative 4 — Price sanity: zero/negative auto-hide + escalation
 
 ### Goal
-Replace passive price warnings with an active provider-outreach loop, symmetric with Initiative 5's date model. Null price (with priced peers) and outlier price (>5x median) auto-hide immediately and escalate to a Flags-tab provider touchpoint after 24 hours. Retire the hardcoded Logan/Expedition/Traverse title skip list from validator code.
+One active check, one provider-outreach loop. Zero/negative price auto-hides immediately and escalates to the Flags tab after 24 hours confirmed via `course_price_log`. Delete null-price and outlier checks entirely — they do not come back in any form.
 
 ### Why
-- Today `null_price` and `price_outlier` are email-only warnings. The course stays live on the frontend with the questionable (or missing) price visible to users until admin notices.
-- A course scraped as $9999 by a parsing bug shows $9999 to every visitor until admin manually intervenes — trust hit, and the same bug will re-surface the same bogus number every 6 hours.
-- A course with no price degrades the card's information density and implies "click through to find out" — users bounce.
-- The hardcoded `("Logan", "Expedition", "Traverse")` title skip list in `validate_provider.py` is a code smell. Admin-added exceptions already live in `validator_price_exceptions`; the seed rows belong there too.
-- Initiative 5 proved the auto-hide + 24h log-confirmation + course-id suppression pattern. Ports directly to price.
+- Null-price and outlier warnings produced more admin noise than value.
+- Outlier (>5x median) is self-referential (provider's own median) and already required a hardcoded Logan/Expedition/Traverse carve-out — a check that solves for false positives rather than real bugs.
+- Null-price isn't a bug — some listings legitimately have no displayed price; the frontend renders gracefully.
+- Zero/negative is always wrong. Unambiguous signal, worth an active loop.
+- Initiative 5's auto-hide + 24h log-confirmation + course-id-scoped suppression pattern ports directly to this single condition.
 
-### Two conditions covered
-
+### One condition covered
 | Condition | Trigger | On first detection |
 |---|---|---|
-| A — Null price with priced peers | `price IS NULL` AND the provider has at least one priced course (the existing `has_prices` guard) | `auto_flagged=true`, `flag_reason='null_price'`. Hidden from frontend. Not yet in Flags tab |
-| B — Outlier (>5x median) | `price > median_price * 5` AND title not matched by `validator_price_exceptions` | `auto_flagged=true`, `flag_reason='price_outlier'`. Hidden from frontend. Not yet in Flags tab |
+| Zero/negative price | `price IS NOT NULL AND price <= 0` | `auto_flagged=true`, `flag_reason='invalid_price'`. Hidden from frontend. Not yet in Flags tab |
 
-Zero/negative price continues to auto-hide immediately with `flag_reason='invalid price: {value}'` — unchanged by this initiative. A $0 course is unambiguously broken and needs no provider loop. Providers whose entire catalog is null-priced (all custom/quote-based) are untouched by Condition A — the `has_prices` guard preserves them wholesale.
+Null price is ignored. No median comparison anywhere.
 
-### 24-hour escalation (both conditions)
-On every validate run, for each auto-flagged course with `flag_reason IN ('null_price', 'price_outlier')`:
-1. Look up the course in the batch result of:
-   ```sql
-   SELECT DISTINCT course_id
-   FROM course_availability_log
-   WHERE provider_id = '{pid}'
-     AND scraped_at <= now() - interval '24 hours'
-   ```
-2. If the course_id is in that set → upgrade `flag_reason` to `null_price_escalated` or `price_outlier_escalated`.
-3. Admin UI filters on `flag_reason LIKE '%_escalated'` to render the Flags tab price-escalation section (existing filter already covers date escalations — extend the UI filter, not the query).
+### 24-hour escalation via `course_price_log`
+One query per provider per run:
+```sql
+SELECT DISTINCT title_hash, date_sort
+FROM course_price_log
+WHERE provider_id = '{pid}'
+  AND logged_at <= now() - interval '24 hours'
+```
+Validator reconstructs course_ids from `(provider_id, date_sort, title_hash)` per V2 id format (`{provider}-{date_sort | 'flex'}-{title_hash}`) and builds a set. Any `invalid_price` course in that set upgrades to `invalid_price_escalated`.
 
-One query per provider per run — the `load_escalation_candidates(provider_id)` helper added in Initiative 5 is already exactly this query. Reuse it verbatim. Rename to `load_escalation_candidates` (no change) or leave named as-is — it's generic enough already.
+`log_price_change` already writes zero/negative prices (only null is skipped), so the signal exists from first scrape onward. New helper `load_price_escalation_candidates(provider_id)` — sibling to Initiative 5's availability-log version.
 
-### Why `course_availability_log`, not `course_price_log`
-`course_price_log` is the more "principled" signal for Condition B (it confirms this exact price has been observed for 24h+). But:
-- `log_price_change` skips null-price rows entirely — Condition A has no price-log signal at all.
-- A one-off outlier price produces exactly one `course_price_log` row on first scrape, same as `course_availability_log`'s first-seen entry. Same information content.
-- Using one signal for both conditions keeps the query shape identical to Initiative 5 and avoids a second query per provider.
+### Flag_reason progression
+- `invalid_price` → auto-hidden, NOT in Flags tab
+- `invalid_price_escalated` → auto-hidden AND in Flags tab with provider-email copy
 
-`course_price_log` stays sacred but unread by the validator under Initiative 4. A future initiative around price-change-detection (flag a 3x jump versus the last logged value) is the natural consumer.
+Renames the existing free-text `f"invalid price: {price}"` to clean `invalid_price`. Admin UI reads the numeric value from the course row.
 
-### Flag_reason progression (explicit two-state)
-- `null_price` / `price_outlier` → auto-hidden, NOT in Flags tab
-- `null_price_escalated` / `price_outlier_escalated` → auto-hidden AND in Flags tab with provider-email copy + actions
+### Admin workflow — Flags tab Price escalations section
+New sub-section between Date escalations and Warnings. Per row: title, provider_id, current price, booking_url, copyable email body ("listing price is showing as $0 or negative"), Open listing, **Clear**. One action only — no Mark-as-expected (no legitimate zero-price pattern worth whitelisting).
 
-Same shape as Initiative 5's date escalations. Validator re-evaluates on every run; if 24-hour log evidence exists, the suffix is set.
+### Clear — course-id-scoped suppression
+Reuses Initiative 5's mechanic unchanged. `validator_suppressions` write with `{course_id, provider_id, flag_reason: 'invalid_price'}`.
 
-### Admin workflow — Flags tab price-escalation section
-New sub-section directly below the Date escalations section. For each escalated row:
-- Course title, provider_id, **current price** (or `—` for null), booking_url
-- Copyable pre-written email body (text differs per condition — "The price on this listing appears to be missing…" vs "The price on this listing appears significantly higher than similar courses…")
-- **Open listing** link to `booking_url`
-- **Mark as expected** button — writes `{title_contains: <first 40 chars of title>, provider_id, reason: 'Admin-confirmed price'}` to `validator_price_exceptions`. Suppresses the title pattern across the whole provider going forward.
-- **Clear (suppress)** button — writes `{course_id, provider_id, flag_reason: <category>}` to `validator_suppressions`. Course-id-scoped suppression that handles zombies and orphans.
+### What gets deleted
+| Target | Fate |
+|---|---|
+| `check_prices` null-price branch | Deleted. No flag, no warning, no write when `price IS NULL` |
+| `check_prices` outlier branch | Deleted. No median comparison |
+| `is_price_exception` helper + `validator_price_exceptions` load at `main()` start | Deleted |
+| Hardcoded `("Logan", "Expedition", "Traverse")` skip list | Deleted |
+| Validator priority stack `validator_price_exceptions` layer | Deleted. Stack: suppressions → summary exceptions → whitelist |
+| `validator_warnings` types `null_price` / `price_outlier` | Deleted. `reset_warnings` flushes stale rows |
+| `prettyWarning()` and action-btn cases for `null_price` / `price_outlier` | Deleted from `admin.html` |
+| `markPriceExpected` / `warningMarkExpected` JS | Deleted (unreachable) |
+| `auto_clear_user_flags` 5x-median check on `wrong_price` | Simplified to just `price > 0` |
 
-Two admin actions because the semantics differ:
-- **Mark as expected** = "this price is correct; stop flagging this title pattern for this provider." Appropriate when the provider's catalog legitimately has premium multi-day courses (Logan-style) that trip the outlier threshold.
-- **Clear** = "I've dealt with this specific course; stop bothering me about it regardless of the price." Appropriate for scraper-bug zombies where the bad id persists in the DB even after the provider fixes it.
-
-Initiative 5 had only Clear because there's no "title-scoped date exception" concept. Prices have that concept in `validator_price_exceptions`, so both actions surface.
-
-### Clear behaviour — course-id-scoped suppression
-Reuses the Initiative 5 mechanic unchanged. `is_suppressed()` already matches on `course_id + flag_reason category` when the suppression row's `course_id` column is set. The category string derives from `flag_reason` by stripping the `_escalated` suffix and `:` value (e.g. `price_outlier_escalated` → `price_outlier` → `price_outlier` category). Validator priority stack entry 1 already documents both match modes.
+### What's unchanged
+- `course_price_log` append-only semantics (still sacred — never truncate/delete)
+- `log_price_change` change-detection logic (zero/negative still logged normally)
+- `validator_suppressions.course_id` (reused)
+- Scrapers
+- `wrong_price` intake via `notify-report`
 
 ### Schema change
-**None.** Reuses:
-- `validator_suppressions.course_id` (added in Initiative 5)
-- `validator_price_exceptions` (existing)
-- `course_availability_log` (existing)
+**One.** User runs manually in Supabase SQL editor before deploy:
 
-One manual SQL step to migrate the hardcoded title skip list:
 ```sql
-INSERT INTO validator_price_exceptions (title_contains, provider_id, reason) VALUES
-  ('Logan',      NULL, 'Multi-day premium expedition (migrated from hardcoded list)'),
-  ('Expedition', NULL, 'Multi-day premium expedition (migrated from hardcoded list)'),
-  ('Traverse',   NULL, 'Multi-day premium traverse (migrated from hardcoded list)');
+ALTER TABLE course_price_log
+ADD COLUMN IF NOT EXISTS bad_data boolean default false;
 ```
-Global-scope (`provider_id=NULL`) so the existing `is_price_exception` match behaviour is preserved.
 
-### Zombie mechanics (known, accepted)
-Price is not encoded in course_id (unlike date), so zombie risk is much lower here than in Initiative 5. When a provider fixes a price, the scraper upserts the SAME course_id with the new price; the validator's next run sees the price is fine, no flag fires. No zombie.
+`log_price_change` in `scraper_utils.py` sets `bad_data=true` on the insert payload when `price <= 0`, else `false`. Protects Phase 5 velocity-signal consumers from zero-priced rows polluting price-trend analytics without requiring read-time filter logic in every future consumer. Existing log rows default to `false` — acceptable because (a) historical zero-priced rows are rare, (b) Phase 5 hasn't started so there are no consumers reading stale data, (c) any remaining polluters can be backfilled with `UPDATE course_price_log SET bad_data=true WHERE price <= 0` if Phase 5 reveals a need.
 
-The zombie case for price is narrower:
-- Provider takes the listing down entirely — orphan course_id lingers in DB with bad price forever. Admin clicks Clear → course-id suppression → inert.
-- Scraper bug that can't be fixed provider-side (e.g. the provider's site has a genuinely malformed price field that the scraper reads as $9999 and no site-level fix is coming). Admin clicks Clear or Mark as expected, depending on whether it's a one-off or a title pattern.
+`validator_price_exceptions` table stays in Supabase, orphaned, drops at V2 Phase 7 with other retired surfaces.
 
-Both handled by the same two actions.
+### Zombie mechanics
+Price isn't encoded in course_id → when a provider fixes the price, the same course_id upserts with the new value, validator sees `price > 0`, no flag. No zombie. Remaining cases (abandoned listing, unfixable scraper bug) handled by one-click Clear.
 
-### First-deploy behaviour note
-Any course currently auto-flagged via the old warning flow is already surfaced in the Flags tab Warnings section — no such rows exist for price (warnings don't auto-flag). On the first validate run after Initiative 4 lands, every existing null-price-with-priced-peers course and every existing >5x-median outlier will:
-1. Auto-hide with `flag_reason='null_price'` or `'price_outlier'`
-2. Immediately escalate to `*_escalated` if the course has a `course_availability_log` row 24+ hours old (almost always true for courses scraped more than once)
-
-Expect a one-time spike in the Flags tab Price escalations section. Admin processes the backlog once, steady-state resumes. Same shape as Initiative 5's first-deploy note.
-
-For Condition A specifically: the backlog could be large if multiple providers have spotty price scraping. Recommend admin batch-reviews by Mark as expected per provider (one title pattern at a time) rather than Clear-per-course, to avoid accumulating thousands of course-id-scoped suppressions.
+### First-deploy behaviour
+Existing zero/negative courses with a `course_price_log` row from 24h+ ago auto-hide (most already are) and immediately escalate. Small one-time spike expected in the Flags tab — `$0` courses are rarer than the old null-price/outlier backlogs.
 
 ### Scope — what changes
-
 | Layer | Change |
 |---|---|
-| Supabase SQL (manual, before deploy) | Insert 3 rows into `validator_price_exceptions` migrating the hardcoded Logan/Expedition/Traverse list (see schema section above) |
-| `validate_provider.py` | Rewrite `check_prices`: null-price branch (with `has_prices` guard) auto-hides instead of emitting warning, flag_reason `null_price`. Outlier branch auto-hides instead of emitting warning, flag_reason `price_outlier`. Both branches apply escalation upgrade via `load_escalation_candidates` set (re-use Initiative 5 helper verbatim, passed in from `main()` alongside the date escalation set — same helper, called once). Zero/negative branch unchanged. Remove `null_price` and `price_outlier` cases from `write_warnings()`. Delete the hardcoded `("Logan", "Expedition", "Traverse")` skip list — `validator_price_exceptions` covers it post-migration. Suppression priority stack unchanged (priority-1 suppressions check already runs before this check) |
-| `admin.html` | New Flags tab sub-section "Price escalations" directly below Date escalations, rendering `flag_reason LIKE 'null_price_escalated' OR flag_reason LIKE 'price_outlier_escalated'`. Per row: current price display (dash for null), booking URL link, copyable email body (two templates), Open listing, Mark as expected, Clear buttons. Remove `null_price` and `price_outlier` from the Warnings sub-section (`prettyWarning()` and the action-btn switch). Update Flags tab "How to use this tab" help text |
-| `validator_warnings` | `null_price` and `price_outlier` are no longer valid `check_type` values. `reset_warnings` flushes existing rows automatically on first validate run — no migration needed. `validator_warnings` is effectively down to `count_drop` and `all_sold` after this initiative |
-| `crawl_courses.py` | If audit categories exist for price conditions: keep detection, update reason strings to note "auto-hidden immediately; escalation after 24h" (mirror Initiative 5's crawl_courses update) |
-| CLAUDE.md | Check 2 row rewritten with the two auto-hide conditions, escalation mechanic, and the zero/negative carve-out. `validator_warnings` check_type list loses `null_price` and `price_outlier`. Flags tab description gains the Price escalations sub-section. Mention hardcoded skip list removal in the validator section |
+| `validate_provider.py` | `check_prices` collapsed to one branch. Delete null-price, outlier, `is_price_exception`, hardcoded skip list, `validator_price_exceptions` load. Rename `flag_reason` from `f"invalid price: {price}"` to `invalid_price`. Add `load_price_escalation_candidates(provider_id)`. Apply escalation upgrade. Remove `null_price` / `price_outlier` from `write_warnings`. Simplify `wrong_price` auto-clear |
+| `scraper_utils.py` | `log_price_change` writes `bad_data=true` when `price <= 0`, else `false`. Only line touched — change-detection logic unchanged |
+| `admin.html` | New Flags tab "Price escalations" sub-section. Delete `null_price` / `price_outlier` from Warnings handlers + JS. Update Flags-tab help text |
+| `validator_warnings` | Types narrowed to `count_drop`, `all_sold` |
+| `crawl_courses.py` | Delete null-price and outlier audit categories. Update/add zero-negative category reason string |
+| `course_price_log` schema | New `bad_data boolean default false` column. Manual SQL before deploy |
+| CLAUDE.md | Check 2 rewritten (one condition). Validator priority stack simplified. `validator_warnings` type list trimmed. Flags tab section updated. `course_price_log` schema table gains `bad_data` row. Note `validator_price_exceptions` orphaned-pending-Phase 7 |
 
 ### Out of scope
-- Price-change-detection (flag courses whose price jumped >2x since last `course_price_log` entry) — natural future initiative; brings `course_price_log` into the read path.
-- Surfacing price history in the admin UI (graph or timeline of `course_price_log` per course).
-- Cross-provider median comparison — today's median is per-provider and stays that way.
-- Currency-aware median (all priced courses today use CAD default).
-- Migrating the existing `validator_warnings` rows — `reset_warnings` handles it at the start of each run.
-- A `providers.contact_email` column — admin finds contact info from the provider site, same as Initiative 5.
-- Changing the `wrong_price` user-flag auto-clear rule — current rule (price present + positive + ≤5x median) stays consistent with the new auto-hide condition. If a user flags a price and the price is later within range, both the user flag clears AND the auto_flag doesn't fire. No change needed.
+- Price-change-detection, cross-provider comparison — no replacement for deleted checks, permanent
+- Dropping `validator_price_exceptions` table — Phase 7
+- Changing `<= 0` threshold
 
-### Decisions made in planning
-- **One signal for both conditions:** `course_availability_log` for age confirmation, not `course_price_log`. Null-price has no price_log row, and the marginal precision of price_log for outliers isn't worth a second query branch.
-- **Retain `has_prices` peer guard:** null-price only auto-hides when the provider has at least one priced course in their catalog. Preserves all-custom/quote-based providers.
-- **Outlier threshold unchanged:** >5x median. Robust enough with the `validator_price_exceptions` migration covering multi-day premiums.
-- **Two admin actions:** Mark as expected (title-scoped, global-or-provider) AND Clear (course-id-scoped, surgical). Maps onto the existing `validator_price_exceptions` and `validator_suppressions` tables respectively.
-- **Zero/negative price unchanged:** stays as immediate auto-hide with its original reason string. No provider loop — $0 is unambiguously broken.
-- **Hardcoded list removal:** migrate Logan/Expedition/Traverse to `validator_price_exceptions` rather than keep in code. Admin-visible, admin-editable, consistent with the discoverability of new exceptions.
-- **Mark-as-expected scope on escalation:** provider-scoped, not global. An outlier on provider X shouldn't silently suppress the same title pattern on provider Y. `title_contains` = first 40 chars of title (or full title if shorter) to stay specific.
+### Decisions
+- **Null price ignored entirely** — no flag, no warning, no escalation. Not deferred, deleted.
+- **Outlier check deleted permanently** — no median, no delta, no percentage. Will not return.
+- **`course_price_log` as escalation signal** — user-specified.
+- **`bad_data` column on `course_price_log`** — user-specified. Set at write time by `log_price_change`. Protects Phase 5 analytics from zero-priced-row pollution without read-time filter logic.
+- **Clear only** — no Mark-as-expected; no legitimate zero-price whitelist pattern.
+- **`flag_reason` enum rename** — consistent with Initiative 5.
+- **`wrong_price` auto-clear simplified** to `price > 0`.
 
 ### Dependencies
 - Initiatives 1, 2, 3, 5 complete ✓
-- `validator_suppressions.course_id` column exists (added in Initiative 5) ✓
-- `load_escalation_candidates(provider_id)` helper exists (added in Initiative 5) ✓
-- `course_availability_log` populated for all providers ✓ (V2 Phase 2 onward)
-- Manual SQL step: 3 INSERT rows into `validator_price_exceptions` before the validator deploy
+- `validator_suppressions.course_id` exists ✓
+- `course_price_log` populated ✓
+- `course_price_log.bad_data` column added by user before deploy (manual SQL — see Schema change)
 
 ### Success criteria
-- Zero outlier-priced or null-priced-with-priced-peers courses visible on the frontend at steady state
-- Both conditions escalate to the Flags tab Price escalations section with provider-email copy after 24 hours confirmed via log
-- `validator_warnings` contains no `null_price` or `price_outlier` entries after next validate run
-- Admin Clear on a price escalation writes a course-id-scoped suppression; the course never re-escalates on subsequent runs
-- Admin Mark as expected on a price escalation writes a `validator_price_exceptions` row; the whole title pattern stops flagging for that provider
-- Hardcoded `("Logan", "Expedition", "Traverse")` skip list is removed from `validate_provider.py`; the three migrated `validator_price_exceptions` rows cover the same behaviour
-- Flags tab becomes the single place for price-related provider outreach (alongside date outreach from Initiative 5)
+- Zero/negative auto-hide on first detection
+- Escalate to Flags tab after 24h via `course_price_log`
+- Zero null-price or outlier flags written, ever
+- `is_price_exception`, hardcoded list, `validator_price_exceptions` load all gone from `validate_provider.py`
+- Admin Clear writes course-id suppression; no re-escalation
+- Flags tab Price escalations is the only price-related admin surface
+- `log_price_change` writes `bad_data=true` for zero/negative prices going forward
