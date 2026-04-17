@@ -2249,66 +2249,157 @@ window.addAndAnalyseProvider = async () => {
   }
 };
 
+// Signature-matched platforms (authoritative source: PLATFORM_SIGNATURES in
+// discover_providers.py). When r.platform is in this set, the Detect button
+// or discovery-cron signature match confirmed it — no "verify this" hedge.
+const DETECTED_PLATFORMS = new Set([
+  'rezdy', 'checkfront', 'zaui', 'fareharbor', 'bokun', 'peek',
+  'thinkific', 'shopify', 'wix', 'squarespace', 'woocommerce', 'wordpress',
+]);
+
+// Platform → reference scraper(s) mapping. Emitted directly in the prompt so
+// Claude Code skips the "re-derive the pattern library" step. Keep in sync
+// with CLAUDE.md's Provider-Specific Scrapers table.
+const PLATFORM_REFERENCE = {
+  rezdy:       { files: ['scraper_altus.py', 'scraper_msaa.py'],             note: 'Rezdy storefront API; JSON catalog.' },
+  checkfront:  { files: ['scraper_aaa.py'],                                   note: 'Checkfront API 3.0; token auth.' },
+  zaui:        { files: ['scraper_vanmtnguides.py', 'scraper_zaui_utils.py'], note: 'GROUPED scraper — accepts --group N (0..3). Add all 4 steps to scraper-all.yml or accept a structural ~50% drop-badge on the Providers tab.' },
+  woocommerce: { files: ['scraper_cwms.py'],                                  note: 'WooCommerce REST.' },
+  squarespace: { files: ['scraper_jht.py'],                                   note: 'Squarespace JSON feed — note site chrome may be Squarespace even when booking is Checkfront.' },
+  wordpress:   { files: ['scraper_bsa.py', 'scraper_srg.py', 'scraper_summit.py'], note: 'Custom WordPress / The Events Calendar / custom CPT.' },
+};
+
 window.copyPipelinePrompt = async (id) => {
   const r = cachedPipeline.find(x => String(x.id) === String(id));
   if (!r) return;
+
+  // Provider ids use hyphens (canmore-adventures). Python filenames must use
+  // underscores — `import canmore-adventures` is a syntax error. Keep both.
+  const moduleId = String(r.id).replace(/-/g, '_');
+  const rawPlatform = (r.platform || '').toLowerCase().trim();
+  const platformDetected = DETECTED_PLATFORMS.has(rawPlatform);
+  const platformLine = rawPlatform
+    ? `  platform:                ${rawPlatform} ${platformDetected ? '(signature-matched — use the reference scraper below)' : '(NOT detected — fetch the homepage yourself and identify the platform in Step 1)'}`
+    : `  platform:                unknown (not set — identify in Step 1)`;
+
+  // Reference scraper block. Only emitted when we have a high-confidence map.
+  const ref = platformDetected ? PLATFORM_REFERENCE[rawPlatform] : null;
+  const refBlock = ref
+    ? [
+        '',
+        `Reference scraper: ${ref.files.join(' + ')}.`,
+        ref.note,
+      ]
+    : [
+        '',
+        'Reference scraper: not pre-selected. In Step 1 pick the closest existing scraper_*.py based on what you find on the live site. If the platform is Playwright-required (JS-rendered), follow scraper_yamnuska.py. If static HTML with a hand-curated product list, follow scraper_skaha_rock_adventures.py. If bespoke Rails-ish, see scraper_iag.py / scraper_hvi.py.',
+      ];
+
+  // Grouped-scraper hint: only Zaui today (may grow). The `--group N` arg in
+  // scraper-all.yml is what the prompt needs to flag explicitly.
+  const isGrouped = rawPlatform === 'zaui';
+  const runLine = isGrouped
+    ? `    run: python scraper_${moduleId}.py --group 0   # grouped scraper: add steps for --group 1/2/3 too, or accept the yellow drop badge`
+    : `    run: python scraper_${moduleId}.py`;
+
   const lines = [
-    '⚠️ Before proceeding: check whether you were launched with --dangerously-skip-permissions. If you were not, stop immediately and tell the user to quit and relaunch with `claude --dangerously-skip-permissions` before pasting this prompt again. Do not proceed until confirmed.',
+    '⚠️ Before proceeding: confirm you were launched with --dangerously-skip-permissions. If not, stop and tell the user to relaunch with `claude --dangerously-skip-permissions`.',
     '',
-    'Read CLAUDE.md and add-provider-instructions.md in full before doing anything else.',
+    'Read CLAUDE.md + add-provider-instructions.md + scraper_utils.py in full. Read ONLY the reference scraper(s) named below — do not read the whole scraper_*.py library.',
     '',
-    'Then read every existing scraper_*.py file in the repo and scraper_utils.py to understand the full pattern library before writing any code. Do not modify any existing file.',
-    '',
-    'Please analyse this new provider for backcountryfinder.com and build the scraper.',
-    '',
-    'Provider details:',
-    `- Name: ${r.name || ''}`,
-    `- Website: ${r.website || ''}`,
-    `- Location: ${r.location || ''}`,
+    'Provider:',
+    `  name:                    ${r.name || ''}`,
+    `  id (slug, hyphens):      ${r.id}`,
+    `  module (filename):       ${moduleId}   →  scraper_${moduleId}.py`,
+    `  website:                 ${r.website || ''}`,
+    `  location:                ${r.location || ''}`,
+    platformLine,
   ];
-  if (r.platform && r.platform !== 'unknown') lines.push(`- Platform: ${r.platform} (unconfirmed — verify this)`);
-  if (r.notes) lines.push(`- Notes: ${r.notes}`);
+  if (r.notes) lines.push(`  notes:                   ${r.notes}`);
+  lines.push(...refBlock);
+
   lines.push(
     '',
-    'Step 1 — Analysis (do this before writing any code):',
-    '1. Fetch and inspect the live website — visit the main site and 2-3 course or booking pages',
-    '2. Confirm the booking platform (WooCommerce, Checkfront, Rezdy, custom, etc.)',
-    '3. Determine whether dates and prices are in static HTML or JS-rendered',
-    '4. Choose scraper approach: BeautifulSoup only, Playwright hybrid, or existing adapter',
-    '5. Choose the closest reference scraper from the existing scraper_*.py files based on what you found. State which file you chose and why. If no existing scraper matches the platform, build from scratch following scraper_utils.py conventions.',
+    'Required imports from scraper_utils:',
+    '    sb_upsert, stable_id_v2, title_hash,',
+    '    normalise_location, load_location_mappings,',
+    '    generate_summaries_batch,',
+    '    log_availability_change, log_price_change,',
+    '    update_provider_ratings,',
+    '    spots_to_avail, append_utm,',
+    '    parse_date_sort, is_future,',
+    '    UTM',
     '',
-    'Stop after Step 1 and state: platform confirmed, dates static or JS-rendered, scraper approach chosen, reference scraper chosen, and any unknowns that would affect the scraper. Do not proceed to Step 2 until Step 1 is complete.',
+    'Course upsert dict (minimum shape):',
+    `    id:                stable_id_v2("${r.id}", date_sort, title)`,
+    '    title, provider_id, location_raw, date_display, date_sort,',
+    '    duration_days, price (int, CAD), currency ("CAD"),',
+    '    spots_remaining, avail (spots_to_avail), image_url,',
+    '    booking_url (append_utm), active (avail != "sold"),',
+    '    custom_dates (bool), summary (""), search_document ("")',
+    '    location_canonical: OMIT THE KEY when normalise_location returns None.',
+    '                        Never set it to None — merge-duplicates would',
+    '                        destroy a previously-resolved canonical.',
     '',
-    'If the website is unreachable or bot-protected, state this clearly and do not proceed.',
+    'Never write: flagged, flagged_reason, flagged_note, auto_flagged,',
+    '             flag_reason, activity, activity_raw, badge, badge_canonical.',
     '',
-    'Step 2 — Deliverables (only after Step 1 is confirmed):',
+    'After upsert, in order:',
+    `  1. generate_summaries_batch(courses, provider_id="${r.id}")`,
+    '     — PATCHes summary + search_document. Strip the raw description',
+    '       before passing (see scraper_altus.py for the pattern).',
+    '  2. For each course: log_availability_change(c) + log_price_change(c)',
+    '     — append-only intelligence tables. Safe to call every run.',
     '',
-    'Create exactly these two files:',
-    `1. scraper_${r.id}.py — standalone scraper following the reference file pattern`,
-    `2. .github/workflows/scraper-${r.id}.yml — with all 5 standard secrets and a Validate step with continue-on-error: true`,
+    'Step 1 — Analysis. Before writing code, fetch the site + 2-3 course/booking',
+    'pages and produce this report exactly, then wait:',
     '',
-    'Do not create a SQL file in the repo. Instead, print the setup SQL as a code block in your response for manual review and execution in the Supabase SQL editor. The SQL should include:',
-    '- Provider INSERT with active=false',
-    '- location_mappings INSERTs',
-    'All with ON CONFLICT DO NOTHING.',
+    '    platform:            <value>',
+    '    confidence:          high (signature match) | medium (HTML inspection) | low (no evidence)',
+    '    rendering:           static HTML | JS-rendered | API',
+    '    approach:            BeautifulSoup | Playwright | REST API',
+    `    reference scraper:   ${ref ? ref.files.join(' + ') : '<chosen from the options above>'}`,
+    `    grouped scraper:     ${isGrouped ? 'yes (4 groups)' : 'no'}`,
+    '    two-pass:            yes (detail pages) | no',
+    '    unknowns:            <one-liners>',
     '',
-    'scraper-all.yml — read this file in full before touching it. Add two named steps at the end of the existing provider list only. Do not reorder or modify any existing steps:',
+    'If the site is bot-protected or the homepage returns non-200, say so and stop.',
     '',
-    `  - name: ${r.name || ''}`,
-    `    run: python scraper_${r.id}.py`,
-    '    continue-on-error: true',
-    `  - name: Validate ${r.name || ''}`,
-    `    run: python validate_provider.py ${r.id}`,
-    '    continue-on-error: true',
+    'Step 2 — Deliverables (after Step 1 Go from the user):',
+    '',
+    `  1. scraper_${moduleId}.py — standalone scraper following the reference file.`,
+    `  2. .github/workflows/scraper-${r.id}.yml — workflow_dispatch only,`,
+    '     5 standard secrets (SUPABASE_URL, SUPABASE_SERVICE_KEY, RESEND_API_KEY,',
+    '     GOOGLE_PLACES_API_KEY, ANTHROPIC_API_KEY), final Validate step with',
+    '     continue-on-error: true.',
+    '  3. Append to .github/workflows/scraper-all.yml (read it first, APPEND ONLY):',
+    '',
+    `       - name: ${r.name || ''}`,
+    runLine,
+    '         continue-on-error: true',
+    `       - name: Validate ${r.name || ''}`,
+    `         run: python validate_provider.py ${r.id}`,
+    '         continue-on-error: true',
+    '',
+    '  4. Print setup SQL as a code block (NOT a file) for me to paste into the',
+    '     Supabase SQL editor. Include:',
+    `       INSERT INTO providers (id, name, website, location, booking_platform, active) VALUES`,
+    `         ('${r.id}', '${(r.name || '').replace(/'/g, "''")}',`,
+    `          '${r.website || ''}', '${r.location || ''}',`,
+    `          ${rawPlatform ? `'${rawPlatform}'` : 'null'}, false)`,
+    `       ON CONFLICT DO NOTHING;`,
+    '     + any location_mappings INSERTs you identified. All ON CONFLICT DO NOTHING.',
     '',
     'Hard constraints:',
-    '- Never include flagged, flagged_reason, flagged_note, auto_flagged, flag_reason in any upsert payload',
-    '- Use normalise_location from scraper_utils — never define locally',
-    '- Provider INSERT in the printed SQL must use active=false',
-    '- If Playwright is needed, follow scraper_yamnuska.py exactly — never import Playwright at the top level of scraper_utils.py',
-    '- Read the chosen reference scraper and scraper-all.yml fully before writing anything',
-    '- Do not modify any existing scraper or workflow file',
-    '- Commit and push all changes when complete',
+    '  • Do not touch any existing scraper_*.py or workflow file. scraper-all.yml is append-only.',
+    '  • If parsing dates from HTML, scope regex matching to containers whose class/id matches',
+    '    (schedule|dates|upcoming|session|availability|calendar), case-insensitive. Never run',
+    '    date regex against soup.get_text(). See extract_schedule_text() in scraper_altus.py.',
+    '  • Filter non-course products (subscriptions, gift cards, memberships, digital downloads)',
+    '    via a module-level EXCLUDE_TITLES list of lowercased titles. See scraper_altus.py.',
+    '  • Playwright only if Step 1 says JS-rendered. Follow scraper_yamnuska.py pattern — never',
+    '    import Playwright at the top level of scraper_utils.py.',
+    '  • Commit + push when Step 2 is complete.',
   );
   const prompt = lines.join('\n');
   try {
