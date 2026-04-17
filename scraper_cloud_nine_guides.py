@@ -69,6 +69,11 @@ LOCATION_MAP = [
     ("waddington",    "Waddington, BC"),
     ("revelstoke",    "Revelstoke, BC"),
     ("golden",        "Golden, BC"),
+    # International expeditions — country codes are 2-letter (ISO 3166-1)
+    ("chamonix",      "Chamonix, FR"),
+    ("zermatt",       "Zermatt, CH"),
+    ("haute route",   "Chamonix, FR"),
+    ("lofoten",       "Lofoten, NO"),
 ]
 
 # Non-course products to skip.
