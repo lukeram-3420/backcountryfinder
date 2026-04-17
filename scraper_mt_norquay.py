@@ -31,7 +31,7 @@ from scraper_utils import (
     UTM,
 )
 from scraper_zaui_utils import (
-    zaui_get, fetch_unavailability,
+    fetch_categories, fetch_activity_list, fetch_unavailability,
     compute_bookable_dates, get_activity_group,
 )
 
@@ -49,17 +49,6 @@ BOOKING_URL_PATTERN = "https://banffnorquay.zaui.net/booking/web/?{utm}#/default
 LOOKAHEAD_DAYS = 180
 WINDOW_DAYS    = 7
 TOTAL_GROUPS   = 4
-
-# Categories to skip at the catalogue level (case-insensitive substring match).
-EXCLUDE_CATEGORY_NAMES = ("rentals",)
-
-# Norquay is a seasonal operator: via ferrata runs Jun–Oct, tubing Dec–Mar.
-# The shared fetch_categories/fetch_activity_list helpers probe with date=today,
-# which drops any category whose totalActivities is 0 for the probe date — so
-# in shoulder season we miss the next season's catalogue entirely. We probe
-# with dates 45 and 135 days from today to cover the following ~6 months
-# regardless of which season we run in.
-CATEGORY_PROBE_OFFSETS_DAYS = (45, 135)
 
 # Norquay's via ferrata operates on-mountain at Mt. Norquay. Title keyword
 # hints — first match wins; result is fed to normalise_location() so unknown
@@ -137,61 +126,34 @@ def main():
     end_date   = today + datetime.timedelta(days=LOOKAHEAD_DAYS)
     scraped_at = datetime.datetime.utcnow().isoformat()
 
-    # 1. Categories — probe multiple dates to surface seasonal categories
-    # whose totalActivities is 0 on the current date.
-    probe_dates = [today] + [today + datetime.timedelta(days=d) for d in CATEGORY_PROBE_OFFSETS_DAYS]
-    cats_by_id = {}
-    for pd in probe_dates:
-        try:
-            data = zaui_get(
-                PROVIDER["tenant_slug"], PROVIDER["portal_id"],
-                "activity/categories", {"date": pd.isoformat()},
-            )
-        except Exception as e:
-            log.warning(f"activity/categories failed for probe date {pd}: {e}")
-            continue
-        for c in data.get("data") or []:
-            name = (c.get("name") or "").strip()
-            if not name or any(excl in name.lower() for excl in EXCLUDE_CATEGORY_NAMES):
-                continue
-            cid = c.get("id")
-            if cid is None:
-                continue
-            if cid not in cats_by_id:
-                cats_by_id[cid] = c
-    cats = list(cats_by_id.values())
+    # 1. Categories (Rentals excluded). fetch_categories probes multiple dates
+    # internally so seasonal categories (via ferrata Jun-Oct, tubing Dec-Mar)
+    # surface in shoulder seasons too.
+    cats = fetch_categories(PROVIDER["tenant_slug"], PROVIDER["portal_id"])
     log.info(f"Categories ({len(cats)}): " +
              ", ".join(f"{c.get('id')}={c.get('name')!r}:{c.get('totalActivities')}" for c in cats))
 
-    # 2. All activities across in-scope categories — probe the same date set so
-    # off-season activities surface too. Dedupe by activity id.
+    # 2. All activities across in-scope categories, deduped by id
     all_activities = []
     seen_ids = set()
     for cat in cats:
-        seen_in_cat = 0
-        for pd in probe_dates:
-            try:
-                data = zaui_get(
-                    PROVIDER["tenant_slug"], PROVIDER["portal_id"],
-                    "activity/list",
-                    {"category": cat["id"], "date": pd.isoformat()},
-                )
-            except Exception as e:
-                log.warning(f"activity/list failed for category {cat.get('id')} date {pd}: {e}")
+        try:
+            items = fetch_activity_list(PROVIDER["tenant_slug"], PROVIDER["portal_id"], cat["id"])
+        except Exception as e:
+            log.warning(f"activity/list failed for category {cat.get('id')}: {e}")
+            continue
+        log.info(f"  cat {cat['id']} {cat.get('name')!r}: {len(items)} activities")
+        for a in items:
+            aid = a.get("id")
+            if aid is None or aid in seen_ids:
                 continue
-            for a in data.get("data") or []:
-                aid = a.get("id")
-                if aid is None or aid in seen_ids:
-                    continue
-                title_lower = (a.get("name") or "").strip().lower()
-                if any(excl in title_lower for excl in EXCLUDE_TITLES):
-                    log.info(f"  excluding non-course product: {a.get('name')!r}")
-                    continue
-                seen_ids.add(aid)
-                a["_category_name"] = cat.get("name") or ""
-                all_activities.append(a)
-                seen_in_cat += 1
-        log.info(f"  cat {cat['id']} {cat.get('name')!r}: {seen_in_cat} activities")
+            title_lower = (a.get("name") or "").strip().lower()
+            if any(excl in title_lower for excl in EXCLUDE_TITLES):
+                log.info(f"  excluding non-course product: {a.get('name')!r}")
+                continue
+            seen_ids.add(aid)
+            a["_category_name"] = cat.get("name") or ""
+            all_activities.append(a)
     log.info(f"Total unique activities: {len(all_activities)}")
 
     # 3. Pick this run's group
