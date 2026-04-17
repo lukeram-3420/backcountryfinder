@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
-"""scraper_cloud_nine_guides.py — Standalone Rezdy scraper for Cloud Nine Guides.
+"""scraper_cloud_nine_guides.py — Hybrid Rezdy + Squarespace scraper for Cloud Nine Guides.
 
-Storefront: https://cloudnineguides.rezdy.com/
-Pattern mirrors scraper_msaa.py: BeautifulSoup for catalog listing,
-Playwright for JS-rendered product detail pages (descriptions + dates).
+Cloud Nine uses TWO booking systems:
+  Pass 1 (Rezdy storefront at cloudnineguides.rezdy.com):
+    Wapta Ski Traverse variants, private ski guiding, alpinism (Mt Columbia),
+    international ski trips (Chamonix-Zermatt, Lofoten). Dated, transactional.
+  Pass 2 (Squarespace site at cloudnineguides.com):
+    Rock climbing, ice climbing, alpinism (BMC etc.), AST courses, via ferrata,
+    private rock/ice/alpine guiding. Inquiry-based — emit flex-date rows.
+
+Squarespace exposes no clean nav-discoverable listing pages, so program URLs
+are hardcoded (discovered via web search probe). Pass 2 dedupes against Pass 1
+by fuzzy title match so Wapta + private ski guiding pages don't double-count.
 """
 
 import re
@@ -98,6 +106,69 @@ STATIC_DATE_PATTERNS = [
     r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?[,\s]+20\d{2}",
     r"20\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])",
     r"\d{1,2}/\d{1,2}/20\d{2}",
+]
+
+# Required scoping for any HTML date regex extraction (CLAUDE.md hard rule).
+SCHEDULE_CONTAINER_KEYWORDS = re.compile(
+    r"schedule|dates|upcoming|session|availability|calendar",
+    re.IGNORECASE,
+)
+
+# Pass 2 — Squarespace program pages. Discovered via web search probe (Apr 2026)
+# since Squarespace has no clean listing-page hierarchy. Excludes Wapta Ski
+# Traverse + Private ski guiding (already covered by Pass 1 Rezdy with dates).
+WEBSITE_BASE = "https://www.cloudnineguides.com"
+WEBSITE_PROGRAM_URLS = [
+    # Rock climbing
+    f"{WEBSITE_BASE}/c9g-day-rock-climbing-experience",
+    f"{WEBSITE_BASE}/learn-rock-climb-series",
+    f"{WEBSITE_BASE}/learn-to-lead-rock-climbing-course",
+    f"{WEBSITE_BASE}/multipitch-rock-climbing-course",
+    f"{WEBSITE_BASE}/trad-rock-systems-course",
+    f"{WEBSITE_BASE}/rock-rescue-course",
+    f"{WEBSITE_BASE}/private-rock-guiding-instruction",
+    # Ice climbing
+    f"{WEBSITE_BASE}/ice-climbing-experience",
+    f"{WEBSITE_BASE}/iceclimbing-banff-cascade-falls",
+    f"{WEBSITE_BASE}/bourgeau-right-wi4r-310m",
+    f"{WEBSITE_BASE}/guided-ice-climbing-field-twisted-wi5",
+    f"{WEBSITE_BASE}/wicked-wanda-wi4-65m",
+    f"{WEBSITE_BASE}/guided-multi-pitch-ice-climbing",
+    f"{WEBSITE_BASE}/private-ice-climbing",
+    # Alpinism / mountaineering (Mt Columbia is in Rezdy — skip here)
+    f"{WEBSITE_BASE}/beginner-mountaineering-course",
+    f"{WEBSITE_BASE}/womens-bmc",
+    f"{WEBSITE_BASE}/crevasse-rescue-course",
+    f"{WEBSITE_BASE}/climb-mount-athabasca",
+    f"{WEBSITE_BASE}/climb-assiniboine",
+    f"{WEBSITE_BASE}/bugaboo-mountain-guides",
+    f"{WEBSITE_BASE}/private-alpine-guides",
+    # AST courses
+    f"{WEBSITE_BASE}/AST1",
+    f"{WEBSITE_BASE}/ast-1-canmore-banff-lake-louise",
+    f"{WEBSITE_BASE}/ast-1-golden",
+    f"{WEBSITE_BASE}/ast-1-revelstoke",
+    f"{WEBSITE_BASE}/ast-1-lethbridge-fernie",
+    f"{WEBSITE_BASE}/AST2",
+    f"{WEBSITE_BASE}/AST2/Golden-Rogers-Pass",
+    f"{WEBSITE_BASE}/ast-2-lethbridge-fernie",
+    f"{WEBSITE_BASE}/private-ast-1-network",
+    f"{WEBSITE_BASE}/ast-connect",
+    # Via Ferrata
+    f"{WEBSITE_BASE}/Mt-Stelfox-Via-Ferrata",
+]
+
+# Pass 2 — keywords (lowercased) that indicate a Pass 1 product. If the
+# website page title contains any of these, skip the page (Pass 1 already
+# covered it with real date data).
+PASS2_TITLE_SKIP_KEYWORDS = [
+    "wapta",                 # Pass 1 has 3-day, 4-day, 5-day Wapta variants
+    "private backcountry ski",  # Pass 1 has 4 regional variants
+    "private ski",
+    "mount columbia",        # Pass 1 has Mount Columbia Ascent
+    "haute route",           # Pass 1 has Chamonix-Zermatt
+    "lofoten",               # Pass 1 has Lofoten DreamTrip
+    "terrace ski",           # Pass 1 has Terrace Ski Touring
 ]
 
 
@@ -305,6 +376,118 @@ def check_course_page_playwright(browser, booking_url: str) -> dict:
     return result
 
 
+# ── Pass 2: Squarespace program pages ────────────────────────────────────────
+
+def extract_schedule_text(soup: BeautifulSoup) -> str:
+    """Per CLAUDE.md hard rule: only run date regex against schedule-like
+    containers, never against the whole page text. Returns concatenated text
+    from elements whose class/id matches schedule|dates|upcoming|session|
+    availability|calendar (case-insensitive) plus content following an
+    h2/h3/h4 whose text matches the same pattern."""
+    chunks = []
+    seen   = set()
+
+    def add(el):
+        if id(el) in seen:
+            return
+        seen.add(id(el))
+        chunks.append(el.get_text(separator=" ", strip=True))
+
+    for el in soup.find_all(True):
+        class_str = " ".join(el.get("class") or [])
+        id_str    = el.get("id") or ""
+        if SCHEDULE_CONTAINER_KEYWORDS.search(class_str) or SCHEDULE_CONTAINER_KEYWORDS.search(id_str):
+            add(el)
+
+    for h in soup.find_all(["h2", "h3", "h4"]):
+        if SCHEDULE_CONTAINER_KEYWORDS.search(h.get_text()):
+            sib = h.find_next_sibling()
+            while sib and getattr(sib, "name", None) not in ("h1", "h2", "h3", "h4"):
+                add(sib)
+                sib = sib.find_next_sibling()
+
+    return " ".join(chunks)
+
+
+def scrape_website_program(url: str) -> Optional[dict]:
+    """Fetch a Cloud Nine website program page and return a row dict.
+    All Pass 2 rows are flex-date (custom_dates=True) — bookings are
+    inquiry-based via the website's contact form. Returns None on failure
+    or if the title looks like a non-program page."""
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=20)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, "html.parser")
+    except Exception as e:
+        log.warning(f"  Failed to fetch {url}: {e}")
+        return None
+
+    # Title — h1
+    h1 = soup.find("h1")
+    title = h1.get_text(strip=True) if h1 else url.rstrip("/").split("/")[-1].replace("-", " ").title()
+    if not title or len(title) < 3:
+        return None
+
+    title_lower = title.lower()
+    if title_lower in EXCLUDE_TITLES:
+        return None
+    if any(kw in title_lower for kw in PASS2_TITLE_SKIP_KEYWORDS):
+        log.info(f"  Skipping (Pass 1 covers): {title}")
+        return None
+
+    # Description — first 2-3 substantial paragraphs
+    desc_parts = []
+    for p in soup.find_all("p"):
+        text = p.get_text(strip=True)
+        if len(text) > 80 and len(desc_parts) < 3:
+            desc_parts.append(text)
+    description = " ".join(desc_parts)[:800]
+
+    # Image — og:image
+    image_url = None
+    og = soup.find("meta", property="og:image")
+    if og and og.get("content"):
+        image_url = og["content"]
+
+    # Price — $XXX, accept >= $100 to avoid stray small numbers
+    price = None
+    pm = re.search(r"\$\s?([\d,]+)", soup.get_text())
+    if pm:
+        try:
+            val = int(pm.group(1).replace(",", ""))
+            if val >= 100:
+                price = val
+        except ValueError:
+            pass
+
+    # Duration — "N day(s)" near top of body
+    duration_days = None
+    dm = re.search(r"(\d+)\s*[-\s]?day", title + " " + description, re.IGNORECASE)
+    if dm:
+        duration_days = int(dm.group(1))
+
+    # Booking URL — the website URL itself with UTM
+    sep = "&" if "?" in url else "?"
+    booking_url = f"{url}{sep}{UTM}"
+
+    return {
+        "title":           title,
+        "provider_id":     PROVIDER["id"],
+        "location_raw":    None,  # resolved later via resolve_location_raw
+        "date_display":    "Flexible dates",
+        "date_sort":       None,
+        "duration_days":   duration_days,
+        "price":           price,
+        "spots_remaining": None,
+        "avail":           "open",
+        "image_url":       image_url,
+        "booking_url":     booking_url,
+        "description":     description,
+        "scraped_at":      datetime.utcnow().isoformat(),
+        "_pass":           "website",
+    }
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -395,7 +578,55 @@ def main():
         browser.close()
         log.info("Playwright browser closed")
 
-    log.info(f"Total processed: {len(processed)}")
+    log.info(f"Total processed (Pass 1): {len(processed)}")
+
+    # ── Pass 2: Squarespace website program pages ──
+    log.info(f"\n=== Pass 2: Scraping {provider['name']} website ({len(WEBSITE_PROGRAM_URLS)} URLs) ===")
+    pass1_titles_lower = {c["title"].lower() for c in processed}
+
+    for url in WEBSITE_PROGRAM_URLS:
+        log.info(f"  Fetching: {url}")
+        row = scrape_website_program(url)
+        if not row:
+            time.sleep(0.5)
+            continue
+        # Skip if Pass 1 already produced this title
+        if row["title"].lower() in pass1_titles_lower:
+            log.info(f"  Skipping (Pass 1 title match): {row['title']}")
+            time.sleep(0.5)
+            continue
+
+        loc_raw       = resolve_location_raw(row["title"], row.get("description") or "")
+        loc_canonical = normalise_location(loc_raw, mappings)
+        course_id     = stable_id_v2(provider["id"], None, row["title"])
+
+        out = {
+            "id":              course_id,
+            "title":           row["title"],
+            "provider_id":     provider["id"],
+            "location_raw":    loc_raw,
+            "date_display":    "Flexible dates",
+            "date_sort":       None,
+            "duration_days":   row.get("duration_days"),
+            "price":           row.get("price"),
+            "currency":        "CAD",
+            "spots_remaining": None,
+            "avail":           "open",
+            "image_url":       row.get("image_url"),
+            "booking_url":     row.get("booking_url"),
+            "active":          True,
+            "custom_dates":    True,
+            "summary":         "",
+            "search_document": "",
+            "description":     row.get("description", ""),
+            "scraped_at":      row["scraped_at"],
+        }
+        if loc_canonical is not None:
+            out["location_canonical"] = loc_canonical
+        processed.append(out)
+        time.sleep(0.5)
+
+    log.info(f"Total processed (after Pass 2): {len(processed)}")
 
     # Batch summaries — dedup by title
     if processed:

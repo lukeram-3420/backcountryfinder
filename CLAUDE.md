@@ -354,6 +354,51 @@ def parse_course_page(url, html):
 rows = fetch_detail_pages(course_urls, parse_course_page, delay=0.5)
 ```
 
+### Hybrid platform pattern (booking system + own website)
+
+Many providers split their catalogue between a **booking platform** (Rezdy /
+Checkfront / Zaui) for transactional, dated products and their **own marketing
+website** (WordPress / Squarespace) for inquiry-based programs that don't have
+fixed dates published. A single scraper covers both with two passes.
+
+**When to use it:** if the booking-platform storefront returns suspiciously few
+products relative to the provider's stated offerings (e.g. a guide service
+advertising rock + ice + alpine + AST + ski touring but the Rezdy storefront
+only lists 11 ski-focused items), assume the rest is on the marketing website
+and add Pass 2.
+
+**Reference implementations:**
+- `scraper_altus.py` — Rezdy + WordPress (altusmountainguides.com). Pass 2
+  crawls listing pages (`/mountaineering-courses`, `/climbing-courses`,
+  `/climbing-trips`) and follows links to detail pages.
+- `scraper_cloud_nine_guides.py` — Rezdy + Squarespace (cloudnineguides.com).
+  Pass 2 uses a hardcoded `WEBSITE_PROGRAM_URLS` list because Squarespace
+  exposes no clean nav-discoverable listing pages — every program lives at
+  a top-level slug with no /category/ prefix.
+
+**Pass 2 dedup contract:** before emitting a website row, check if Pass 1
+already produced a row with the same title (or title containing a known
+overlap keyword from a `PASS2_TITLE_SKIP_KEYWORDS` list). Pass 1 wins because
+it has real dates and availability; Pass 2 is the inquiry-only safety net.
+
+**Squarespace-specific notes:**
+- No standard listing-page hierarchy — `/category/` URLs don't exist
+- No discoverable sitemap.xml in many cases — use Google web-search probe
+  (`site:provider.com`) to enumerate program URLs at build time
+- Program slugs are arbitrary (e.g. `/c9g-day-rock-climbing-experience`,
+  `/wicked-wanda-wi4-65m`) — never try to derive them from a URL pattern
+- Hardcode the discovered URL list at module-level. Re-probe annually or
+  when the provider adds a new program; the list will rarely churn.
+
+**WordPress-specific notes:**
+- Listing pages exist at predictable category URLs (e.g. `/courses`,
+  `/trips`, `/mountaineering-courses`) — discoverable via nav or sitemap
+- Detail pages have h1 + description paragraphs + price text
+- Apply the **CLAUDE.md hard date-scoping rule** to any HTML date
+  extraction: only run regex against containers whose class/id matches
+  `schedule|dates|upcoming|session|availability|calendar`, never against
+  `soup.get_text()`
+
 ### Grouped scraper pattern
 
 Some providers (Zaui, Checkfront variants) expose so many activity IDs that a single run would exceed GitHub Actions step timeouts or burn through Claude summary budget in one go. These use a **grouped** scraper pattern: the activity list is deterministically partitioned into N interleaved groups (typically 4), and each run processes only one group via `--group N` (0-indexed). Full catalog coverage requires N runs back-to-back.
