@@ -2,9 +2,9 @@
 
 Living reference for the data-quality cleanup mission. Each initiative below is self-contained — read it cold and you should understand what, why, and the decisions already made.
 
-Order of execution: **Initiative 1 → 2 → 3 → 5 → 4.** Activity is a pure deletion (low risk, unblocks the audit backlog); location is a behaviour change (medium risk, benefits from cleaner audit ground); Summary Review is a workflow redesign (low-to-medium risk, benefits from the validator being quiet); Date sanity is an active provider-outreach loop (medium risk, benefits from every other queue being tame); Price sanity ports that same active-loop shape to the remaining passive warnings, re-using the course-id-scoped suppression mechanic.
+Order of execution: **Initiative 1 → 2 → 3 → 5 → 4 → 6 → 7.** Activity is a pure deletion (low risk, unblocks the audit backlog); location is a behaviour change (medium risk, benefits from cleaner audit ground); Summary Review is a workflow redesign (low-to-medium risk, benefits from the validator being quiet); Date sanity is an active provider-outreach loop (medium risk, benefits from every other queue being tame); Price sanity ports that same active-loop shape to the remaining passive warnings, re-using the course-id-scoped suppression mechanic; Duplicate simplification strips the validator's final admin-decision path, reducing the priority stack to two layers; Count-drop relocation moves the last scraper-health signal off the Flags tab and onto the Providers tab where it belongs.
 
-**Status (2026-04-17):** Initiatives 1, 2, 3, 4, and 5 shipped. Initiative 1 scraper-side in `5157faa`, admin fast-follow in `c83bd4a`. Initiative 2 in `5abb3f1`. Initiative 3 plan in `cd13bcc`, implementation in `615c5e9`. Initiative 5 plan in `8885144`, implementation in `300eae3`. Initiative 4 plan in `1b5604c` (corrected scope replacing rejected `39eb59b` two-condition version), implementation in this commit.
+**Status (2026-04-17):** Initiatives 1, 2, 3, 4, and 5 shipped. Initiatives 6 and 7 planned (this document). Initiative 1 scraper-side in `5157faa`, admin fast-follow in `c83bd4a`. Initiative 2 in `5abb3f1`. Initiative 3 plan in `cd13bcc`, implementation in `615c5e9`. Initiative 5 plan in `8885144`, implementation in `300eae3`. Initiative 4 plan in `1b5604c` (corrected scope replacing rejected `39eb59b` two-condition version), implementation in `cdb0581`.
 
 ---
 
@@ -480,3 +480,125 @@ Existing zero/negative courses with a `course_price_log` row from 24h+ ago auto-
 - Admin Clear writes course-id suppression; no re-escalation
 - Flags tab Price escalations is the only price-related admin surface
 - `log_price_change` writes `bad_data=true` for zero/negative prices going forward
+
+---
+
+## Initiative 6 — Duplicate detection simplification
+
+### Goal
+Strip the duplicate check back to a pure scraper-signal. Auto-hide protects the frontend; the Flags tab tells you which scraper to fix. No Haiku, no whitelist, no admin decision path.
+
+### Why
+- Duplicates are always scraper bugs, not provider data issues. The resolution path is always "fix the scraper" — Haiku diagnosis and whitelist management were solving the wrong problem.
+- `validator_whitelist` added complexity to the priority stack for an escape hatch that shouldn't exist — if two identical title+date courses are intentional, the scraper is wrong, not the data.
+- `admin-diagnose-duplicate` edge function added a Haiku call per duplicate group for a verdict that was always "fix the scraper."
+
+### Scope — what changes
+
+| Layer | Change |
+|---|---|
+| `validate_provider.py` | Keep auto-hide logic (all but first occurrence of same title+date). Remove `validator_whitelist` load and lookup entirely. `check_duplicates` signature drops the `whitelisted` param. Admin suppression lookup stays — it's still the universal ignore mechanism |
+| `admin.html` Flags tab | Remove Diagnose and Whitelist actions from duplicate auto-flag groups. Duplicate rows render as read-only signals: provider badge + title + occurrence count + link to the scraper file on GitHub (`https://github.com/lukeram-3420/backcountryfinder/blob/main/scraper_{provider_id}.py`). One link per `provider_id` in the group. Clear all stays (writes title-scoped suppression — unchanged) |
+| `supabase/functions/admin-diagnose-duplicate/` | Delete entirely |
+| `deploy-functions.yml` | Remove `admin-diagnose-duplicate` deploy step |
+| `validator_whitelist` | Stop reading. Existing rows harmless — drops at V2 Phase 7 alongside other orphaned tables |
+| `crawl_courses.py` | Update duplicate category reason string — note auto-hide behaviour, remove whitelist reference |
+| CLAUDE.md | Remove `validator_whitelist` from priority stack description. Update Flags tab section (duplicate rows now read-only with scraper link; no Diagnose / Whitelist buttons). Remove `admin-diagnose-duplicate` row from edge function table. Mark `validator_whitelist` as orphaned-pending-Phase 7 in the admin-tables reference list |
+
+### What stays
+- Auto-hide: all but first occurrence of same `(title, date_sort)` — correct behaviour, protects frontend.
+- Duplicate rows visible in the Flags tab as read-only scraper signal.
+- `validator_whitelist` table in Supabase — orphaned, drops at V2 Phase 7.
+- `validator_suppressions` still consulted for duplicate flags — admin can still "Clear all" to globally suppress a specific title-pattern + reason combo if needed.
+
+### What gets dropped
+- `admin-diagnose-duplicate` edge function — deleted.
+- Diagnose button in Flags tab — deleted.
+- Whitelist button in Flags tab — deleted.
+- `validator_whitelist` load + lookup in `validate_provider.py` — deleted.
+- Haiku call for duplicate analysis — deleted (admin-initiated, not in validator).
+
+### Validator priority stack after Initiative 6
+Two layers only:
+
+1. `validator_suppressions` — explicit admin "ignore this" decision (highest priority, both title- and course-id-scoped match modes).
+2. `validator_summary_exceptions` — admin-resolved summary text (bleed check only).
+
+No price-exceptions layer (removed in Initiative 4). No whitelist layer (removed in this initiative).
+
+### No provider outreach loop
+Duplicates are scraper bugs. Resolution path: identify the scraper from the Flags-tab signal → fix it in Claude Code → re-run scraper + validate → duplicates clear automatically on the next validate run because the second occurrence stops existing. No admin action required, no provider email. If the scraper can't be fixed immediately, admin uses the existing "Clear all" button to write a title-scoped suppression.
+
+### Scraper file link format
+`https://github.com/lukeram-3420/backcountryfinder/blob/main/scraper_{provider_id}.py`. One link per `provider_id` in the duplicate group. For cross-provider duplicate groups (rare), render one chip per provider. For the legacy monolith case (`scraper.py --provider X`), fall back to the monolith link + the provider flag in the UI label.
+
+### Dependencies
+- Initiatives 1–5 complete ✓
+- No Supabase SQL required
+- No new tables or columns
+
+### Success criteria
+- Duplicate courses still auto-hidden correctly (no frontend regression).
+- Flags tab shows duplicate groups as read-only signals with scraper file link (one per provider_id).
+- No Diagnose or Whitelist button anywhere in admin.
+- `admin-diagnose-duplicate` gone from Supabase Edge Functions list (also removed from `deploy-functions.yml`).
+- `validator_whitelist` no longer loaded or referenced in `validate_provider.py`.
+- Priority stack has 2 layers (suppressions → summary exceptions).
+
+---
+
+## Initiative 7 — Course count drop: scraper health signal on Providers tab
+
+### Goal
+Move the >30% course count drop check out of the Flags tab (data quality surface) and into the Providers tab (scraper health surface) where it belongs. Computed client-side from `scraper_run_log` on every Providers-tab load. No server-side write, no `validator_warnings` row.
+
+### Why
+- A course count drop is a scraper alarm, not a data quality issue. No course row is wrong — the scraper just fetched fewer of them.
+- The Providers tab already shows last run, course count, and status per provider — a count-drop badge fits there naturally.
+- Resolution is always: check GitHub Actions scraper run logs → identify the failure → re-run. The Flags tab adds no value to that workflow.
+- `validator_warnings.count_drop` rows are currently the only surface for this — moving to the Providers tab makes the signal immediately visible without navigating to Flags.
+
+### Scope — what changes (Option 1 — client-side only, no validator write)
+
+| Layer | Change |
+|---|---|
+| `validate_provider.py` | Delete `check_course_count()` function entirely. Remove its call from `main()`. Detection logic moves client-side — one source of truth |
+| `admin.html` Providers tab | On tab load, fetch the last 2 rows of `scraper_run_log` per provider (ordered by `run_at desc`). Compute drop pct = `(prev - curr) / prev`. If >30%, render a yellow warning badge on the status cell. Badge links to `https://github.com/lukeram-3420/backcountryfinder/actions/workflows/scraper-{provider_id}.yml`. Hover tooltip: `"Course count dropped {N}% ({prev} → {curr}) — check scraper run"` |
+| `admin.html` Flags tab | Drop `count_drop` from `prettyWarning()` switch. Drop the `count_drop` action-btn branch (`warningViewProvider`). Function stays if needed for other types, else delete |
+| `validator_warnings` | `count_drop` is no longer a valid `check_type` — types narrow to `null_avail` + `all_sold` (supersedes Initiative 4's "count_drop, all_sold"). `reset_warnings` at run start flushes any stale rows automatically; no migration needed |
+| `scraper_run_log` | Schema unchanged — already tracks `(provider_id, run_at, course_count)` which is exactly what the Providers-tab client query needs |
+| CLAUDE.md | Remove Check 6 (Course count) from validator 6-check table — no longer a validator concern. Update `validator_warnings` check_type list (drop `count_drop`; remaining: `null_avail`, `all_sold`). Update Flags tab description (no more count_drop rows). Update Providers tab description with the new count-drop badge + link. Note that count-drop detection moved from server-side validator to client-side Providers-tab query |
+
+### What stays
+- `scraper_run_log` table and the scrape-time write in `validate_provider.py`'s `main()` — the 1-row-per-provider-per-run log is still the authoritative scraper health signal. Only `check_course_count()` (the 6th check) is removed.
+- >30% threshold — unchanged, just computed client-side now.
+- `notify-report` user flow — untouched.
+- All other validator checks — untouched.
+
+### What gets dropped
+- `check_course_count()` in `validate_provider.py` — deleted.
+- `count_drop` as a `check_type` in `validator_warnings` — retired (types narrow to `null_avail`, `all_sold`).
+- `prettyWarning('count_drop', ...)` case + `warningViewProvider` action in admin.html — deleted.
+- Flags-tab visibility of scraper-health signals — by design. The Flags tab is data-quality only after this initiative.
+
+### Providers-tab indicator behaviour
+- Normal state: no indicator.
+- Drop >30%: yellow warning badge on the status cell with the drop-pct label + GitHub Actions link.
+- Clears automatically on the next healthy scrape run where the count recovers — the badge is a function of the last two `scraper_run_log` rows, so fresh data recomputes on every tab load. No admin action to clear.
+
+### No new tables, no server-side write
+Everything the Providers-tab badge needs already exists in `scraper_run_log`. The only write that survives in `main()` is the existing `sb_upsert("scraper_run_log", ...)` at the end of validation — that's the data source. Detection moves from server-side (`check_course_count` writes to `validator_warnings`) to client-side (`loadProvidersTab` reads `scraper_run_log`, computes inline). One query per provider on tab load, or a single query with `ORDER BY provider_id, run_at DESC` and client-side grouping. Cheap.
+
+### Dependencies
+- Initiatives 1–6 complete ✓
+- No Supabase SQL required
+- No new tables or columns
+
+### Success criteria
+- >30% count drop visible as yellow warning badge in Providers tab.
+- Badge links to GitHub Actions scraper workflow for that provider.
+- Flags tab Warnings section no longer shows `count_drop` entries.
+- `validator_warnings` contains only `null_avail` and `all_sold` types after next validate run.
+- Count-drop badge clears automatically on the next healthy scrape run.
+- `scraper_run_log` unchanged (schema and write path).
+- `check_course_count()` gone from `validate_provider.py`.
