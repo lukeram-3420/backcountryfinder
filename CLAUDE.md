@@ -271,7 +271,7 @@ Both systems produce identical output (rows upserted to the `courses` table with
 | Function | Signature | Description |
 |----------|-----------|-------------|
 | `sb_get` | `(table: str, params: dict = None) -> list` | GET rows from a Supabase table. `params` is a dict of query-string filters. |
-| `sb_upsert` | `(table: str, rows: list) -> None` | POST rows with `Prefer: resolution=merge-duplicates`. |
+| `sb_upsert` | `(table: str, rows: list) -> None` | POST rows with `Prefer: resolution=merge-duplicates`. Internally groups rows by keyset and POSTs one request per group — PostgREST (PGRST102) rejects bulk payloads with differing keysets, and scrapers intentionally omit `location_canonical` when `normalise_location()` returns None (see "Never pass `location_canonical: None`" rule below). Callers never need to pre-sort or pad rows. |
 | `sb_insert` | `(table: str, data: dict) -> None` | INSERT a single row (no upsert). Silently ignores conflicts. |
 | `sb_patch` | `(table: str, filter_params: str, payload: dict) -> None` | PATCH rows matching `filter_params` (e.g. `'id=eq.abc'`). |
 
