@@ -47,6 +47,13 @@ jobs:
         run: python validate_provider.py banff-adventures
         continue-on-error: true
 
+      - name: Mt. Norquay
+        run: python scraper_mt_norquay.py --group $(( $(date -u +%H) / 6 % 4 ))
+        continue-on-error: true
+      - name: Validate Mt. Norquay
+        run: python validate_provider.py mt-norquay
+        continue-on-error: true
+
       # ── Future Zaui providers — uncomment + rename as added ─────────────────
       # - name: Provider Name
       #   run: python scraper_PROVIDER.py --group $(( $(date -u +%H) / 6 % 4 ))
