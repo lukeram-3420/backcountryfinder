@@ -293,39 +293,8 @@
 
     <!-- TAB: PIPELINE -->
     <div class="tab-panel hidden" id="panel-pipeline">
-      <details class="instructions"><summary>How to use this tab</summary><p>Providers that are live in the Providers tab are automatically hidden here. This list shows candidates still to be onboarded. Click <strong>Add provider</strong> to paste a URL — Claude Haiku fetches the site and pre-fills name, location, platform, complexity, priority, plus Google Places rating. Click <strong>Copy prompt ↗</strong> on any row to copy a Claude Code instruction for building the scraper. Column headers for Name, Platform, Status, Priority are clickable to sort. Click Edit to change status/platform/priority/notes inline.</p></details>
-      <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
-        <button class="btn btn-primary" id="add-provider-btn" onclick="window.showAddProvider()">Add provider</button>
-      </div>
-      <div id="add-provider-form" class="hidden" style="background:#faf9f5;border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;margin-bottom:16px;">
-        <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
-          <div style="flex:1;min-width:260px;">
-            <label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-tertiary);display:block;margin-bottom:4px;">Website URL</label>
-            <input type="text" id="new-provider-url" placeholder="https://...">
-          </div>
-          <button class="btn btn-small btn-primary" id="analyse-provider-btn" onclick="window.addAndAnalyseProvider()">Add &amp; Analyse</button>
-          <button class="btn btn-small" onclick="window.hideAddProvider()">Cancel</button>
-        </div>
-      </div>
-      <div class="section">
-        <h2>Provider pipeline</h2>
-        <div id="pipeline-table-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
-      </div>
-    </div>
-
-    <!-- TAB: SETTINGS -->
-    <div class="tab-panel hidden" id="panel-settings">
-      <details class="instructions"><summary>How to use this tab</summary><p>Static reference for the canonical location format. <strong>Discovery Cloud</strong> controls the search terms used by the weekly automated provider discovery script. Activity terms are extracted from course titles (bigrams across 2+ providers); location terms are derived from provider locations and location mappings. Toggle terms on/off to control what gets searched. Add manual terms to search for niches not yet in your data. Weight shows how many providers use that term. <strong>Quality</strong> shows "X found / Y skipped" — terms where &gt;80% of candidates get filtered (with 5+ total) show a warning indicator, meaning the term generates noise not signal. Consider disabling low-quality terms. Last used shows when the term last generated a discovery run.</p></details>
-      <div class="section">
-        <h2>Canonical location format</h2>
-        <p style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin:0 0 12px;">Use <code>"City, Province"</code> for towns and <code>"Area Name, Province"</code> for ranges.</p>
-        <ul style="font-size:13px;color:var(--text-secondary);line-height:1.9;margin:0;padding-left:20px;">
-          <li><code>Canmore, AB</code></li>
-          <li><code>Squamish, BC</code></li>
-          <li><code>Rogers Pass, BC</code></li>
-          <li><code>Bugaboos, BC</code></li>
-        </ul>
-      </div>
+      <details class="instructions"><summary>How to use this tab</summary><p><strong>Discovery Cloud</strong> (top) controls the search terms the weekly <code>refresh_discovery_cloud.py</code> + <code>discover_providers.py</code> cron uses to find new providers. Activity terms come from course-title bigrams across 2+ providers; location terms come from provider locations + location mappings. Add a manual term to search for niches not yet in your data. Click <strong>Remove</strong> to block a term — it stays in the table greyed out and the refresh script will not re-add it on its next run. Click <strong>Restore</strong> to un-block. <strong>Quality</strong> shows "X found / Y skipped" — &gt;80% skip rate (with 5+ total) gets a warning.</p>
+      <p><strong>Provider pipeline</strong> (bottom): providers already live in the Providers tab are auto-hidden. This list shows candidates still to be onboarded. Click <strong>Add provider</strong> to paste a URL — Claude Haiku fetches the site and pre-fills name, location, platform, complexity, priority, plus Google Places rating. Click <strong>Copy prompt ↗</strong> on any row to copy a Claude Code instruction for building the scraper. Column headers for Name, Platform, Status, Priority are clickable to sort. Click Edit to change status/platform/priority/notes inline.</p></details>
 
       <!-- Discovery Cloud -->
       <div class="section">
@@ -356,6 +325,39 @@
           </div>
         </div>
         <div id="cloud-location-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
+      </div>
+
+      <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
+        <button class="btn btn-primary" id="add-provider-btn" onclick="window.showAddProvider()">Add provider</button>
+      </div>
+      <div id="add-provider-form" class="hidden" style="background:#faf9f5;border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;margin-bottom:16px;">
+        <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+          <div style="flex:1;min-width:260px;">
+            <label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-tertiary);display:block;margin-bottom:4px;">Website URL</label>
+            <input type="text" id="new-provider-url" placeholder="https://...">
+          </div>
+          <button class="btn btn-small btn-primary" id="analyse-provider-btn" onclick="window.addAndAnalyseProvider()">Add &amp; Analyse</button>
+          <button class="btn btn-small" onclick="window.hideAddProvider()">Cancel</button>
+        </div>
+      </div>
+      <div class="section">
+        <h2>Provider pipeline</h2>
+        <div id="pipeline-table-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
+      </div>
+    </div>
+
+    <!-- TAB: SETTINGS -->
+    <div class="tab-panel hidden" id="panel-settings">
+      <details class="instructions"><summary>How to use this tab</summary><p>Static reference for the canonical location format.</p></details>
+      <div class="section">
+        <h2>Canonical location format</h2>
+        <p style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin:0 0 12px;">Use <code>"City, Province"</code> for towns and <code>"Area Name, Province"</code> for ranges.</p>
+        <ul style="font-size:13px;color:var(--text-secondary);line-height:1.9;margin:0;padding-left:20px;">
+          <li><code>Canmore, AB</code></li>
+          <li><code>Squamish, BC</code></li>
+          <li><code>Rogers Pass, BC</code></li>
+          <li><code>Bugaboos, BC</code></li>
+        </ul>
       </div>
     </div>
   </div>
@@ -1800,10 +1802,10 @@ window.renderAuditLog = () => {
 
 // ── Tab 7: Settings ──────────────────────────────
 async function loadSettingsTab() {
-  loadDiscoveryCloud();
+  // Static reference tab — no dynamic content.
 }
 
-// ── Discovery Cloud (within Settings tab) ───────
+// ── Discovery Cloud (rendered at top of Pipeline tab) ───────
 let cachedCloud = [];
 
 async function loadDiscoveryCloud() {
@@ -1829,8 +1831,8 @@ function renderCloudList(type) {
     const weightBar = Math.min(r.weight || 1, 20);
     const weightStyle = `display:inline-block;width:${weightBar * 4}px;height:8px;background:var(--accent);border-radius:3px;opacity:0.5;margin-right:6px;vertical-align:middle;`;
     const activeClass = r.active ? '' : ' style="opacity:0.45;text-decoration:line-through;"';
-    const toggleLabel = r.active ? 'Disable' : 'Enable';
-    const toggleClass = r.active ? 'btn-small' : 'btn-small btn-primary';
+    const toggleLabel = r.active ? 'Remove' : 'Restore';
+    const toggleClass = r.active ? 'btn-small btn-danger' : 'btn-small btn-primary';
     const sourceTag = r.source === 'manual' ? ' <span style="font-size:10px;color:var(--text-tertiary);font-weight:600;">MANUAL</span>' : '';
     // Hit/skip quality indicator
     const hits = r.hit_count || 0;
@@ -1853,7 +1855,6 @@ function renderCloudList(type) {
       <td style="text-align:center;font-size:12px;color:var(--text-tertiary);">${lastUsed}</td>
       <td class="row-actions">
         <button class="${toggleClass}" onclick="toggleCloudTerm(${r.id}, ${!r.active})">${toggleLabel}</button>
-        <button class="btn btn-small btn-danger" onclick="deleteCloudTerm(${r.id}, '${esc(r.term)}')">Delete</button>
       </td>
     </tr>`;
   }).join('');
@@ -1875,27 +1876,9 @@ window.toggleCloudTerm = async (id, active) => {
       body: JSON.stringify({ active }),
     });
     if (!res.ok) throw new Error(`PATCH ${res.status}`);
-    toast(active ? 'Term enabled' : 'Term disabled');
+    toast(active ? 'Term restored' : 'Term removed — blocked from future refreshes');
     loadDiscoveryCloud();
   } catch (e) { toast('Failed: ' + e.message, true); }
-};
-
-window.deleteCloudTerm = (id, term) => {
-  confirmAction('Delete cloud term', `Remove "${term}" from the discovery cloud?`, async () => {
-    try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/discovery_cloud?id=eq.${id}`, {
-        method: 'DELETE',
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      if (!res.ok) throw new Error(`DELETE ${res.status}`);
-      toast('Term deleted');
-      loadDiscoveryCloud();
-    } catch (e) { toast('Failed: ' + e.message, true); }
-  });
 };
 
 window.showAddCloudTerm = (type) => {
@@ -2000,6 +1983,7 @@ async function fetchActiveProviders() {
 let activeProviderKeys = { domains: new Set(), names: new Set() };
 
 async function loadPipelineTab() {
+  loadDiscoveryCloud();
   try {
     const [activeProviders, pipeline] = await Promise.all([
       fetchActiveProviders(),
