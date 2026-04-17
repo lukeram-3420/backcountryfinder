@@ -24,6 +24,8 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 
 from scraper_utils import (
     sb_upsert,
+    sb_get,
+    sb_patch,
     stable_id_v2,
     load_location_mappings,
     normalise_location,
@@ -111,17 +113,61 @@ def make_session() -> requests.Session:
 
 # ── URL collection ────────────────────────────────────────────────────────────
 
+# Category index pages — these are crawled as listings, not as trip detail pages.
+CATEGORY_INDEX_PATHS = {
+    "/backpacking-trips/",
+    "/backpacking-trips/easiest-programs/",
+    "/backpacking-trips/moderate-trips/",
+    "/backpacking-trips/challenging-trips/",
+    "/canadian-rockies-hiking-tours/",
+    "/courses-specialty-programs/",
+    "/winter-adventure-programs/",
+    "/wilderness-first-aid-courses/",
+}
+
+# File extensions that are definitely not trip pages.
+STATIC_FILE_EXTS = (
+    ".pdf", ".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp",
+    ".zip", ".doc", ".docx", ".xls", ".xlsx", ".mp4", ".mov",
+)
+
+
 def _is_trip_url(href: str) -> bool:
     """Return True if href looks like a bookable trip/course detail page."""
-    if not href or "canadianrockieshiking.com" not in href:
+    if not href:
         return False
     parsed = urlparse(href)
-    parts = [p for p in parsed.path.strip("/").split("/") if p]
-    if len(parts) < 2:
-        return False  # top-level category pages
-    last = parts[-1]
-    if last in EXCLUDE_SLUGS or any(p in EXCLUDE_SLUGS for p in parts):
+
+    # Host must be exactly canadianrockieshiking.com — reject yamnuska.com
+    # strays and double-prefixed paths like canadianrockieshiking.com//yamnuska.com/.
+    if parsed.netloc.lower() not in ("canadianrockieshiking.com", "www.canadianrockieshiking.com"):
         return False
+
+    path = parsed.path.lower()
+
+    # Static assets (PDFs, images) routed through wp-content/uploads/
+    if path.endswith(STATIC_FILE_EXTS):
+        return False
+    if "/wp-content/" in path:
+        return False
+
+    # Double-prefixed paths like /canadianrockieshiking.com/... (broken <a href>s)
+    if "canadianrockieshiking.com" in path or "yamnuska.com" in path:
+        return False
+
+    parts = [p for p in path.strip("/").split("/") if p]
+    if len(parts) < 2:
+        return False  # top-level pages
+
+    # Category index pages
+    normalised = "/" + "/".join(parts) + "/"
+    if normalised in CATEGORY_INDEX_PATHS:
+        return False
+
+    # Exclude known non-trip slugs at any depth
+    if any(p in EXCLUDE_SLUGS for p in parts):
+        return False
+
     return True
 
 
@@ -242,6 +288,15 @@ def get_iframe_src_playwright(browser, course_url: str) -> tuple:
 
 # ── Per-course scraper ────────────────────────────────────────────────────────
 
+# Titles that indicate the page is not a real trip (404, listing, etc.)
+SKIP_TITLE_PATTERNS = re.compile(
+    r"^(404|not found|error|easiest programs|moderate trips|challenging trips|"
+    r"winter adventure programs|more backcountry adventures|"
+    r"wilderness first responder recertifications)$",
+    re.IGNORECASE,
+)
+
+
 def scrape_course_page(session: requests.Session, browser, course_url: str) -> list:
     """
     Scrape one trip page using the same hybrid approach as scraper_yamnuska.py:
@@ -268,6 +323,12 @@ def scrape_course_page(session: requests.Session, browser, course_url: str) -> l
         title, description, image_url, iframe_src, page_price = get_iframe_src_playwright(
             browser, course_url
         )
+
+        # Skip 404 pages and category listings that slipped through URL filtering
+        if SKIP_TITLE_PATTERNS.match((title or "").strip()):
+            log.info(f"  Skipping non-trip page: {title!r}")
+            return []
+
         fallback.update({"title": title, "image_url": image_url,
                          "description": description, "price": page_price,
                          "booking_url": append_utm(course_url)})
@@ -536,7 +597,20 @@ def main():
     # 7. Upsert
     sb_upsert("courses", deduped)
 
-    # 8. Intelligence logging
+    # 8. Deactivate stale rows (cleans up garbage from earlier bad runs —
+    # rows upserted this run stay active; everything else gets active=false)
+    seen_ids       = {c["id"] for c in deduped}
+    existing       = sb_get("courses", {
+        "provider_id": f"eq.{PROVIDER['id']}",
+        "select":      "id",
+    })
+    stale_ids      = {row["id"] for row in existing} - seen_ids
+    for cid in stale_ids:
+        sb_patch("courses", f"id=eq.{cid}", {"active": False})
+    if stale_ids:
+        log.info(f"Deactivated {len(stale_ids)} stale rows")
+
+    # 9. Intelligence logging
     for c in deduped:
         log_availability_change(c)
         log_price_change(c)
