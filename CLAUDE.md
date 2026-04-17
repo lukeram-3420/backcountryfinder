@@ -228,6 +228,7 @@ Key helper functions exposed by `scraper_utils.py`: `sb_get()`, `sb_upsert()`, `
 | Alpine Air Adventures (details) | WordPress | `scraper_aaa_details.py` | — |
 | Black Sheep Adventure | Custom WordPress | `scraper_bsa.py` | — |
 | Jasper Hikes & Tours | Squarespace | `scraper_jht.py` | — |
+| Vancouver Mountain Guides | Zaui booking API (`vanmtnguides.zaui.net`) | `scraper_vanmtnguides.py` (+ `scraper_zaui_utils.py` helper) — **grouped scraper**, see below | — |
 
 ### Supabase Edge Functions
 
@@ -352,6 +353,20 @@ def parse_course_page(url, html):
 
 rows = fetch_detail_pages(course_urls, parse_course_page, delay=0.5)
 ```
+
+### Grouped scraper pattern
+
+Some providers (Zaui, Checkfront variants) expose so many activity IDs that a single run would exceed GitHub Actions step timeouts or burn through Claude summary budget in one go. These use a **grouped** scraper pattern: the activity list is deterministically partitioned into N interleaved groups (typically 4), and each run processes only one group via `--group N` (0-indexed). Full catalog coverage requires N runs back-to-back.
+
+**Reference implementation:** `scraper_vanmtnguides.py` + `scraper_zaui_utils.py` — Vancouver Mountain Guides (Zaui API, `vanmtnguides.zaui.net`). Activities are split into 4 interleaved groups (0/1/2/3) by index modulo. Invoked as `python scraper_vanmtnguides.py --group 0` etc.
+
+**Current production state:** `scraper-all.yml` runs VMG with `--group 0` only — groups 1/2/3 are not yet wired in. This means:
+- Each VMG run upserts ~25% of the full provider catalog
+- `scraper_run_log.course_count` for VMG reflects one group per run, not the full catalog
+- The Providers tab will **always** show a yellow `⚠ ~50%+ drop ↗` badge for VMG (Initiative 7's >30% drop detection compares last two `scraper_run_log` rows, which are non-overlapping group partitions) — this is expected, not a real data quality issue
+- **VMG drop badges should be ignored** until `scraper-all.yml` is updated to run all 4 groups sequentially (e.g. 4 named steps `scraper_vanmtnguides.py --group 0/1/2/3` followed by a single `validate_provider.py vanmtnguides`)
+
+The 30% drop detection is structurally incompatible with grouped scrapers — any provider that ships as grouped will emit the same false positive until all groups run in one scheduled window. When wiring a new grouped scraper, either run all groups in sequence within `scraper-all.yml` or explicitly exclude the provider from count-drop signal detection.
 
 ### validate_provider.py
 
