@@ -194,7 +194,7 @@
   <div class="main">
     <!-- TAB: PROVIDERS -->
     <div class="tab-panel" id="panel-providers">
-      <details class="instructions"><summary>How to use this tab</summary><p>Toggle a provider off to hide all their courses from the site. Click Run to trigger a fresh scrape for that provider. Click Validate to run the validator — use this after fixing a mapping or summary to confirm the flag is resolved without waiting for the next cron run. <strong>Scraper</strong> classifies how the provider is being scraped. Shows the platform name (<code>rezdy</code> / <code>zaui</code> / <code>checkfront</code> / <code>woocommerce</code> / <code>squarespace</code>) if we have reusable adapter code — a new provider on that platform can be onboarded by cloning the pattern. Shows <strong>bespoke</strong> if the scraper is hand-written for that specific site (custom HTML, Rails, custom WordPress, Playwright-specific, etc.) — onboarding a similar site still needs a dedicated scraper. Shows a dash if no scraper run has been recorded yet. If a provider is showing bespoke when you'd expect a platform name, run <code>backfill_platforms.py</code> — detection may have missed the signature because <code>providers.website</code> points at a marketing page rather than the booking subdomain. Last run shows the most recent scraper execution per provider. A yellow <strong>⚠ drop ↗</strong> badge appears on the status cell when the last scrape returned &gt;30% fewer courses than the previous run — click it to jump to the GitHub Actions workflow for that provider and investigate the scraper run (Initiative 7). Use Validate after Run to confirm fixes were applied. Validate alone is useful after fixing summaries — for mapping or scraper fixes, always Run first then Validate. Run all triggers a full scrape of all providers — expect 45-60 minutes. Column headers are clickable to sort ascending or descending.</p></details>
+      <details class="instructions"><summary>How to use this tab</summary><p>Toggle a provider off to hide all their courses from the site. Toggling the active switch (in either direction) automatically dispatches the <code>sync-algolia.yml</code> workflow so the frontend Search grid updates within ~30 seconds instead of waiting for the next 6-hour cron. Click Run to trigger a fresh scrape for that provider. Click Validate to run the validator — use this after fixing a mapping or summary to confirm the flag is resolved without waiting for the next cron run. <strong>Scraper</strong> classifies how the provider is being scraped. Shows the platform name (<code>rezdy</code> / <code>zaui</code> / <code>checkfront</code> / <code>woocommerce</code> / <code>squarespace</code>) if we have reusable adapter code — a new provider on that platform can be onboarded by cloning the pattern. Shows <strong>bespoke</strong> if the scraper is hand-written for that specific site (custom HTML, Rails, custom WordPress, Playwright-specific, etc.) — onboarding a similar site still needs a dedicated scraper. Shows a dash if no scraper run has been recorded yet. If a provider is showing bespoke when you'd expect a platform name, run <code>backfill_platforms.py</code> — detection may have missed the signature because <code>providers.website</code> points at a marketing page rather than the booking subdomain. Last run shows the most recent scraper execution per provider. A yellow <strong>⚠ drop ↗</strong> badge appears on the status cell when the last scrape returned &gt;30% fewer courses than the previous run — click it to jump to the GitHub Actions workflow for that provider and investigate the scraper run (Initiative 7). Use Validate after Run to confirm fixes were applied. Validate alone is useful after fixing summaries — for mapping or scraper fixes, always Run first then Validate. Run all triggers a full scrape of all providers — expect 45-60 minutes. Column headers are clickable to sort ascending or descending.</p></details>
       <div class="stats-row" id="stats-row">
         <div class="stat-card"><div class="stat-label">Providers</div><div class="stat-value" id="stat-providers">—</div></div>
         <div class="stat-card"><div class="stat-label">Courses</div><div class="stat-value" id="stat-courses">—</div></div>
@@ -814,7 +814,22 @@ window.sortProviders = (col) => {
 window.toggleProvider = async (id, active) => {
   try {
     await callEdge('admin-toggle-provider', { provider_id: id, active });
-    toast(`Provider ${id} ${active ? 'enabled' : 'disabled'}`);
+    // Auto-trigger Algolia sync so the frontend Search grid reflects the
+    // change without a 6-hour cron wait. Fire-and-forget — if the dispatch
+    // fails we still consider the toggle a success; admin can re-run the
+    // sync manually from the Actions tab. Applies to both directions:
+    //   ON  → courses need to appear in courses_v2
+    //   OFF → stale records need to be removed from courses_v2
+    // (algolia_sync.py uses replace_all_objects so OFF sync drops them.)
+    let syncNote = '';
+    try {
+      await callEdge('admin-trigger-scraper', { workflow_id: 'sync-algolia.yml' });
+      syncNote = ' — Algolia sync running (~30s)';
+    } catch (syncErr) {
+      console.warn('Algolia sync dispatch failed:', syncErr);
+      syncNote = ' — Algolia sync dispatch failed, run sync-algolia.yml manually';
+    }
+    toast(`Provider ${id} ${active ? 'enabled' : 'disabled'}${syncNote}`);
   } catch (e) {
     toast('Failed: ' + e.message, true);
     loadProvidersTab();
