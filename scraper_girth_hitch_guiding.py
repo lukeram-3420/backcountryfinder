@@ -116,13 +116,18 @@ def fetch_items() -> dict:
 
 
 def fetch_availability(item_ids: list, start: str, end: str) -> dict:
-    params = {
-        "item_id[]": item_ids,
-        "start_date": start,
-        "end_date":   end,
-    }
-    data = cf_get("item/cal", params=params)
-    return data.get("items", {})
+    # Batch into groups of 20 — Checkfront 500s on large item_id[] lists.
+    result = {}
+    for i in range(0, len(item_ids), 20):
+        batch = item_ids[i:i + 20]
+        params = {
+            "item_id[]": batch,
+            "start_date": start,
+            "end_date":   end,
+        }
+        data = cf_get("item/cal", params=params)
+        result.update(data.get("items", {}))
+    return result
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
