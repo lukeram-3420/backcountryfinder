@@ -76,18 +76,32 @@ def sb_get(table: str, params: dict = None) -> list:
 
 
 def sb_upsert(table: str, rows: list) -> None:
-    """POST rows to a Supabase table with merge-duplicates upsert semantics."""
+    """POST rows to a Supabase table with merge-duplicates upsert semantics.
+
+    PostgREST (PGRST102) rejects bulk payloads whose rows have differing keysets.
+    Scrapers intentionally omit optional keys (notably `location_canonical` when
+    normalise_location() returns None — see CLAUDE.md "Never pass
+    location_canonical: None to a courses upsert"). We preserve that contract by
+    grouping rows by keyset and POSTing one request per group.
+    """
     if not rows:
         return
-    r = requests.post(
-        f"{SUPABASE_URL}/rest/v1/{table}",
-        headers=_sb_headers(),
-        json=rows,
-    )
-    if not r.ok:
-        log.error(f"Supabase upsert error {r.status_code}: {r.text[:300]}")
-    r.raise_for_status()
-    log.info(f"Upserted {len(rows)} rows to {table}")
+    groups: dict = {}
+    for row in rows:
+        key = tuple(sorted(row.keys()))
+        groups.setdefault(key, []).append(row)
+    total = 0
+    for batch in groups.values():
+        r = requests.post(
+            f"{SUPABASE_URL}/rest/v1/{table}",
+            headers=_sb_headers(),
+            json=batch,
+        )
+        if not r.ok:
+            log.error(f"Supabase upsert error {r.status_code}: {r.text[:300]}")
+        r.raise_for_status()
+        total += len(batch)
+    log.info(f"Upserted {total} rows to {table} in {len(groups)} keyset batch(es)")
 
 
 def sb_insert(table: str, data: dict) -> None:
