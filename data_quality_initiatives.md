@@ -33,10 +33,12 @@ Remove the concept of a canonical course `activity` from the system entirely. Sc
 | `crawl_courses.py` | Remove the `activity_mismatch` category |
 | CLAUDE.md | Update: filter bar description, the 6-query list, Phase 4 frontend notes, scraper conventions (activity canonical values list), schema table entries for `activity`/`activity_raw`/`badge`/`badge_canonical` (mark as deprecated, will drop at cutover), validator priority stack docs |
 
-### Fast-follow commit (after scraper-side lands clean)
-- Delete the `Activity Mappings` admin tab from `admin.html`
-- Delete 4 edge functions: `admin-approve-mapping`, `admin-reject-mapping`, `admin-update-mapping`, `admin-delete-mapping`
-- Remove them from `deploy-functions.yml`
+### Fast-follow commit (completed)
+- Deleted the `Activity Mappings` admin tab and its JS from `admin.html`
+- Deleted 4 edge functions: `admin-approve-mapping`, `admin-reject-mapping`, `admin-update-mapping`, `admin-delete-mapping`
+- Removed them from `deploy-functions.yml`
+- Removed the Settings-tab canonical activity values CRUD (activity_labels table now read by nothing)
+- Removed the Flags-tab "Add mapping" root-cause fix path plus `ADMIN_ACTIVITY_CONTRADICTIONS`, `summaryStillContradicts`, `patchCoursesActivityForMapping`, and `saveAddMapping`
 
 ### Out of scope
 - Dropping the `activity`, `activity_raw`, `badge`, `badge_canonical` columns from Supabase — that's V2 Phase 7 cutover housekeeping, not part of this work

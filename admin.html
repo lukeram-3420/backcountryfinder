@@ -183,7 +183,6 @@
 
   <div class="tabs">
     <div class="tab active" data-tab="providers">Providers</div>
-    <div class="tab" data-tab="activity">Activity Mappings</div>
     <div class="tab" data-tab="location">Location Mappings</div>
     <div class="tab" data-tab="summaries">Summary Review</div>
     <div class="tab" data-tab="flags">Flags</div>
@@ -212,37 +211,9 @@
       </div>
     </div>
 
-    <!-- TAB: ACTIVITY MAPPINGS -->
-    <div class="tab-panel hidden" id="panel-activity">
-      <details class="instructions"><summary>How to use this tab</summary><p>Pending mappings are Haiku suggestions waiting for your review. Approve to add permanently to the mapping table, or edit the activity first if Haiku got it wrong. Use <strong>Add mapping</strong> to insert a mapping directly without waiting for the scraper to surface a pending suggestion — useful for pinning a title to an activity proactively. Approved mappings with 0 courses are safe to delete — they will be re-suggested if a matching course appears in future. Column headers are clickable to sort ascending or descending.</p></details>
-      <div class="section">
-        <h2>Pending activity mappings</h2>
-        <div id="pending-mappings-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
-      </div>
-      <div class="section">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap;">
-          <h2 style="margin:0;">Approved activity mappings</h2>
-          <div style="display:flex;gap:8px;">
-            <button class="btn" id="activity-counts-btn" onclick="loadActivityCounts()">Load counts</button>
-            <button class="btn btn-primary" onclick="window.showAddActivityMapping()">Add mapping</button>
-          </div>
-        </div>
-        <div id="add-activity-mapping-form" class="hidden" style="background:#faf9f5;border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;margin-bottom:12px;">
-          <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
-            <div style="flex:2;min-width:240px;"><label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-tertiary);display:block;margin-bottom:4px;">Title contains</label><input type="text" id="new-am-title" placeholder="e.g. Crevasse Rescue"></div>
-            <div style="flex:1;min-width:160px;"><label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-tertiary);display:block;margin-bottom:4px;">Activity</label><select id="new-am-activity"></select></div>
-            <button class="btn btn-small btn-primary" onclick="window.saveNewActivityMapping()">Save</button>
-            <button class="btn btn-small" onclick="window.hideAddActivityMapping()">Cancel</button>
-          </div>
-        </div>
-        <div class="search-row"><input type="text" id="activity-search" placeholder="Search mappings…" oninput="renderActivityMappings()"></div>
-        <div id="activity-mappings-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
-      </div>
-    </div>
-
     <!-- TAB: LOCATION MAPPINGS -->
     <div class="tab-panel hidden" id="panel-location">
-      <details class="instructions"><summary>How to use this tab</summary><p>Pending location mappings work the same as activity mappings. Approve Haiku's suggested canonical or correct it before approving. Use <strong>Add mapping</strong> to insert a raw → canonical pair directly without waiting for a pending suggestion. Editing an approved mapping cascades instantly to all matching course rows on the site. Column headers are clickable to sort ascending or descending.</p></details>
+      <details class="instructions"><summary>How to use this tab</summary><p>Pending location mappings are Haiku suggestions waiting for your review. Approve Haiku's suggested canonical or correct it before approving. Use <strong>Add mapping</strong> to insert a raw → canonical pair directly without waiting for a pending suggestion. Editing an approved mapping cascades instantly to all matching course rows on the site. Column headers are clickable to sort ascending or descending.</p></details>
       <div class="section">
         <h2>Pending location mappings</h2>
         <div id="pending-locations-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
@@ -279,7 +250,7 @@
 
     <!-- TAB: FLAGS -->
     <div class="tab-panel hidden" id="panel-flags">
-      <details class="instructions"><summary>How to use this tab</summary><p>Auto-hidden courses are hidden from the site until the flag is resolved. Use Add mapping to permanently fix activity mismatches — the mapping is saved and applied on every future scrape. Use Diagnose on duplicates to let Haiku determine if it is safe to whitelist or needs a scraper fix. Use Regenerate to fix empty or mismatched summaries. Warnings are courses still visible on the site but with data quality issues — use Mark as expected to permanently suppress price outliers. Click Re-validate all to refresh flags and warnings after making fixes. Flags and warnings auto-refresh after each validate run. Column headers in the User Reports and Auto-flags tables are clickable to sort ascending or descending.</p></details>
+      <details class="instructions"><summary>How to use this tab</summary><p>Auto-hidden courses are hidden from the site until the flag is resolved. Use Diagnose on duplicates to let Haiku determine if it is safe to whitelist or needs a scraper fix. Use Regenerate to fix empty or mismatched summaries. Warnings are courses still visible on the site but with data quality issues — use Mark as expected to permanently suppress price outliers. Click Re-validate all to refresh flags and warnings after making fixes. Flags and warnings auto-refresh after each validate run. Column headers in the User Reports and Auto-flags tables are clickable to sort ascending or descending.</p></details>
       <div class="stats-row" style="grid-template-columns:repeat(3,1fr);">
         <div class="stat-card"><div class="stat-label">User reports</div><div class="stat-value" id="stat-flags-user">—</div></div>
         <div class="stat-card"><div class="stat-label">Auto-hidden</div><div class="stat-value" id="stat-flags-auto" style="color:var(--red);">—</div></div>
@@ -338,22 +309,7 @@
 
     <!-- TAB: SETTINGS -->
     <div class="tab-panel hidden" id="panel-settings">
-      <details class="instructions"><summary>How to use this tab</summary><p>Manage canonical activity values used across all scrapers and filters. Changes here affect how activities are labelled on the site. Add new canonical values when adding a new activity type. <strong>Discovery Cloud</strong> controls the search terms used by the weekly automated provider discovery script. Activity terms are extracted from course titles (bigrams across 2+ providers); location terms are derived from provider locations and location mappings. Toggle terms on/off to control what gets searched. Add manual terms to search for niches not yet in your data. Weight shows how many providers use that term. <strong>Quality</strong> shows "X found / Y skipped" — terms where &gt;80% of candidates get filtered (with 5+ total) show a warning indicator, meaning the term generates noise not signal. Consider disabling low-quality terms. Last used shows when the term last generated a discovery run.</p></details>
-      <div class="section">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-          <h2 style="margin:0;">Canonical activity values</h2>
-          <button class="btn btn-primary" onclick="showAddActivity()">Add new</button>
-        </div>
-        <div id="add-activity-form" class="hidden" style="background:#faf9f5;border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;margin-bottom:12px;">
-          <div style="display:flex;gap:8px;align-items:flex-end;">
-            <div style="flex:1;"><label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-tertiary);display:block;margin-bottom:4px;">Activity (slug)</label><input type="text" id="new-activity-key" placeholder="via_ferrata"></div>
-            <div style="flex:1;"><label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-tertiary);display:block;margin-bottom:4px;">Label</label><input type="text" id="new-activity-label" placeholder="Via Ferrata"></div>
-            <button class="btn btn-small btn-primary" onclick="addActivityLabel()">Add</button>
-            <button class="btn btn-small" onclick="hideAddActivity()">Cancel</button>
-          </div>
-        </div>
-        <div id="activity-labels-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
-      </div>
+      <details class="instructions"><summary>How to use this tab</summary><p>Static reference for the canonical location format. <strong>Discovery Cloud</strong> controls the search terms used by the weekly automated provider discovery script. Activity terms are extracted from course titles (bigrams across 2+ providers); location terms are derived from provider locations and location mappings. Toggle terms on/off to control what gets searched. Add manual terms to search for niches not yet in your data. Weight shows how many providers use that term. <strong>Quality</strong> shows "X found / Y skipped" — terms where &gt;80% of candidates get filtered (with 5+ total) show a warning indicator, meaning the term generates noise not signal. Consider disabling low-quality terms. Last used shows when the term last generated a discovery run.</p></details>
       <div class="section">
         <h2>Canonical location format</h2>
         <p style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin:0 0 12px;">Use <code>"City, Province"</code> for towns and <code>"Area Name, Province"</code> for ranges.</p>
@@ -450,10 +406,7 @@
 
   GRANT SELECT, INSERT ON validator_price_exceptions TO anon, authenticated, service_role;
 
-  -- For the Activity / Location Mappings tab "Add mapping" buttons:
-  CREATE POLICY "authenticated can insert activity_mappings"
-    ON activity_mappings FOR INSERT TO authenticated WITH CHECK (true);
-
+  -- For the Location Mappings tab "Add mapping" button:
   CREATE POLICY "authenticated can insert location_mappings"
     ON location_mappings FOR INSERT TO authenticated WITH CHECK (true);
 
@@ -476,9 +429,7 @@
 
   GRANT SELECT, INSERT ON validator_suppressions TO anon, authenticated, service_role;
 
-  -- For the Flags tab "Add mapping" — lets authenticated update courses so the
-  -- admin can patch activity/activity_canonical immediately after saving a
-  -- mapping, preventing the validator from re-flagging on the next run.
+  -- Lets authenticated admin update courses from the Flags tab actions.
   CREATE POLICY "authenticated can update courses"
     ON courses FOR UPDATE TO authenticated USING (true);
 */
@@ -511,7 +462,6 @@ let session = null;
 let idleTimer = null;
 
 // State caches for filter searches
-let cachedActivityMappings = [];
 let cachedLocationMappings = [];
 let cachedAuditLog = [];
 let pendingConfirm = null;
@@ -635,7 +585,6 @@ document.querySelectorAll('.tab').forEach(t => {
     document.getElementById(`panel-${t.dataset.tab}`).classList.remove('hidden');
     const loaders = {
       providers: loadProvidersTab,
-      activity:  loadActivityTab,
       location:  loadLocationTab,
       summaries: loadSummariesTab,
       flags:     loadFlagsTab,
@@ -897,228 +846,9 @@ window.triggerValidate = async (provider_id) => {
   }, 5000);
 };
 
-// ── Activity labels cache (shared between tabs) ──
-let cachedActivityLabels = [];
-let editingActivityMappingId = null;
 let editingLocationMappingId = null;
 
-async function ensureActivityLabels() {
-  if (cachedActivityLabels.length) return cachedActivityLabels;
-  cachedActivityLabels = await sbSelect('activity_labels', { order: { col: 'activity', ascending: true } });
-  return cachedActivityLabels;
-}
-
-function activityOptionsHtml(selected) {
-  return cachedActivityLabels.map(a => `<option value="${esc(a.activity)}" ${a.activity===selected?'selected':''}>${esc(a.activity)}</option>`).join('');
-}
-
-// ── Tab 2: Activity Mappings ─────────────────────
-async function loadActivityTab() {
-  await ensureActivityLabels();
-  await Promise.all([loadPendingMappings(), loadActivityMappings()]);
-}
-
-async function loadPendingMappings() {
-  try {
-    const rows = await sbSelect('pending_mappings', { eq: { reviewed: false }, order: { col: 'created_at', ascending: false } });
-    if (!rows.length) {
-      document.getElementById('pending-mappings-wrap').innerHTML = '<div class="loading">No pending mappings</div>';
-      return;
-    }
-    document.getElementById('pending-mappings-wrap').innerHTML = `
-      <table><thead><tr><th>Course title</th><th>Provider</th><th>Suggested</th><th></th></tr></thead><tbody>${
-        rows.map(r => `<tr>
-          <td><strong>${esc(r.course_title || r.title_contains || '')}</strong>
-              <div class="detail-snippet">${esc((r.description || '').slice(0, 120))}</div></td>
-          <td><code>${esc(r.provider_id || '')}</code></td>
-          <td><select id="pm-${r.id}">${activityOptionsHtml(r.suggested_activity)}</select></td>
-          <td class="row-actions">
-            <button class="btn btn-small btn-primary" onclick="window.approveMapping(${r.id}, '${esc(r.title_contains || r.course_title || '')}')">Approve</button>
-            <button class="btn btn-small btn-danger" onclick="window.rejectMapping(${r.id})">Reject</button>
-          </td>
-        </tr>`).join('')
-      }</tbody></table>`;
-  } catch (e) {
-    document.getElementById('pending-mappings-wrap').innerHTML = `<div class="loading">Error: ${esc(e.message)}</div>`;
-  }
-}
-window.approveMapping = async (id, title_contains) => {
-  const sel = document.getElementById(`pm-${id}`);
-  const activity = sel.value;
-  try {
-    await callEdge('admin-approve-mapping', { id, title_contains, activity });
-    toast('Mapping approved');
-    loadActivityTab();
-  } catch (e) { toast('Failed: ' + e.message, true); }
-};
-window.rejectMapping = (id) => {
-  confirmAction('Reject mapping', 'This will mark the pending mapping as reviewed.', async () => {
-    try { await callEdge('admin-reject-mapping', { id }); toast('Rejected'); loadActivityTab(); } catch (e) { toast('Failed: ' + e.message, true); }
-  });
-};
-
-window.showAddActivityMapping = async () => {
-  await ensureActivityLabels();
-  document.getElementById('new-am-activity').innerHTML = activityOptionsHtml('');
-  document.getElementById('new-am-title').value = '';
-  document.getElementById('add-activity-mapping-form').classList.remove('hidden');
-};
-window.hideAddActivityMapping = () => {
-  document.getElementById('add-activity-mapping-form').classList.add('hidden');
-};
-window.saveNewActivityMapping = async () => {
-  const title_contains = document.getElementById('new-am-title').value.trim();
-  const activity = document.getElementById('new-am-activity').value;
-  if (!title_contains || !activity) { toast('Both fields required', true); return; }
-  try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/activity_mappings`, {
-      method: 'POST',
-      headers: {
-        'apikey': SUPABASE_KEY,
-        'Authorization': `Bearer ${session.access_token}`,
-        'Content-Type': 'application/json',
-        'Prefer': 'return=minimal',
-      },
-      body: JSON.stringify([{ title_contains, activity }]),
-    });
-    if (!res.ok) throw new Error(`POST ${res.status}: ${await res.text()}`);
-    toast('Mapping saved');
-    window.hideAddActivityMapping();
-    loadActivityMappings();
-  } catch (e) { toast('Failed: ' + e.message, true); }
-};
-
-// Per-row course counts, keyed by mapping id. Session-cached.
-let activityMappingCounts = {}; // { mapping_id: count }
-let activityCountsLoaded = false;
-
-async function loadActivityMappings() {
-  try {
-    cachedActivityMappings = await sbSelect('activity_mappings', { order: { col: 'created_at', ascending: false } });
-    window.renderActivityMappings();
-  } catch (e) {
-    document.getElementById('activity-mappings-wrap').innerHTML = `<div class="loading">Error: ${esc(e.message)}</div>`;
-  }
-}
-
-window.loadActivityCounts = async () => {
-  const btn = document.getElementById('activity-counts-btn');
-  // If already loaded in this session, just re-render with cached results
-  if (activityCountsLoaded) {
-    window.renderActivityMappings();
-    return;
-  }
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span>Loading…';
-  try {
-    // One count=exact query per mapping row, fired in parallel, ilike title_contains
-    const results = await Promise.all(cachedActivityMappings.map(async m => {
-      const pattern = `*${m.title_contains}*`;
-      const count = await countRows(
-        'courses',
-        `title=ilike.${encodeURIComponent(pattern)}&active=eq.true&flagged=not.is.true&auto_flagged=not.is.true`
-      );
-      return [m.id, count];
-    }));
-    for (const [id, count] of results) {
-      activityMappingCounts[id] = count;
-    }
-    activityCountsLoaded = true;
-    btn.disabled = false;
-    btn.textContent = 'Counts loaded ✓';
-    window.renderActivityMappings();
-  } catch (e) {
-    btn.disabled = false;
-    btn.textContent = 'Load counts';
-    toast('Failed to load counts: ' + e.message, true);
-  }
-};
-
-let activitySort = { col: 'title_contains', dir: 'asc' };
-function activityMappingSortValue(m, col) {
-  switch (col) {
-    case 'title_contains': return m.title_contains;
-    case 'activity':       return m.activity;
-    case 'courses':        return activityCountsLoaded ? (Number(activityMappingCounts[m.id]) || 0) : null;
-    case 'created_at':     return m.created_at;
-    default:               return null;
-  }
-}
-window.sortActivityMappings = (col) => {
-  if (col === 'courses' && !activityCountsLoaded) return; // not sortable until loaded
-  toggleSortState(activitySort, col);
-  window.renderActivityMappings();
-};
-
-window.renderActivityMappings = () => {
-  const q = (document.getElementById('activity-search')?.value || '').toLowerCase();
-  const filtered = cachedActivityMappings
-    .filter(m => !q || (m.title_contains || '').toLowerCase().includes(q) || (m.activity || '').toLowerCase().includes(q))
-    .slice()
-    .sort((a, b) => cmpValues(activityMappingSortValue(a, activitySort.col), activityMappingSortValue(b, activitySort.col), activitySort.dir));
-  if (!filtered.length) { document.getElementById('activity-mappings-wrap').innerHTML = '<div class="loading">No mappings</div>'; return; }
-  const h = (col, label) => sortableHeader(activitySort, col, label, `window.sortActivityMappings('${col}')`);
-  document.getElementById('activity-mappings-wrap').innerHTML = `
-    <table><thead><tr>${h('title_contains','title_contains')}${h('activity','Activity')}${h('courses','Courses')}${h('created_at','Created')}<th></th></tr></thead><tbody>${
-      filtered.map(m => {
-        const editing = editingActivityMappingId === m.id;
-        let countBadge;
-        if (!activityCountsLoaded) {
-          countBadge = `<span class="badge badge-grey">—</span>`;
-        } else {
-          const count = activityMappingCounts[m.id] || 0;
-          countBadge = count > 0
-            ? `<span class="badge badge-green">${count} course${count === 1 ? '' : 's'}</span>`
-            : `<span class="badge badge-grey">0 courses</span>`;
-        }
-        if (editing) {
-          return `<tr>
-            <td><input type="text" id="am-title-${m.id}" value="${esc(m.title_contains)}"></td>
-            <td><select id="am-activity-${m.id}">${activityOptionsHtml(m.activity)}</select></td>
-            <td>${countBadge}</td>
-            <td class="meta-line">${fmt(m.created_at)}</td>
-            <td class="row-actions">
-              <button class="btn btn-small btn-primary" onclick="window.saveActivityMapping(${m.id})">Save</button>
-              <button class="btn btn-small" onclick="window.cancelEditActivityMapping()">Cancel</button>
-            </td>
-          </tr>`;
-        }
-        return `<tr>
-          <td><code>${esc(m.title_contains)}</code></td>
-          <td><span class="badge badge-green">${esc(m.activity)}</span></td>
-          <td>${countBadge}</td>
-          <td class="meta-line">${fmt(m.created_at)}</td>
-          <td class="row-actions">
-            <button class="btn btn-small" onclick="window.editActivityMapping(${m.id})">Edit</button>
-            <button class="btn btn-small btn-danger" onclick="window.deleteActivityMapping(${m.id}, '${esc(m.title_contains).replace(/'/g, "&#39;")}')">Delete</button>
-          </td>
-        </tr>`;
-      }).join('')
-    }</tbody></table>`;
-};
-window.deleteActivityMapping = (id, title_contains) => {
-  const title = title_contains.replace(/&#39;/g, "'");
-  confirmAction('Delete mapping', `Delete mapping for "${title}"?`, async () => {
-    try {
-      await callEdge('admin-delete-mapping', { id });
-      toast('Mapping deleted');
-      loadActivityMappings();
-    } catch (e) { toast('Failed: ' + e.message, true); }
-  });
-};
-window.editActivityMapping = (id) => { editingActivityMappingId = id; window.renderActivityMappings(); };
-window.cancelEditActivityMapping = () => { editingActivityMappingId = null; window.renderActivityMappings(); };
-window.saveActivityMapping = async (id) => {
-  const activity = document.getElementById(`am-activity-${id}`).value;
-  try {
-    await callEdge('admin-update-mapping', { id, activity });
-    toast('Mapping updated');
-    editingActivityMappingId = null;
-    loadActivityMappings();
-  } catch (e) { toast('Failed: ' + e.message, true); }
-};
-
-// ── Tab 3: Location Mappings ─────────────────────
+// ── Tab 2: Location Mappings ─────────────────────
 async function loadLocationTab() {
   await Promise.all([loadPendingLocations(), loadLocationMappings()]);
 }
@@ -1458,7 +1188,6 @@ async function loadUserFlags() {
 }
 // Auto-flags grouped by (title, flag_reason) with per-reason fix actions
 let autoFlagGroups = [];
-let expandedAutoFlagKey = null;
 let autoFlagDiagnosis = {}; // { groupKey: { status: 'loading'|'done'|'error', verdict, reason, claude_code_prompt } }
 let autoFlagSort = { col: 'occurrences', dir: 'desc' };
 
@@ -1478,11 +1207,6 @@ window.sortAutoFlags = (col) => {
 
 function parseFlagAction(reason) {
   const r = (reason || '').toLowerCase();
-  if (r.startsWith('activity mismatch')) {
-    const m = reason.match(/title suggests (\w+) but got (\w+)/i);
-    return { type: 'add_mapping', expectedActivity: m ? m[1] : '' };
-  }
-  if (r.startsWith('null activity')) return { type: 'add_mapping', expectedActivity: '' };
   if (r.startsWith('summary mismatch') || r.startsWith('summary bleed')) return { type: 'regenerate' };
   if (r.startsWith('duplicate')) return { type: 'duplicate' };
   if (r.startsWith('invalid price')) return { type: 'mark_expected' };
@@ -1491,12 +1215,9 @@ function parseFlagAction(reason) {
 
 function prettyReason(reason) {
   if (!reason) return '—';
-  let m = reason.match(/^activity mismatch: title suggests (\w+) but got (\w+)/i);
-  if (m) return `Activity mismatch: title suggests ${m[1]} → currently ${m[2]}`;
-  m = reason.match(/^summary mismatch: '([^']+)' on (\w+) course/i);
-  if (m) return `Summary mismatch: contains "${m[1]}" on ${m[2]} course`;
+  const m = reason.match(/^summary mismatch: '([^']+)'/i);
+  if (m) return `Summary mismatch: contains "${m[1]}"`;
   if (/^duplicate/i.test(reason)) return 'Duplicate: same title and date as another row';
-  if (/^null activity/i.test(reason)) return 'Activity is null — needs a mapping';
   if (/^invalid price/i.test(reason)) return reason.replace(/^invalid price/i, 'Invalid price');
   if (/^past date/i.test(reason)) return 'Past date but still active';
   return reason;
@@ -1504,7 +1225,6 @@ function prettyReason(reason) {
 
 async function loadAutoFlags() {
   try {
-    await ensureActivityLabels();
     const { data } = await sb.from('courses').select('id,title,provider_id,flag_reason,booking_url').eq('auto_flagged', true).limit(2000);
     const rows = data || [];
     if (!rows.length) {
@@ -1553,9 +1273,7 @@ function renderAutoFlags() {
     const viewBtn = g.booking_url ? `<a class="btn btn-small" href="${esc(g.booking_url)}" target="_blank">View</a>` : '';
     let actionBtn = '';
     let note = '';
-    if (g.action.type === 'add_mapping') {
-      actionBtn = `<button class="btn btn-small btn-primary" onclick="window.expandAddMapping('${sk}')">Add mapping</button>`;
-    } else if (g.action.type === 'regenerate') {
+    if (g.action.type === 'regenerate') {
       actionBtn = `<button class="btn btn-small btn-primary" onclick="window.regenerateGroup('${sk}')">Regenerate</button>`;
     } else if (g.action.type === 'mark_expected') {
       actionBtn = `<button class="btn btn-small btn-primary" onclick="window.markPriceExpected('${sk}')">Mark as expected</button>`;
@@ -1577,7 +1295,7 @@ function renderAutoFlags() {
         actionBtn = `<button class="btn btn-small btn-primary" onclick="window.copyFixPrompt('${sk}')" id="copyfix-${sk}">Copy fix prompt ↗</button>`;
       }
     }
-    const mainRow = `<tr>
+    return `<tr>
       <td><strong>${esc(g.title)}</strong><div class="meta-line"><code>${esc(providersLabel)}</code></div>${note}</td>
       <td class="detail-snippet">${esc(prettyReason(g.flag_reason))}</td>
       <td><span class="badge ${g.occurrences > 1 ? 'badge-amber' : 'badge-grey'}">${g.occurrences} occurrence${g.occurrences === 1 ? '' : 's'}</span></td>
@@ -1587,24 +1305,6 @@ function renderAutoFlags() {
         ${viewBtn}
       </td>
     </tr>`;
-    let formRow = '';
-    if (expandedAutoFlagKey === g.key && g.action.type === 'add_mapping') {
-      formRow = `<tr><td colspan="4" style="background:#faf9f5;padding:14px 16px;">
-        <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
-          <div style="flex:2;min-width:240px;">
-            <label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-tertiary);display:block;margin-bottom:4px;">Title contains</label>
-            <input type="text" id="afm-title-${sk}" value="${esc(g.title)}">
-          </div>
-          <div style="flex:1;min-width:160px;">
-            <label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-tertiary);display:block;margin-bottom:4px;">Activity</label>
-            <select id="afm-activity-${sk}">${activityOptionsHtml(g.action.expectedActivity || '')}</select>
-          </div>
-          <button class="btn btn-small btn-primary" onclick="window.saveAddMapping('${sk}')">Save mapping &amp; clear</button>
-          <button class="btn btn-small" onclick="window.cancelAddMapping()">Cancel</button>
-        </div>
-      </td></tr>`;
-    }
-    return mainRow + formRow;
   }).join('');
   const h = (col, label) => sortableHeader(autoFlagSort, col, label, `window.sortAutoFlags('${col}')`);
   document.getElementById('auto-flags-wrap').innerHTML = `
@@ -1616,7 +1316,6 @@ function findGroupBySafeKey(sk) { return autoFlagGroups.find(g => safeKeyOf(g.ke
 function removeAutoFlagGroup(key) {
   autoFlagGroups = autoFlagGroups.filter(g => g.key !== key);
   delete autoFlagDiagnosis[key];
-  if (expandedAutoFlagKey === key) expandedAutoFlagKey = null;
   renderAutoFlags();
 }
 
@@ -1631,13 +1330,6 @@ window.resolveFlag = (course_id) => {
     try { await callEdge('admin-resolve-flag', { course_id }); toast('Flag resolved'); loadFlagsTab(); }
     catch (e) { toast('Failed: ' + e.message, true); }
   });
-};
-
-// Mirrors ACTIVITY_CONTRADICTIONS in validate_provider.py. Keep in sync.
-const ADMIN_ACTIVITY_CONTRADICTIONS = {
-  climbing: ['splitboard', 'ski touring', 'ski resort', 'ski lift', 'backcountry skiing', 'downhill ski'],
-  skiing:   ['rock climbing', 'ice climbing', 'trad climbing', 'sport climbing'],
-  hiking:   ['splitboard', 'ski touring', 'rock climbing', 'ice climbing'],
 };
 
 async function insertSuppressions(g) {
@@ -1677,86 +1369,12 @@ window.clearGroup = (sk) => {
   );
 };
 
-window.expandAddMapping = (sk) => {
-  const g = findGroupBySafeKey(sk); if (!g) return;
-  expandedAutoFlagKey = g.key;
-  renderAutoFlags();
-};
-window.cancelAddMapping = () => { expandedAutoFlagKey = null; renderAutoFlags(); };
-
-async function patchCoursesActivityForMapping(providerIds, title_contains, activity) {
-  // PATCH every course matching the provider + ilike title to the mapped
-  // activity so the validator does not re-flag on the next run.
-  const ilike = `*${title_contains}*`;
-  let total = 0;
-  for (const pid of providerIds) {
-    const url = `${SUPABASE_URL}/rest/v1/courses`
-      + `?provider_id=eq.${encodeURIComponent(pid)}`
-      + `&title=ilike.${encodeURIComponent(ilike)}`;
-    const res = await fetch(url, {
-      method: 'PATCH',
-      headers: {
-        'apikey': SUPABASE_KEY,
-        'Authorization': `Bearer ${session.access_token}`,
-        'Content-Type': 'application/json',
-        'Prefer': 'return=representation',
-      },
-      body: JSON.stringify({ activity, activity_canonical: activity }),
-    });
-    if (!res.ok) throw new Error(`courses PATCH ${pid} ${res.status}: ${await res.text()}`);
-    try {
-      const updated = await res.json();
-      total += Array.isArray(updated) ? updated.length : 0;
-    } catch { /* ignore parse errors */ }
-  }
-  return total;
-}
-
-window.saveAddMapping = async (sk) => {
-  const g = findGroupBySafeKey(sk); if (!g) return;
-  const title_contains = document.getElementById(`afm-title-${sk}`).value.trim();
-  const activity = document.getElementById(`afm-activity-${sk}`).value;
-  if (!title_contains || !activity) { toast('Both fields required', true); return; }
-  try {
-    await callEdge('admin-approve-mapping', { title_contains, activity });
-    // Permanently update every matching course so the validator can't re-flag.
-    let patched = 0;
-    try {
-      patched = await patchCoursesActivityForMapping(g.providerIds || [], title_contains, activity);
-    } catch (e) {
-      toast('Mapping saved but courses PATCH failed: ' + e.message, true);
-    }
-    await clearGroupCourseIds(g.courseIds);
-    toast(`Mapping added · ${patched} course${patched === 1 ? '' : 's'} updated · ${g.occurrences} flag${g.occurrences === 1 ? '' : 's'} cleared`);
-    removeAutoFlagGroup(g.key);
-    loadFlagsStats();
-  } catch (e) { toast('Failed: ' + e.message, true); }
-};
-
-function summaryStillContradicts(summary, activity, flagReason) {
-  const s = (summary || '').toLowerCase();
-  // 1. Keyword from the original mismatch reason, if parseable
-  const mm = (flagReason || '').match(/^summary mismatch:\s*'([^']+)'/i);
-  if (mm) {
-    const kw = mm[1].toLowerCase();
-    if (s.includes(kw)) return kw;
-  }
-  // 2. Full contradiction list for this activity
-  const list = ADMIN_ACTIVITY_CONTRADICTIONS[activity] || [];
-  for (const kw of list) {
-    if (s.includes(kw)) return kw;
-  }
-  return null;
-}
-
 window.regenerateGroup = (sk) => {
   const g = findGroupBySafeKey(sk); if (!g) return;
-  confirmAction('Regenerate summaries', `Regenerate summary for ${g.occurrences} course${g.occurrences === 1 ? '' : 's'} via Claude Haiku? If the new text still contradicts the activity, the flag stays and you'll be told why.`, async () => {
+  confirmAction('Regenerate summaries', `Regenerate summary for ${g.occurrences} course${g.occurrences === 1 ? '' : 's'} via Claude Haiku?`, async () => {
     try {
-      const regenerated = [];          // [{id, provider_id, summary, activity}]
-      const stillBad = [];             // [{id, kw, summary}]
       for (const id of g.courseIds) {
-        const { data } = await sb.from('courses').select('provider_id,description,activity,activity_canonical').eq('id', id).limit(1);
+        const { data } = await sb.from('courses').select('provider_id,description').eq('id', id).limit(1);
         const row = data?.[0];
         if (!row) continue;
         const resp = await callEdge('admin-regenerate-summary', {
@@ -1765,33 +1383,14 @@ window.regenerateGroup = (sk) => {
           description: row.description || g.title,
         });
         const newSummary = resp?.summary || '';
-        const activity = row.activity_canonical || row.activity || '';
-        const bad = summaryStillContradicts(newSummary, activity, g.flag_reason);
-        if (bad) {
-          stillBad.push({ id, kw: bad, summary: newSummary });
-        } else {
-          regenerated.push({ id, provider_id: row.provider_id, summary: newSummary, activity });
+        if (newSummary) {
+          await callEdge('admin-approve-summary', {
+            provider_id: row.provider_id,
+            title: g.title,
+            summary: newSummary,
+            course_id: id,
+          });
         }
-      }
-
-      if (stillBad.length) {
-        const kws = [...new Set(stillBad.map(x => `"${x.kw}"`))].join(', ');
-        toast(
-          `⚠ ${stillBad.length}/${g.courseIds.length} regenerated summaries still contain ${kws}. Flag NOT cleared. Try again or edit manually in Summary Review.`,
-          true,
-        );
-        return;
-      }
-
-      // All clean — publish each summary via admin-approve-summary (which
-      // patches courses.summary via service role) then clear auto-flags.
-      for (const r of regenerated) {
-        await callEdge('admin-approve-summary', {
-          provider_id: r.provider_id,
-          title: g.title,
-          summary: r.summary,
-          course_id: r.id,
-        });
       }
       await clearGroupCourseIds(g.courseIds);
       toast(`Regenerated · published · ${g.occurrences} flag${g.occurrences === 1 ? '' : 's'} cleared`);
@@ -1821,7 +1420,7 @@ window.diagnoseGroup = async (sk) => {
     // Fetch full rows for this duplicate group (all providers if mixed)
     const titleQ = `title=eq.${encodeURIComponent(g.title)}`;
     const providerQ = g.providerIds.length === 1 ? `&provider_id=eq.${encodeURIComponent(g.providerIds[0])}` : '';
-    const url = `${SUPABASE_URL}/rest/v1/courses?${titleQ}${providerQ}&select=id,title,date_sort,price,booking_url,location_canonical,activity,summary`;
+    const url = `${SUPABASE_URL}/rest/v1/courses?${titleQ}${providerQ}&select=id,title,date_sort,price,booking_url,location_canonical,summary`;
     const res = await fetch(url, {
       headers: {
         'apikey': SUPABASE_KEY,
@@ -2195,93 +1794,9 @@ window.renderAuditLog = () => {
 };
 
 // ── Tab 7: Settings ──────────────────────────────
-let editingLabelKey = null;
-
 async function loadSettingsTab() {
-  try {
-    cachedActivityLabels = await sbSelect('activity_labels', { order: { col: 'activity', ascending: true } });
-    renderActivityLabels();
-  } catch (e) {
-    document.getElementById('activity-labels-wrap').innerHTML = `<div class="loading">Error: ${esc(e.message)}</div>`;
-  }
   loadDiscoveryCloud();
 }
-
-function renderActivityLabels() {
-  if (!cachedActivityLabels.length) {
-    document.getElementById('activity-labels-wrap').innerHTML = '<div class="loading">No activity labels</div>';
-    return;
-  }
-  document.getElementById('activity-labels-wrap').innerHTML = `
-    <table><thead><tr><th>Activity (slug)</th><th>Label</th><th></th></tr></thead><tbody>${
-      cachedActivityLabels.map(a => {
-        const editing = editingLabelKey === a.activity;
-        if (editing) {
-          return `<tr>
-            <td><input type="text" id="lbl-key-${a.activity}" value="${esc(a.activity)}"></td>
-            <td><input type="text" id="lbl-label-${a.activity}" value="${esc(a.label)}"></td>
-            <td class="row-actions">
-              <button class="btn btn-small btn-primary" onclick="window.saveActivityLabel('${esc(a.activity)}')">Save</button>
-              <button class="btn btn-small" onclick="window.cancelEditActivityLabel()">Cancel</button>
-            </td>
-          </tr>`;
-        }
-        return `<tr>
-          <td><code>${esc(a.activity)}</code></td>
-          <td>${esc(a.label)}</td>
-          <td class="row-actions">
-            <button class="btn btn-small" onclick="window.editActivityLabel('${esc(a.activity)}')">Edit</button>
-            <button class="btn btn-small btn-danger" onclick="window.deleteActivityLabel('${esc(a.activity)}')">Delete</button>
-          </td>
-        </tr>`;
-      }).join('')
-    }</tbody></table>`;
-}
-
-window.showAddActivity = () => {
-  document.getElementById('add-activity-form').classList.remove('hidden');
-  document.getElementById('new-activity-key').value = '';
-  document.getElementById('new-activity-label').value = '';
-};
-window.hideAddActivity = () => {
-  document.getElementById('add-activity-form').classList.add('hidden');
-};
-window.addActivityLabel = async () => {
-  const activity = document.getElementById('new-activity-key').value.trim();
-  const label = document.getElementById('new-activity-label').value.trim();
-  if (!activity || !label) { toast('Both fields required', true); return; }
-  try {
-    const { error } = await sb.from('activity_labels').insert({ activity, label });
-    if (error) throw error;
-    toast('Activity label added');
-    window.hideAddActivity();
-    loadSettingsTab();
-  } catch (e) { toast('Failed: ' + e.message, true); }
-};
-window.editActivityLabel = (key) => { editingLabelKey = key; renderActivityLabels(); };
-window.cancelEditActivityLabel = () => { editingLabelKey = null; renderActivityLabels(); };
-window.saveActivityLabel = async (origKey) => {
-  const activity = document.getElementById(`lbl-key-${origKey}`).value.trim();
-  const label = document.getElementById(`lbl-label-${origKey}`).value.trim();
-  if (!activity || !label) { toast('Both fields required', true); return; }
-  try {
-    const { error } = await sb.from('activity_labels').update({ activity, label }).eq('activity', origKey);
-    if (error) throw error;
-    toast('Label updated');
-    editingLabelKey = null;
-    loadSettingsTab();
-  } catch (e) { toast('Failed: ' + e.message, true); }
-};
-window.deleteActivityLabel = (key) => {
-  confirmAction('Delete activity label', `Delete the '${key}' activity label? This cannot be undone.`, async () => {
-    try {
-      const { error } = await sb.from('activity_labels').delete().eq('activity', key);
-      if (error) throw error;
-      toast('Label deleted');
-      loadSettingsTab();
-    } catch (e) { toast('Failed: ' + e.message, true); }
-  });
-};
 
 // ── Discovery Cloud (within Settings tab) ───────
 let cachedCloud = [];
@@ -2739,7 +2254,6 @@ window.copyPipelinePrompt = async (id) => {
     'Do not create a SQL file in the repo. Instead, print the setup SQL as a code block in your response for manual review and execution in the Supabase SQL editor. The SQL should include:',
     '- Provider INSERT with active=false',
     '- location_mappings INSERTs',
-    '- activity_mappings INSERTs',
     'All with ON CONFLICT DO NOTHING.',
     '',
     'scraper-all.yml — read this file in full before touching it. Add two named steps at the end of the existing provider list only. Do not reorder or modify any existing steps:',

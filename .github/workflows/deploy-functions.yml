@@ -24,9 +24,6 @@ jobs:
           supabase functions deploy unsubscribe-notification --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --no-verify-jwt
           supabase functions deploy notify-signup-confirmation --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --no-verify-jwt
           supabase functions deploy notify-report --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --no-verify-jwt
-          supabase functions deploy admin-approve-mapping --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --no-verify-jwt
-          supabase functions deploy admin-reject-mapping --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --no-verify-jwt
-          supabase functions deploy admin-update-mapping --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --no-verify-jwt
           supabase functions deploy admin-approve-location --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --no-verify-jwt
           supabase functions deploy admin-reject-location --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --no-verify-jwt
           supabase functions deploy admin-approve-summary --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --no-verify-jwt
@@ -38,7 +35,6 @@ jobs:
           supabase functions deploy admin-trigger-scraper --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --no-verify-jwt
           supabase functions deploy admin-update-location --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --no-verify-jwt
           supabase functions deploy admin-delete-location --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --no-verify-jwt
-          supabase functions deploy admin-delete-mapping --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --no-verify-jwt
           supabase functions deploy admin-diagnose-duplicate --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --no-verify-jwt
           supabase functions deploy admin-analyse-provider --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --no-verify-jwt
         env:
