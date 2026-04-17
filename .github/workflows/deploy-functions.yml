@@ -36,7 +36,6 @@ jobs:
           supabase functions deploy admin-trigger-scraper --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --no-verify-jwt
           supabase functions deploy admin-update-location --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --no-verify-jwt
           supabase functions deploy admin-delete-location --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --no-verify-jwt
-          supabase functions deploy admin-diagnose-duplicate --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --no-verify-jwt
           supabase functions deploy admin-analyse-provider --project-ref ${{ secrets.SUPABASE_PROJECT_ID }} --no-verify-jwt
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}

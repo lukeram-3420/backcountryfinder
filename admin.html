@@ -194,7 +194,7 @@
   <div class="main">
     <!-- TAB: PROVIDERS -->
     <div class="tab-panel" id="panel-providers">
-      <details class="instructions"><summary>How to use this tab</summary><p>Toggle a provider off to hide all their courses from the site. Click Run to trigger a fresh scrape for that provider. Click Validate to run the validator — use this after fixing a mapping or summary to confirm the flag is resolved without waiting for the next cron run. Last run shows the most recent scraper execution per provider. Use Validate after Run to confirm fixes were applied. Validate alone is useful after fixing summaries or price exceptions — for mapping or scraper fixes, always Run first then Validate. Run all triggers a full scrape of all providers — expect 45-60 minutes. Column headers are clickable to sort ascending or descending.</p></details>
+      <details class="instructions"><summary>How to use this tab</summary><p>Toggle a provider off to hide all their courses from the site. Click Run to trigger a fresh scrape for that provider. Click Validate to run the validator — use this after fixing a mapping or summary to confirm the flag is resolved without waiting for the next cron run. Last run shows the most recent scraper execution per provider. A yellow <strong>⚠ drop ↗</strong> badge appears on the status cell when the last scrape returned &gt;30% fewer courses than the previous run — click it to jump to the GitHub Actions workflow for that provider and investigate the scraper run (Initiative 7). Use Validate after Run to confirm fixes were applied. Validate alone is useful after fixing summaries — for mapping or scraper fixes, always Run first then Validate. Run all triggers a full scrape of all providers — expect 45-60 minutes. Column headers are clickable to sort ascending or descending.</p></details>
       <div class="stats-row" id="stats-row">
         <div class="stat-card"><div class="stat-label">Providers</div><div class="stat-value" id="stat-providers">—</div></div>
         <div class="stat-card"><div class="stat-label">Courses</div><div class="stat-value" id="stat-courses">—</div></div>
@@ -250,7 +250,7 @@
 
     <!-- TAB: FLAGS -->
     <div class="tab-panel hidden" id="panel-flags">
-      <details class="instructions"><summary>How to use this tab</summary><p>Auto-hidden courses are hidden from the site until the flag is resolved. Use Diagnose on duplicates to let Haiku determine if it is safe to whitelist or needs a scraper fix. Summary-related issues (bleed, user bad_description reports, generation failures) go to the Summary Review tab — this tab surfaces duplicates, date escalations, price escalations, and availability warnings. <strong>Date escalations</strong> appear 24 hours after a past-date or far-future (&gt;2&nbsp;yr) course is first flagged — copy the email body, send to the provider, then Clear to suppress that course_id permanently. <strong>Price escalations</strong> appear 24 hours after a course with a zero or negative price is first detected (same copy-email-then-Clear pattern). Warnings are courses still visible on the site but with other data quality issues (availability gaps, sudden course-count drops). Click Re-validate all to refresh flags and warnings after making fixes.</p></details>
+      <details class="instructions"><summary>How to use this tab</summary><p>Auto-hidden courses are hidden from the site until the flag is resolved. Summary-related issues (bleed, user bad_description reports, generation failures) go to the Summary Review tab — this tab surfaces duplicates, date escalations, price escalations, and availability warnings. <strong>Duplicates</strong> are always scraper bugs (Initiative 6) — each group shows a read-only <strong>scraper_&lt;provider_id&gt;.py ↗</strong> link directly to the offending file on GitHub; open it, fix the iteration logic, re-run the scraper, and the duplicates clear on the next validate. Use Clear all only if you need to suppress a title pattern that cannot be fixed provider-side. <strong>Date escalations</strong> appear 24 hours after a past-date or far-future (&gt;2&nbsp;yr) course is first flagged — copy the email body, send to the provider, then Clear to suppress that course_id permanently. <strong>Price escalations</strong> appear 24 hours after a course with a zero or negative price is first detected (same copy-email-then-Clear pattern). Warnings are courses still visible on the site but with availability gaps. Scraper count-drop alerts moved to the Providers tab as a yellow badge on the status cell (Initiative 7). Click Re-validate all to refresh flags and warnings after making fixes.</p></details>
       <div class="stats-row" style="grid-template-columns:repeat(3,1fr);">
         <div class="stat-card"><div class="stat-label">User reports</div><div class="stat-value" id="stat-flags-user">—</div></div>
         <div class="stat-card"><div class="stat-label">Auto-hidden</div><div class="stat-value" id="stat-flags-auto" style="color:var(--red);">—</div></div>
@@ -379,16 +379,6 @@
 <script type="module">
 /*
   Supabase table prerequisite (run manually in SQL editor if not already present):
-
-  CREATE TABLE IF NOT EXISTS validator_whitelist (
-    id bigint generated always as identity primary key,
-    title text not null,
-    provider_id text,
-    reason text,
-    created_at timestamptz default now()
-  );
-
-  GRANT SELECT, INSERT ON validator_whitelist TO anon, authenticated, service_role;
 
   CREATE TABLE IF NOT EXISTS validator_warnings (
     id bigint generated always as identity primary key,
@@ -678,8 +668,15 @@ async function loadProvidersTab() {
     document.getElementById('stat-auto-hidden').textContent = autoHidden;
     document.getElementById('stat-user-flags').textContent = userFlags;
 
+    // Initiative 7: track the last two runs per provider to compute a
+    // client-side count-drop signal. `runs` is ordered by run_at desc so
+    // the first hit per provider is the latest, the second is the previous.
     const lastRunByProvider = {};
-    for (const r of runs) { if (!lastRunByProvider[r.provider_id]) lastRunByProvider[r.provider_id] = r; }
+    const prevRunByProvider = {};
+    for (const r of runs) {
+      if (!lastRunByProvider[r.provider_id]) { lastRunByProvider[r.provider_id] = r; continue; }
+      if (!prevRunByProvider[r.provider_id]) { prevRunByProvider[r.provider_id] = r; }
+    }
 
     const perProvider = await Promise.all(providers.map(async p => {
       const pFilter = `provider_id=eq.${encodeURIComponent(p.id)}`;
@@ -688,7 +685,14 @@ async function loadProvidersTab() {
         countRows('courses', `${pFilter}&auto_flagged=eq.true`),
         countRows('courses', `${pFilter}&flagged=eq.true`),
       ]);
-      return { ...p, visible, af, uf, lastRun: lastRunByProvider[p.id] || null };
+      return {
+        ...p,
+        visible,
+        af,
+        uf,
+        lastRun: lastRunByProvider[p.id] || null,
+        prevRun: prevRunByProvider[p.id] || null,
+      };
     }));
     cachedProviders = perProvider;
     renderProvidersTable();
@@ -715,6 +719,23 @@ function renderProvidersTable() {
     let badge = '<span class="badge badge-green">clean</span>';
     if (p.af > 0) badge = `<span class="badge badge-red">${p.af} hidden</span>`;
     else if (p.uf > 0) badge = `<span class="badge badge-amber">${p.uf} user flag${p.uf>1?'s':''}</span>`;
+
+    // Initiative 7: scraper health signal — count drop >30% between the last
+    // two scraper_run_log rows surfaces as a yellow warning badge linking
+    // directly to the GitHub Actions scraper workflow. Replaces the retired
+    // `count_drop` validator_warnings type.
+    let dropBadge = '';
+    if (p.lastRun && p.prevRun) {
+      const curr = Number(p.lastRun.course_count) || 0;
+      const prev = Number(p.prevRun.course_count) || 0;
+      if (prev > 0 && curr < prev * 0.7) {
+        const dropPct = Math.round(((prev - curr) / prev) * 100);
+        const wfFile = WORKFLOW_MAP[p.id] || `scraper-${p.id}.yml`;
+        const actionsUrl = `https://github.com/lukeram-3420/backcountryfinder/actions/workflows/${wfFile}`;
+        dropBadge = ` <a href="${esc(actionsUrl)}" target="_blank" rel="noopener" title="Course count dropped ${dropPct}% (${prev} → ${curr}) — check scraper run" style="text-decoration:none;"><span class="badge badge-amber">⚠ ${dropPct}% drop ↗</span></a>`;
+      }
+    }
+
     const wf = WORKFLOW_MAP[p.id] || `scraper-${p.id}.yml`;
     const runBtn = `<button class="btn btn-small" onclick="window.triggerScraper('${wf}')">Run</button>`;
     const validateBtn = `<button class="btn btn-small" id="validate-btn-${esc(p.id)}" onclick="window.triggerValidate('${esc(p.id)}')">Validate</button>`;
@@ -723,7 +744,7 @@ function renderProvidersTable() {
       <td><label class="toggle"><input type="checkbox" ${p.active ? 'checked' : ''} onchange="window.toggleProvider('${esc(p.id)}', this.checked)"><span class="toggle-slider"></span></label></td>
       <td>${p.lastRun ? fmt(p.lastRun.run_at) : '—'}</td>
       <td>${p.visible || 0}</td>
-      <td>${badge}</td>
+      <td>${badge}${dropBadge}</td>
       <td><div class="row-actions">${runBtn} ${validateBtn}</div></td>
     </tr>`;
   }).join('');
@@ -1233,9 +1254,10 @@ async function loadUserFlags() {
     document.getElementById('user-flags-wrap').innerHTML = `<div class="loading">Error: ${esc(e.message)}</div>`;
   }
 }
-// Auto-flags grouped by (title, flag_reason) with per-reason fix actions
+// Auto-flags grouped by (title, flag_reason) — Initiative 6: duplicate rows
+// are read-only scraper-signals with a GitHub link per provider_id. No
+// Diagnose/Whitelist/Copy-fix actions — resolution is always "fix the scraper".
 let autoFlagGroups = [];
-let autoFlagDiagnosis = {}; // { groupKey: { status: 'loading'|'done'|'error', verdict, reason, claude_code_prompt } }
 let autoFlagSort = { col: 'occurrences', dir: 'desc' };
 
 function autoFlagSortValue(g, col) {
@@ -1252,17 +1274,15 @@ window.sortAutoFlags = (col) => {
   renderAutoFlags();
 };
 
-function parseFlagAction(reason) {
-  const r = (reason || '').toLowerCase();
-  if (r.startsWith('duplicate')) return { type: 'duplicate' };
-  return { type: 'none' };
-}
-
 function prettyReason(reason) {
   if (!reason) return '—';
   if (/^duplicate/i.test(reason)) return 'Duplicate: same title and date as another row';
   if (/^past date/i.test(reason)) return 'Past date but still active';
   return reason;
+}
+
+function scraperFileLink(providerId) {
+  return `https://github.com/lukeram-3420/backcountryfinder/blob/main/scraper_${providerId}.py`;
 }
 
 async function loadAutoFlags() {
@@ -1299,7 +1319,7 @@ async function loadAutoFlags() {
       ...g,
       providerIds: [...g.providerIds],
       occurrences: g.courseIds.length,
-      action: parseFlagAction(g.flag_reason),
+      isDuplicate: /^duplicate/i.test(g.flag_reason || ''),
     }));
     renderAutoFlags();
   } catch (e) {
@@ -1322,32 +1342,20 @@ function renderAutoFlags() {
     const sk = safeKeyOf(g.key);
     const providersLabel = g.providerIds.length === 1 ? g.providerIds[0] : `${g.providerIds.length} providers`;
     const viewBtn = g.booking_url ? `<a class="btn btn-small" href="${esc(g.booking_url)}" target="_blank">View</a>` : '';
-    let actionBtn = '';
-    let note = '';
-    if (g.action.type === 'duplicate') {
-      const dx = autoFlagDiagnosis[g.key];
-      if (!dx) {
-        actionBtn = `<button class="btn btn-small btn-primary" onclick="window.diagnoseGroup('${sk}')">Diagnose</button>`;
-      } else if (dx.status === 'loading') {
-        actionBtn = `<button class="btn btn-small" disabled><span class="spinner"></span>Analysing…</button>`;
-      } else if (dx.status === 'error') {
-        note = `<div class="meta-line" style="color:var(--text-tertiary);margin-top:4px;">Diagnosis unavailable — use View to inspect manually.</div>`;
-      } else if (dx.verdict === 'whitelist') {
-        note = `<div style="margin-top:6px;"><span class="badge badge-green">Safe to whitelist</span></div>
-                <div class="meta-line" style="margin-top:4px;">${esc(dx.reason || '')}</div>`;
-        actionBtn = `<button class="btn btn-small btn-primary" onclick="window.whitelistGroup('${sk}')">Whitelist</button>`;
-      } else {
-        note = `<div style="margin-top:6px;"><span class="badge badge-amber">Scraper fix needed</span></div>
-                <div class="meta-line" style="margin-top:4px;">${esc(dx.reason || '')}</div>`;
-        actionBtn = `<button class="btn btn-small btn-primary" onclick="window.copyFixPrompt('${sk}')" id="copyfix-${sk}">Copy fix prompt ↗</button>`;
-      }
-    }
+    // Initiative 6: duplicates get one scraper-file link per provider_id.
+    // No Diagnose / Whitelist buttons — the only resolution is fixing the scraper.
+    const scraperLinks = g.isDuplicate
+      ? g.providerIds.map(pid => `<a class="btn btn-small" href="${esc(scraperFileLink(pid))}" target="_blank" rel="noopener">scraper_${esc(pid)}.py ↗</a>`).join('')
+      : '';
+    const note = g.isDuplicate
+      ? `<div class="meta-line" style="color:var(--text-tertiary);margin-top:4px;">Duplicate rows are always scraper bugs — open the scraper file and fix the iteration logic, then re-run.</div>`
+      : '';
     return `<tr>
       <td><strong>${esc(g.title)}</strong><div class="meta-line"><code>${esc(providersLabel)}</code></div>${note}</td>
       <td class="detail-snippet">${esc(prettyReason(g.flag_reason))}</td>
       <td><span class="badge ${g.occurrences > 1 ? 'badge-amber' : 'badge-grey'}">${g.occurrences} occurrence${g.occurrences === 1 ? '' : 's'}</span></td>
       <td class="row-actions">
-        ${actionBtn}
+        ${scraperLinks}
         <button class="btn btn-small" onclick="window.clearGroup('${sk}')">Clear all</button>
         ${viewBtn}
       </td>
@@ -1362,7 +1370,6 @@ function findGroupBySafeKey(sk) { return autoFlagGroups.find(g => safeKeyOf(g.ke
 
 function removeAutoFlagGroup(key) {
   autoFlagGroups = autoFlagGroups.filter(g => g.key !== key);
-  delete autoFlagDiagnosis[key];
   renderAutoFlags();
 }
 
@@ -1416,86 +1423,6 @@ window.clearGroup = (sk) => {
   );
 };
 
-window.diagnoseGroup = async (sk) => {
-  const g = findGroupBySafeKey(sk); if (!g) return;
-  autoFlagDiagnosis[g.key] = { status: 'loading' };
-  renderAutoFlags();
-  try {
-    // Fetch full rows for this duplicate group (all providers if mixed)
-    const titleQ = `title=eq.${encodeURIComponent(g.title)}`;
-    const providerQ = g.providerIds.length === 1 ? `&provider_id=eq.${encodeURIComponent(g.providerIds[0])}` : '';
-    const url = `${SUPABASE_URL}/rest/v1/courses?${titleQ}${providerQ}&select=id,title,date_sort,price,booking_url,location_canonical,summary`;
-    const res = await fetch(url, {
-      headers: {
-        'apikey': SUPABASE_KEY,
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
-        'Content-Type': 'application/json',
-      },
-    });
-    if (!res.ok) throw new Error(`Fetch ${res.status}: ${await res.text()}`);
-    const courses = await res.json();
-
-    const data = await callEdge('admin-diagnose-duplicate', { courses });
-    autoFlagDiagnosis[g.key] = {
-      status: 'done',
-      verdict: data.verdict,
-      reason: data.reason,
-      claude_code_prompt: data.claude_code_prompt,
-    };
-    renderAutoFlags();
-  } catch (e) {
-    autoFlagDiagnosis[g.key] = { status: 'error' };
-    renderAutoFlags();
-    toast('Diagnosis failed: ' + e.message, true);
-  }
-};
-
-window.whitelistGroup = (sk) => {
-  const g = findGroupBySafeKey(sk); if (!g) return;
-  const dx = autoFlagDiagnosis[g.key];
-  confirmAction('Whitelist duplicates', `Whitelist "${g.title}" and clear ${g.occurrences} auto-flag${g.occurrences === 1 ? '' : 's'}?`, async () => {
-    try {
-      // Record one whitelist row per provider in the group
-      const rows = g.providerIds.map(pid => ({
-        title: g.title,
-        provider_id: pid,
-        reason: dx?.reason || 'Whitelisted via duplicate diagnosis',
-      }));
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/validator_whitelist`, {
-        method: 'POST',
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json',
-          'Prefer': 'return=minimal',
-        },
-        body: JSON.stringify(rows),
-      });
-      if (!res.ok) throw new Error(`Whitelist insert ${res.status}: ${await res.text()}`);
-      await clearGroupCourseIds(g.courseIds);
-      toast(`Whitelisted and cleared ${g.occurrences}`);
-      removeAutoFlagGroup(g.key);
-      loadFlagsStats();
-    } catch (e) { toast('Failed: ' + e.message, true); }
-  });
-};
-
-window.copyFixPrompt = async (sk) => {
-  const g = findGroupBySafeKey(sk); if (!g) return;
-  const dx = autoFlagDiagnosis[g.key];
-  const prompt = dx?.claude_code_prompt || '';
-  if (!prompt) { toast('No fix prompt available', true); return; }
-  try {
-    await navigator.clipboard.writeText(prompt);
-    const btn = document.getElementById(`copyfix-${sk}`);
-    if (btn) {
-      const original = btn.textContent;
-      btn.textContent = 'Copied!';
-      setTimeout(() => { btn.textContent = original; }, 2000);
-    }
-  } catch (e) { toast('Copy failed: ' + e.message, true); }
-};
-
 // ── Warnings (email-only validator issues persisted to validator_warnings) ───
 let warningGroups = [];
 
@@ -1503,7 +1430,6 @@ function prettyWarning(check_type, reason) {
   switch (check_type) {
     case 'null_avail':     return 'Missing availability';
     case 'all_sold':       return 'All dates sold out';
-    case 'count_drop':     return `Course count drop: ${reason}`;
     default:               return reason || check_type;
   }
 }
@@ -1762,8 +1688,6 @@ function renderWarnings() {
     let note = '';
     if (g.check_type === 'null_avail') {
       actionBtn = `<button class="btn btn-small" onclick="window.warningView('${sk}')">View</button>`;
-    } else if (g.check_type === 'count_drop') {
-      actionBtn = `<button class="btn btn-small" onclick="window.warningViewProvider('${sk}')">View provider</button>`;
     } else if (g.check_type === 'all_sold') {
       note = `<div class="meta-line" style="color:var(--text-tertiary);margin-top:4px;">All dates currently sold out — monitor for new availability.</div>`;
     }
@@ -1788,12 +1712,6 @@ window.warningView = async (sk) => {
     if (url) window.open(url, '_blank');
     else toast('No booking URL on this course', true);
   } catch (e) { toast('Failed: ' + e.message, true); }
-};
-
-window.warningViewProvider = (sk) => {
-  const g = findWarningGroupBySafeKey(sk); if (!g) return;
-  document.querySelector('.tab[data-tab="providers"]')?.click();
-  toast(`See Providers tab for ${g.providerIds.join(', ')}`);
 };
 
 window.copyFixablePrompt = async () => {

@@ -159,12 +159,13 @@ def classify(courses):
         if c.get("currency") and c["currency"] != "CAD":
             flag("currency_non_cad", f"currency={c['currency']}")
 
-        # Duplicates
+        # Duplicates — Initiative 6: validator auto-hides all-but-first.
+        # No whitelist layer — fix is always in the scraper.
         key = (c.get("provider_id"), c.get("title"), c.get("date_sort"))
         if len(dup[key]) > 1:
-            flag("duplicate", f"{len(dup[key])} rows share provider+title+date_sort")
+            flag("duplicate", f"{len(dup[key])} rows share provider+title+date_sort (auto-hidden by validator; fix scraper_{c.get('provider_id')}.py)")
 
-    return issues, by_provider, medians
+    return issues, by_provider
 
 
 def render_markdown(courses, issues, by_provider):

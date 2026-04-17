@@ -483,8 +483,6 @@ def check_dates(courses: list, auto_hidden: list, escalation_ids: set) -> list:
 
     return email_only
 
-    return email_only
-
 
 def check_availability(courses: list, auto_hidden: list) -> list:
     """Check 5: Availability."""
@@ -515,18 +513,23 @@ def check_availability(courses: list, auto_hidden: list) -> list:
     return email_only
 
 
-def check_duplicates(courses: list, auto_hidden: list, whitelisted: set, provider_id: str) -> list:
-    """Check 6: Duplicates — auto-hide all but first occurrence.
+def check_duplicates(courses: list, auto_hidden: list) -> list:
+    """Check 5: Duplicates — auto-hide all but first occurrence (Initiative 6).
+
+    Pure scraper-signal check. Resolution is always "fix the scraper" — the
+    Flags tab surfaces duplicate groups with a GitHub link to the offending
+    scraper_{provider_id}.py file; admin does not make per-duplicate decisions.
 
     Priority stack per course:
       1. validator_suppressions matching 'duplicate' → skip entire check.
-      2. validator_whitelist → title known-safe for this provider (or global)
-         → skip, but still record the (title,date) in `seen` so other rows
-         with the same title+date also skip.
-      3. Automated first-occurrence-wins duplicate detection.
+      2. Automated first-occurrence-wins duplicate detection.
+
+    No whitelist layer — if two identical title+date courses are intentional,
+    the scraper is wrong, not the data. `validator_whitelist` was retired in
+    Initiative 6; existing rows are harmless and drop at V2 Phase 7.
     """
-    email_only = []
-    seen = {}
+    email_only: list = []
+    seen: dict = {}
 
     for c in courses:
         title = c.get("title") or ""
@@ -535,50 +538,12 @@ def check_duplicates(courses: list, auto_hidden: list, whitelisted: set, provide
             seen[(c["title"], c.get("date_sort"))] = c["id"]
             continue
 
-        title_key = title.strip().lower()
-        # 2. Whitelist
-        if (title_key, provider_id) in whitelisted or (title_key, None) in whitelisted:
-            if (c["title"], c.get("date_sort")) in seen:
-                logging.info(f"Skipping whitelisted duplicate: {title} ({provider_id})")
-            seen[(c["title"], c.get("date_sort"))] = c["id"]
-            continue
-
-        # 3. Automated duplicate detection
+        # 2. Automated duplicate detection
         key = (c["title"], c.get("date_sort"))
         if key in seen:
-            flag_course(c["id"], "duplicate: same title and date", auto_hidden, title=c.get("title",""))
+            flag_course(c["id"], "duplicate: same title and date", auto_hidden, title=c.get("title", ""))
         else:
             seen[key] = c["id"]
-
-    return email_only
-
-
-def check_course_count(provider_id: str, current_count: int) -> list:
-    """Check 7: Course count vs previous run → EMAIL ONLY."""
-    email_only = []
-
-    try:
-        prev_runs = sb_get("scraper_run_log", {
-            "provider_id": f"eq.{provider_id}",
-            "select": "course_count,run_at",
-            "order": "run_at.desc",
-            "limit": "1",
-        })
-    except Exception:
-        prev_runs = []
-
-    if prev_runs:
-        last_count = prev_runs[0]["course_count"]
-        if last_count > 0 and current_count < last_count * 0.7:
-            drop_pct = ((last_count - current_count) / last_count) * 100
-            email_only.append({
-                "check": "Course count",
-                "check_type": "count_drop",
-                "title": "(provider-level)",
-                "issue": f"CRITICAL: Course count dropped {drop_pct:.0f}% ({last_count} → {current_count})",
-                "value": f"{last_count} → {current_count}",
-                "id": "",
-            })
 
     return email_only
 
@@ -753,19 +718,6 @@ def main():
     current_count = len(courses)
     print(f"  Fetched {current_count} courses")
 
-    # Load duplicate whitelist
-    whitelist_rows = []
-    try:
-        whitelist_rows = sb_get("validator_whitelist", {"select": "title,provider_id"})
-    except Exception as e:
-        print(f"  ⚠ Could not load validator_whitelist: {e}")
-    logging.info(f"Loaded {len(whitelist_rows)} whitelist entries")
-    whitelisted = set()
-    for row in whitelist_rows:
-        title = (row.get("title") or "").strip().lower()
-        pid = row.get("provider_id")
-        whitelisted.add((title, pid if pid else None))
-
     # Load admin suppressions (from "Clear all" in the Flags tab). A suppression
     # row prevents the validator from re-flagging the same (title, flag_reason
     # category) combo on subsequent runs.
@@ -844,8 +796,7 @@ def main():
     email_only.extend(check_prices(courses, auto_hidden, price_escalation_ids))
     email_only.extend(check_dates(courses, auto_hidden, escalation_ids))
     email_only.extend(check_availability(courses, auto_hidden))
-    email_only.extend(check_duplicates(courses, auto_hidden, whitelisted, provider_id))
-    email_only.extend(check_course_count(provider_id, current_count))
+    email_only.extend(check_duplicates(courses, auto_hidden))
 
     # Enrich auto_hidden with titles for the report
     for h in auto_hidden:
