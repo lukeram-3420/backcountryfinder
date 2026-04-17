@@ -194,7 +194,7 @@
   <div class="main">
     <!-- TAB: PROVIDERS -->
     <div class="tab-panel" id="panel-providers">
-      <details class="instructions"><summary>How to use this tab</summary><p>Toggle a provider off to hide all their courses from the site. Click Run to trigger a fresh scrape for that provider. Click Validate to run the validator — use this after fixing a mapping or summary to confirm the flag is resolved without waiting for the next cron run. Last run shows the most recent scraper execution per provider. A yellow <strong>⚠ drop ↗</strong> badge appears on the status cell when the last scrape returned &gt;30% fewer courses than the previous run — click it to jump to the GitHub Actions workflow for that provider and investigate the scraper run (Initiative 7). Use Validate after Run to confirm fixes were applied. Validate alone is useful after fixing summaries — for mapping or scraper fixes, always Run first then Validate. Run all triggers a full scrape of all providers — expect 45-60 minutes. Column headers are clickable to sort ascending or descending.</p></details>
+      <details class="instructions"><summary>How to use this tab</summary><p>Toggle a provider off to hide all their courses from the site. Click Run to trigger a fresh scrape for that provider. Click Validate to run the validator — use this after fixing a mapping or summary to confirm the flag is resolved without waiting for the next cron run. <strong>Platform</strong> shows the provider's booking system (rezdy, checkfront, zaui, woocommerce, squarespace etc.) from <code>providers.booking_platform</code> — a dash means not yet classified. <strong>Scraper</strong> is Yes/No based on whether we already have scraper coverage for that platform: the set is derived live from the distinct <code>booking_platform</code> values across all active providers, so it auto-grows as new platforms are onboarded and no hardcoded list needs to be maintained. A "No" here means onboarding a new provider on that platform will need a net-new scraper. Last run shows the most recent scraper execution per provider. A yellow <strong>⚠ drop ↗</strong> badge appears on the status cell when the last scrape returned &gt;30% fewer courses than the previous run — click it to jump to the GitHub Actions workflow for that provider and investigate the scraper run (Initiative 7). Use Validate after Run to confirm fixes were applied. Validate alone is useful after fixing summaries — for mapping or scraper fixes, always Run first then Validate. Run all triggers a full scrape of all providers — expect 45-60 minutes. Column headers are clickable to sort ascending or descending.</p></details>
       <div class="stats-row" id="stats-row">
         <div class="stat-card"><div class="stat-label">Providers</div><div class="stat-value" id="stat-providers">—</div></div>
         <div class="stat-card"><div class="stat-label">Courses</div><div class="stat-value" id="stat-courses">—</div></div>
@@ -658,7 +658,7 @@ async function fetchRunLog() {
 async function loadProvidersTab() {
   try {
     const [providers, runs, totalCourses, autoHidden, userFlags] = await Promise.all([
-      sbSelect('providers', { select: 'id,name,active' }),
+      sbSelect('providers', { select: 'id,name,active,booking_platform' }),
       fetchRunLog(),
       countRows('courses'),
       countRows('courses', 'auto_flagged=eq.true'),
@@ -680,6 +680,17 @@ async function loadProvidersTab() {
       if (!prevRunByProvider[r.provider_id]) { prevRunByProvider[r.provider_id] = r; }
     }
 
+    // Derive the set of platforms we have scraper coverage for: any
+    // booking_platform value that appears on at least one active provider.
+    // A provider's "Scraper built" = Yes iff its own platform is in this set.
+    // Self-maintaining — no hardcoded list; when a new platform is onboarded
+    // (Altus → Rezdy, VMG → Zaui etc.) it joins the set automatically.
+    const scrapedPlatforms = new Set(
+      providers
+        .filter(p => p.active && p.booking_platform && p.booking_platform !== 'unknown')
+        .map(p => p.booking_platform.toLowerCase())
+    );
+
     const perProvider = await Promise.all(providers.map(async p => {
       const pFilter = `provider_id=eq.${encodeURIComponent(p.id)}`;
       const [visible, af, uf] = await Promise.all([
@@ -687,6 +698,8 @@ async function loadProvidersTab() {
         countRows('courses', `${pFilter}&auto_flagged=eq.true`),
         countRows('courses', `${pFilter}&flagged=eq.true`),
       ]);
+      const pl = (p.booking_platform || '').toLowerCase();
+      const scraperBuilt = !!pl && pl !== 'unknown' && scrapedPlatforms.has(pl);
       return {
         ...p,
         visible,
@@ -694,6 +707,7 @@ async function loadProvidersTab() {
         uf,
         lastRun: lastRunByProvider[p.id] || null,
         prevRun: prevRunByProvider[p.id] || null,
+        scraperBuilt,
       };
     }));
     cachedProviders = perProvider;
@@ -706,6 +720,8 @@ async function loadProvidersTab() {
 function providerSortValue(p, col) {
   switch (col) {
     case 'name':     return p.name;
+    case 'platform': return (p.booking_platform || '').toLowerCase();
+    case 'scraper':  return p.scraperBuilt ? 1 : 0;
     case 'courses':  return Number(p.visible) || 0;
     case 'status':   return (p.af > 0) ? 1 : 0; // 0 clean, 1 hidden (amber user-flag sits with clean for this sort)
     case 'last_run': return p.lastRun ? p.lastRun.run_at : null;
@@ -741,8 +757,14 @@ function renderProvidersTable() {
     const wf = WORKFLOW_MAP[p.id] || `scraper-${p.id}.yml`;
     const runBtn = `<button class="btn btn-small" onclick="window.triggerScraper('${wf}')">Run</button>`;
     const validateBtn = `<button class="btn btn-small" id="validate-btn-${esc(p.id)}" onclick="window.triggerValidate('${esc(p.id)}')">Validate</button>`;
+    const platformLabel = p.booking_platform ? esc(p.booking_platform) : '<span style="color:var(--text-tertiary);">—</span>';
+    const scraperBadge = p.scraperBuilt
+      ? '<span class="badge badge-green">Yes</span>'
+      : '<span class="badge badge-red">No</span>';
     return `<tr>
       <td><strong>${esc(p.name)}</strong><div class="meta-line"><code>${esc(p.id)}</code></div></td>
+      <td>${platformLabel}</td>
+      <td>${scraperBadge}</td>
       <td><label class="toggle"><input type="checkbox" ${p.active ? 'checked' : ''} onchange="window.toggleProvider('${esc(p.id)}', this.checked)"><span class="toggle-slider"></span></label></td>
       <td>${p.lastRun ? fmt(p.lastRun.run_at) : '—'}</td>
       <td>${p.visible || 0}</td>
@@ -753,7 +775,7 @@ function renderProvidersTable() {
 
   const h = (col, label) => sortableHeader(providersSort, col, label, `window.sortProviders('${col}')`);
   document.getElementById('providers-table-wrap').innerHTML = `
-    <table><thead><tr>${h('name','Provider')}<th>Active</th>${h('last_run','Last run')}${h('courses','Courses')}${h('status','Status')}<th>Actions</th></tr></thead><tbody>${rows}</tbody></table>`;
+    <table><thead><tr>${h('name','Provider')}${h('platform','Platform')}${h('scraper','Scraper')}<th>Active</th>${h('last_run','Last run')}${h('courses','Courses')}${h('status','Status')}<th>Actions</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 window.sortProviders = (col) => {
