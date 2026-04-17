@@ -1,25 +1,28 @@
 #!/usr/bin/env python3
 """
 Scraper: Bow Valley Canyon Tours (bow-valley-canyon-tours)
-Platform: Checkfront Public API v3.0 at canadian-wilderness-school-expeditions.checkfront.com
+Platform: Checkfront (widget scrape — Public API is disabled on this tenant)
 
-The bowvalleycanyoning.ca booking page embeds a Checkfront iframe pointing
-to the parent company's tenant ("Canadian Wilderness School & Expeditions").
-The iframe filters to category IDs 3,4,8,5,7 (Canyoning / 4x4 Tours / Add Ons
-/ Courses / Gift Certificates) and 14 specific item IDs.
+bowvalleycanyoning.ca embeds a Checkfront iframe pointing to
+canadian-wilderness-school-expeditions.checkfront.com. The tenant has the
+public JSON API turned off (401 on /api/3.0/item), so we render the
+booking widget HTML with Playwright and extract item data from the rendered
+DOM. All rows are emitted as custom_dates=True (flex-date) because dates
+live behind an interactive calendar modal that requires per-item click-through
+— not worth the complexity until the provider enables the public API.
 
-We scrape via the public Checkfront API (anonymous, no auth) and filter to
-the same product categories the website surfaces, dropping Gift Certificates
-and Add Ons. Mirrors scraper_girth_hitch_guiding.py / scraper_aaa.py.
-
-Endpoints used:
-  GET /api/3.0/item          — full item catalogue
-  GET /api/3.0/item/cal      — availability bitmap by date (per-item)
+When the provider eventually toggles Public API on (Settings → API →
+Public API in Checkfront admin), swap this back to a JSON-API scraper
+mirroring scraper_aaa.py / scraper_girth_hitch_guiding.py.
 """
 
 import re
+import time
 import datetime
-import requests
+import logging
+
+from bs4 import BeautifulSoup
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 from scraper_utils import (
     sb_upsert, stable_id_v2,
@@ -27,9 +30,12 @@ from scraper_utils import (
     update_provider_ratings,
     load_location_mappings, normalise_location,
     generate_summaries_batch,
-    spots_to_avail, append_utm,
+    append_utm,
     UTM,
 )
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+log = logging.getLogger(__name__)
 
 # ── Config ────────────────────────────────────────────────────────────────────
 PROVIDER = {
@@ -39,16 +45,21 @@ PROVIDER = {
     "location": "Banff, AB",
 }
 
-CF_BASE     = "https://canadian-wilderness-school-expeditions.checkfront.com/api/3.0"
-BOOKING_URL = "https://canadian-wilderness-school-expeditions.checkfront.com/reserve/"
+# Checkfront widget base URL (parent company tenant)
+WIDGET_BASE = "https://canadian-wilderness-school-expeditions.checkfront.com/reserve/"
 
-LOOKAHEAD_DAYS = 180
+# Item IDs from the iframe filter on bowvalleycanyoning.ca/booking/
+# (14 items the BVC site explicitly surfaces)
+ITEM_FILTER = "9,8,37,40,26,32,14,7,17,29,36,34,35,28"
 
-CF_HEADERS = {
-    "X-On-Behalf": "Off",
-}
+# Categories to crawl (matching the iframe filter, minus add-ons + gift certs)
+# Keys are Checkfront category IDs from the iframe HTML.
+KEEP_CATEGORIES = [
+    (3, "Canyoning"),
+    (4, "4x4 Tours"),
+    (5, "Courses"),
+]
 
-# Non-course product titles to skip.
 EXCLUDE_TITLES = [
     "gift card",
     "gift certificate",
@@ -57,25 +68,6 @@ EXCLUDE_TITLES = [
     "merchandise",
 ]
 
-# Category whitelist — only keep items whose Checkfront category matches one
-# of these (case-insensitive). From the iframe HTML inspection: Canyoning,
-# 4x4 Tours, Courses are the bookable products. Add Ons (gear add-ons) and
-# Gift Certificates are excluded as non-courses.
-KEEP_CATEGORIES = {
-    "canyoning",
-    "4x4 tours",
-    "courses",
-}
-
-EXCLUDE_CATEGORIES = {
-    "add ons",
-    "add-ons",
-    "gift certificates",
-    "gift certificate",
-}
-
-# Title-keyword location resolution. First match wins; result passes through
-# normalise_location() so unknowns queue to pending_location_mappings.
 LOCATION_MAP = [
     ("kananaskis",   "Kananaskis, AB"),
     ("canmore",      "Canmore, AB"),
@@ -90,210 +82,216 @@ LOCATION_MAP = [
 ]
 
 
-def resolve_location_raw(title: str) -> str:
-    t = (title or "").lower()
+def resolve_location_raw(title: str, description: str = "") -> str:
+    combined = f"{title} {description}".lower()
     for keyword, loc in LOCATION_MAP:
-        if keyword in t:
+        if keyword in combined:
             return loc
     return PROVIDER["location"]
 
 
-# ── Checkfront API ────────────────────────────────────────────────────────────
-def cf_get(endpoint, params=None):
-    r = requests.get(
-        f"{CF_BASE}/{endpoint}",
-        params=params,
-        headers=CF_HEADERS,
-        timeout=15,
+# ── Playwright widget scrape ──────────────────────────────────────────────────
+
+def widget_url(category_id: int) -> str:
+    today = datetime.date.today().strftime("%Y-%m-%d")
+    return (
+        f"{WIDGET_BASE}?inline=1&header=hide&options=tabs"
+        f"&filter_item_id={ITEM_FILTER}"
+        f"&filter_category_id=3,4,5"
+        f"&category_id={category_id}"
+        f"&start_date={today}&end_date={today}"
+        f"&ssl=1&provider=droplet"
     )
-    r.raise_for_status()
-    return r.json()
 
 
-def fetch_items() -> dict:
-    data = cf_get("item")
-    items = data.get("items", {})
-    cats = sorted({(item.get("category") or "none") for item in items.values()})
-    print(f"  Categories found: {cats}")
-    return items
-
-
-def fetch_availability(item_ids: list, start: str, end: str) -> dict:
-    # Fetch one item at a time — some Checkfront tenants 500 on multi-item requests.
-    result = {}
-    for iid in item_ids:
+def parse_price(text: str) -> int | None:
+    """Extract first $XXX price (>=10) from text. Strips commas."""
+    for m in re.finditer(r"\$\s*([\d,]+)(?:\.\d+)?", text or ""):
         try:
-            params = {
-                "item_id[]": [iid],
-                "start_date": start,
-                "end_date":   end,
-            }
-            data = cf_get("item/cal", params=params)
-            result.update(data.get("items", {}))
-        except Exception as e:
-            print(f"  item/cal failed for item {iid}: {e}")
-    return result
+            val = int(m.group(1).replace(",", ""))
+            if val >= 10:
+                return val
+        except ValueError:
+            continue
+    return None
+
+
+def parse_duration_days(text: str) -> float | None:
+    """Extract '4 hours' / '1 day' / '2 days' from text."""
+    if not text:
+        return None
+    m = re.search(r"(\d+(?:\.\d+)?)\s*day", text, re.IGNORECASE)
+    if m:
+        return float(m.group(1))
+    m = re.search(r"(\d+(?:\.\d+)?)\s*hour", text, re.IGNORECASE)
+    if m:
+        return round(float(m.group(1)) / 8, 2)  # rough day-equivalent
+    return None
+
+
+def scrape_category(browser, category_id: int, category_name: str) -> list:
+    """Load the widget for one category, wait for items, parse the DOM."""
+    url = widget_url(category_id)
+    log.info(f"  Category {category_id} ({category_name}): {url}")
+    items = []
+
+    try:
+        page = browser.new_page()
+        page.set_extra_http_headers({"Accept-Language": "en-CA,en;q=0.9"})
+        page.goto(url, wait_until="networkidle", timeout=45000)
+        # Wait for the items container to populate (or for the spinner to leave)
+        try:
+            page.wait_for_function(
+                "document.querySelector('#cf-items') && document.querySelector('#cf-items').children.length > 0",
+                timeout=20000,
+            )
+        except PlaywrightTimeout:
+            log.warning(f"    No #cf-items children rendered for category {category_id}")
+        # Give late AJAX a moment to settle
+        page.wait_for_timeout(1500)
+        html = page.content()
+        page.close()
+    except Exception as e:
+        log.warning(f"  Playwright error on category {category_id}: {e}")
+        return []
+
+    soup = BeautifulSoup(html, "html.parser")
+    container = soup.find("div", id="cf-items")
+    if not container:
+        return []
+
+    # Checkfront widget renders each item as a panel/tile. The exact class
+    # varies by tenant/theme — try several selector patterns.
+    item_nodes = (
+        container.select("div.cf-item")
+        or container.select("div.item")
+        or container.select("article")
+        or container.select("div.panel")
+        or container.find_all("div", recursive=False)
+    )
+
+    log.info(f"    Found {len(item_nodes)} item nodes")
+
+    for node in item_nodes:
+        title_el = node.find(["h2", "h3", "h4"]) or node.find(class_=re.compile(r"title|name", re.I))
+        title = title_el.get_text(strip=True) if title_el else ""
+        if not title:
+            continue
+        if title.lower().strip() in EXCLUDE_TITLES:
+            continue
+
+        node_text = node.get_text(separator=" ", strip=True)
+        price = parse_price(node_text)
+        duration = parse_duration_days(node_text)
+
+        # Description — first substantial paragraph, fallback to longest text block
+        desc = ""
+        for p in node.find_all("p"):
+            t = p.get_text(strip=True)
+            if len(t) > 60:
+                desc = t[:600]
+                break
+        if not desc:
+            desc = node_text[:400]
+
+        # Image
+        image_url = None
+        img = node.find("img")
+        if img:
+            image_url = img.get("src") or img.get("data-src")
+            if image_url and image_url.startswith("//"):
+                image_url = "https:" + image_url
+
+        # Booking URL — point at the tenant widget for that item
+        item_id = node.get("data-item-id") or ""
+        if item_id:
+            booking_url = append_utm(f"{WIDGET_BASE}?item_id={item_id}")
+        else:
+            booking_url = append_utm(WIDGET_BASE)
+
+        items.append({
+            "title":       title,
+            "price":       price,
+            "duration":    duration,
+            "description": desc,
+            "image_url":   image_url,
+            "booking_url": booking_url,
+            "category":    category_name,
+        })
+
+    return items
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
-    print(f"🏞 {PROVIDER['name']} — Checkfront API scraper")
+    log.info(f"🏞 {PROVIDER['name']} — Checkfront widget scraper (Playwright)")
 
-    # Places rating
     try:
         update_provider_ratings(PROVIDER["id"])
     except Exception as e:
-        print(f"  Places update failed: {e}")
+        log.warning(f"Places update failed: {e}")
 
     loc_mappings = load_location_mappings()
-    print(f"  Loaded {len(loc_mappings)} location mappings")
+    log.info(f"Loaded {len(loc_mappings)} location mappings")
 
-    today      = datetime.date.today()
-    end_date   = today + datetime.timedelta(days=LOOKAHEAD_DAYS)
-    start_s    = today.strftime("%Y%m%d")
-    end_s      = end_date.strftime("%Y%m%d")
     scraped_at = datetime.datetime.utcnow().isoformat()
+    raw_items = []
 
-    # 1. Fetch item catalogue
-    print("  Fetching item catalogue...")
-    items = fetch_items()
-    print(f"  Found {len(items)} items total")
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        log.info("Playwright browser launched")
+        for cat_id, cat_name in KEEP_CATEGORIES:
+            raw_items.extend(scrape_category(browser, cat_id, cat_name))
+            time.sleep(0.5)
+        browser.close()
+        log.info("Playwright browser closed")
 
-    # 2. Filter: EXCLUDE_TITLES + EXCLUDE_CATEGORIES + KEEP_CATEGORIES
-    course_items = {}
-    for iid, item in items.items():
-        title = (item.get("name") or "").strip()
-        if not title:
-            continue
-        if title.lower().strip() in EXCLUDE_TITLES:
-            print(f"  excluding non-course product: {title!r}")
-            continue
-        cat = (item.get("category") or "").lower().strip()
-        if cat in EXCLUDE_CATEGORIES:
-            print(f"  excluding non-course category {cat!r}: {title!r}")
-            continue
-        if KEEP_CATEGORIES and cat not in KEEP_CATEGORIES:
-            print(f"  excluding category not in KEEP list {cat!r}: {title!r}")
-            continue
-        course_items[iid] = item
-    print(f"  {len(course_items)} course items after filtering")
+    # Dedup by title (same item may appear in multiple categories)
+    seen = {}
+    for item in raw_items:
+        if item["title"] not in seen:
+            seen[item["title"]] = item
+    unique = list(seen.values())
+    log.info(f"Built {len(unique)} unique items from {len(raw_items)} raw")
 
-    if not course_items:
-        print("  No course items — exiting")
+    if not unique:
+        log.warning("No items scraped — keeping existing Supabase data")
         return
 
-    # 3. Fetch availability calendar
-    print(f"  Fetching availability {start_s} → {end_s}...")
-    item_ids = list(course_items.keys())
-    cal = fetch_availability(item_ids, start_s, end_s)
-    print(f"  Calendar entries returned: {len(cal)}")
-
-    # Probe /item/cal response shape: integer counts vs 0/1 boolean bitmap.
-    raw_values = set()
-    for _ic in cal.values():
-        for v in (_ic or {}).values():
-            try:
-                raw_values.add(int(v))
-            except (ValueError, TypeError):
-                pass
-    api_has_spot_counts = any(v > 1 for v in raw_values)
-    print(
-        f"  Availability value distribution: {sorted(raw_values)[:20]} "
-        f"→ spot tracking {'ENABLED (integer counts)' if api_has_spot_counts else 'disabled (API returns 0/1 only)'}"
-    )
-
-    # 4. Build rows
+    # Build rows — flex-date because dates require modal interaction
     rows = []
-    skipped = 0
-
-    for item_id, item in course_items.items():
-        title = item.get("name", "").strip()
-
-        # Price — Checkfront returns either a scalar or a per-tier dict
-        price_raw = item.get("price")
-        if isinstance(price_raw, dict):
-            try:
-                price = int(float(next(iter(price_raw.values()))))
-            except (StopIteration, ValueError, TypeError):
-                price = None
-        else:
-            try:
-                price = int(float(price_raw)) if price_raw else None
-            except (ValueError, TypeError):
-                price = None
-
-        loc_raw       = resolve_location_raw(title)
+    for item in unique:
+        title = item["title"]
+        loc_raw       = resolve_location_raw(title, item.get("description") or "")
         loc_canonical = normalise_location(loc_raw, loc_mappings)
+        course_id     = stable_id_v2(PROVIDER["id"], None, title)
 
-        # Description from Checkfront summary HTML (strip tags)
-        description_html = item.get("summary") or ""
-        description = re.sub(r"<[^>]+>", "", description_html).strip()
+        row = {
+            "id":              course_id,
+            "provider_id":     PROVIDER["id"],
+            "title":           title,
+            "location_raw":    loc_raw,
+            "date_sort":       None,
+            "date_display":    "Flexible dates",
+            "duration_days":   item.get("duration"),
+            "price":           item.get("price"),
+            "currency":        "CAD",
+            "spots_remaining": None,
+            "avail":           "open",
+            "active":          True,
+            "booking_url":     item.get("booking_url"),
+            "summary":         "",
+            "search_document": "",
+            "image_url":       item.get("image_url"),
+            "custom_dates":    True,
+            "description":     item.get("description") or None,
+            "scraped_at":      scraped_at,
+        }
+        if loc_canonical is not None:
+            row["location_canonical"] = loc_canonical
+        rows.append(row)
 
-        item_cal = cal.get(str(item_id), {})
-        if not item_cal:
-            skipped += 1
-            continue
-
-        duration_days = item.get("len") or None
-        if duration_days == 0:
-            duration_days = None
-
-        for date_key, available in item_cal.items():
-            if not available:
-                continue
-            try:
-                d = datetime.date(
-                    int(date_key[:4]),
-                    int(date_key[4:6]),
-                    int(date_key[6:8]),
-                )
-            except ValueError:
-                continue
-
-            spots_remaining = None
-            if api_has_spot_counts:
-                try:
-                    spots_remaining = int(available)
-                except (ValueError, TypeError):
-                    spots_remaining = None
-
-            avail = spots_to_avail(spots_remaining)
-
-            date_sort    = d.isoformat()
-            date_display = d.strftime("%b %-d, %Y")
-            course_id    = stable_id_v2(PROVIDER["id"], date_sort, title)
-            booking_url  = append_utm(
-                f"{BOOKING_URL}?item_id={item_id}&start_date={date_key}"
-            )
-
-            row = {
-                "id":                 course_id,
-                "provider_id":        PROVIDER["id"],
-                "title":              title,
-                "location_raw":       loc_raw,
-                "date_sort":          date_sort,
-                "date_display":       date_display,
-                "duration_days":      duration_days,
-                "price":              price,
-                "currency":           "CAD",
-                "spots_remaining":    spots_remaining,
-                "avail":              avail,
-                "active":             avail != "sold",
-                "booking_url":        booking_url,
-                "summary":            "",
-                "search_document":    "",
-                "image_url":          None,
-                "custom_dates":       False,
-                "description":        description or None,
-                "scraped_at":         scraped_at,
-            }
-            if loc_canonical is not None:
-                row["location_canonical"] = loc_canonical
-            rows.append(row)
-
-    print(f"  Built {len(rows)} course-date rows · {skipped} items skipped")
-
-    # 5. Summaries — dedup by title
+    # Summaries — dedup by title
     if rows:
         by_title = {}
         for r in rows:
@@ -309,26 +307,22 @@ def main():
                 summaries = generate_summaries_batch(
                     list(by_title.values()), provider_id=PROVIDER["id"]
                 )
-                print(f"  Generated {len(summaries)} summaries")
+                log.info(f"Generated {len(summaries)} summaries")
                 for r in rows:
                     result = summaries.get(r["title"])
                     if result:
                         r["summary"]         = result.get("summary", "") if isinstance(result, dict) else result
                         r["search_document"] = result.get("search_document", "") if isinstance(result, dict) else ""
             except Exception as e:
-                print(f"  Summary batch failed: {e}")
+                log.warning(f"Summary batch failed: {e}")
 
-    # 6. Strip description (not a courses column)
+    # Strip description
     for r in rows:
         r.pop("description", None)
 
-    # 7. Upsert in batches of 50
-    for i in range(0, len(rows), 50):
-        sb_upsert("courses", rows[i:i + 50])
+    sb_upsert("courses", rows)
+    log.info(f"✅ Upserted {len(rows)} flex-date rows")
 
-    print(f"  ✅ Upserted {len(rows)} rows")
-
-    # Intelligence logging (V2 — append-only, change-detected)
     for c in rows:
         log_availability_change(c)
         log_price_change(c)
