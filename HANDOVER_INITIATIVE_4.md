@@ -83,13 +83,23 @@ Reuses Initiative 5's mechanic unchanged. `validator_suppressions` write with `{
 | `auto_clear_user_flags` 5x-median check on `wrong_price` | Simplified to just `price > 0` |
 
 ### What's unchanged
-- `course_price_log` schema and `log_price_change` (sacred, writes zero/negative normally)
+- `course_price_log` append-only semantics (still sacred — never truncate/delete)
+- `log_price_change` change-detection logic (zero/negative still logged normally)
 - `validator_suppressions.course_id` (reused)
 - Scrapers
 - `wrong_price` intake via `notify-report`
 
 ### Schema change
-**None.** No manual SQL step. `validator_price_exceptions` table stays in Supabase, orphaned, drops at V2 Phase 7 with other retired surfaces.
+**One.** User runs manually in Supabase SQL editor before deploy:
+
+```sql
+ALTER TABLE course_price_log
+ADD COLUMN IF NOT EXISTS bad_data boolean default false;
+```
+
+`log_price_change` in `scraper_utils.py` sets `bad_data=true` on the insert payload when `price <= 0`, else `false`. Protects Phase 5 velocity-signal consumers from zero-priced rows polluting price-trend analytics without requiring read-time filter logic in every future consumer. Existing log rows default to `false` — acceptable because (a) historical zero-priced rows are rare, (b) Phase 5 hasn't started so there are no consumers reading stale data, (c) any remaining polluters can be backfilled with `UPDATE course_price_log SET bad_data=true WHERE price <= 0` if Phase 5 reveals a need.
+
+`validator_price_exceptions` table stays in Supabase, orphaned, drops at V2 Phase 7 with other retired surfaces.
 
 ### Zombie mechanics
 Price isn't encoded in course_id → when a provider fixes the price, the same course_id upserts with the new value, validator sees `price > 0`, no flag. No zombie. Remaining cases (abandoned listing, unfixable scraper bug) handled by one-click Clear.
@@ -101,10 +111,12 @@ Existing zero/negative courses with a `course_price_log` row from 24h+ ago auto-
 | Layer | Change |
 |---|---|
 | `validate_provider.py` | `check_prices` collapsed to one branch. Delete null-price, outlier, `is_price_exception`, hardcoded skip list, `validator_price_exceptions` load. Rename `flag_reason` from `f"invalid price: {price}"` to `invalid_price`. Add `load_price_escalation_candidates(provider_id)`. Apply escalation upgrade. Remove `null_price` / `price_outlier` from `write_warnings`. Simplify `wrong_price` auto-clear |
+| `scraper_utils.py` | `log_price_change` writes `bad_data=true` when `price <= 0`, else `false`. Only line touched — change-detection logic unchanged |
 | `admin.html` | New Flags tab "Price escalations" sub-section. Delete `null_price` / `price_outlier` from Warnings handlers + JS. Update Flags-tab help text |
 | `validator_warnings` | Types narrowed to `count_drop`, `all_sold` |
 | `crawl_courses.py` | Delete null-price and outlier audit categories. Update/add zero-negative category reason string |
-| CLAUDE.md | Check 2 rewritten (one condition). Validator priority stack simplified. `validator_warnings` type list trimmed. Flags tab section updated. Note `validator_price_exceptions` orphaned-pending-Phase 7 |
+| `course_price_log` schema | New `bad_data boolean default false` column. Manual SQL before deploy |
+| CLAUDE.md | Check 2 rewritten (one condition). Validator priority stack simplified. `validator_warnings` type list trimmed. Flags tab section updated. `course_price_log` schema table gains `bad_data` row. Note `validator_price_exceptions` orphaned-pending-Phase 7 |
 
 ### Out of scope
 - Price-change-detection, cross-provider comparison — no replacement for deleted checks, permanent
@@ -115,6 +127,7 @@ Existing zero/negative courses with a `course_price_log` row from 24h+ ago auto-
 - **Null price ignored entirely** — no flag, no warning, no escalation. Not deferred, deleted.
 - **Outlier check deleted permanently** — no median, no delta, no percentage. Will not return.
 - **`course_price_log` as escalation signal** — user-specified.
+- **`bad_data` column on `course_price_log`** — user-specified. Set at write time by `log_price_change`. Protects Phase 5 analytics from zero-priced-row pollution without read-time filter logic.
 - **Clear only** — no Mark-as-expected; no legitimate zero-price whitelist pattern.
 - **`flag_reason` enum rename** — consistent with Initiative 5.
 - **`wrong_price` auto-clear simplified** to `price > 0`.
@@ -123,6 +136,7 @@ Existing zero/negative courses with a `course_price_log` row from 24h+ ago auto-
 - Initiatives 1, 2, 3, 5 complete ✓
 - `validator_suppressions.course_id` exists ✓
 - `course_price_log` populated ✓
+- `course_price_log.bad_data` column added by user before deploy (manual SQL — see Schema change)
 
 ### Success criteria
 - Zero/negative auto-hide on first detection
@@ -131,6 +145,7 @@ Existing zero/negative courses with a `course_price_log` row from 24h+ ago auto-
 - `is_price_exception`, hardcoded list, `validator_price_exceptions` load all gone from `validate_provider.py`
 - Admin Clear writes course-id suppression; no re-escalation
 - Flags tab Price escalations is the only price-related admin surface
+- `log_price_change` writes `bad_data=true` for zero/negative prices going forward
 ```
 
 ---
@@ -161,8 +176,8 @@ Initiative 5 shipped these, you will reuse them:
   - Flags tab "How to use this tab" — around line 253. Update to describe Price escalations sub-section, drop Mark-as-expected language.
   - Model the new Price escalations sub-section on the existing Date escalations block (search for `past_date_escalated` / `future_date_escalated`).
 - `crawl_courses.py` — audit categories for price. Delete null-price and outlier; keep zero/negative, update reason string.
-- `scraper_utils.py` — `log_price_change` at line 738. **Do not modify.** It's sacred and already writes zero/negative prices correctly.
-- `CLAUDE.md` — Check 2 row in the validator 6-check table, validator priority stack description, `validator_warnings` check_type list, admin Flags-tab description.
+- `scraper_utils.py` — `log_price_change` at line 738. **One line added:** the insert payload gains `"bad_data": price is not None and price <= 0`. Change-detection logic and append-only semantics unchanged.
+- `CLAUDE.md` — Check 2 row in the validator 6-check table, validator priority stack description, `validator_warnings` check_type list, admin Flags-tab description, `course_price_log` schema table (add `bad_data` row).
 
 ---
 
@@ -190,10 +205,18 @@ Alternatively: one combined commit if you prefer. The user's preference is fast 
 
 ## Verification after deploy
 
-No schema change, no SQL step. After the implementation is pushed:
+**One manual SQL step before deploy** — user runs in Supabase SQL editor:
+
+```sql
+ALTER TABLE course_price_log
+ADD COLUMN IF NOT EXISTS bad_data boolean default false;
+```
+
+After the implementation is pushed:
 1. Trigger `validate-provider` workflow for one provider via GitHub Actions (`validate-provider.yml` with a provider_id input) to sanity-check.
 2. Inspect Supabase: `validator_warnings` for that provider should have no `null_price` or `price_outlier` rows. Any existing zero-priced courses should have `flag_reason = 'invalid_price'` (clean enum, not the old free-text `invalid price: 0`). If the course has a `course_price_log` row 24h+ old, `flag_reason` should be `invalid_price_escalated`.
-3. Load the admin Flags tab. The new Price escalations sub-section should render below Date escalations. Warnings sub-section should no longer show Mark-as-expected buttons for price rows.
+3. Trigger a scraper run (any provider). New `course_price_log` rows for zero/negative prices should have `bad_data = true`; rows for positive prices should have `bad_data = false`.
+4. Load the admin Flags tab. The new Price escalations sub-section should render below Date escalations. Warnings sub-section should no longer show Mark-as-expected buttons for price rows.
 
 ---
 
