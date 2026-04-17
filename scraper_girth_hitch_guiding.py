@@ -165,6 +165,25 @@ def main():
     cal = fetch_availability(item_ids, start_s, end_s)
     print(f"  Calendar entries returned: {len(cal)}")
 
+    # Probe the /item/cal response shape: Checkfront may return integer spot
+    # counts per date or a 0/1 boolean bitmap depending on tenant config. If
+    # any value across the response is >1, we trust the integer as a real spot
+    # count. If all values are 0/1, we fall back to spots_remaining=None
+    # (matches AAA's behaviour — safer than reporting "1 = critical" when the
+    # API really meant "available yes/no").
+    raw_values = set()
+    for _ic in cal.values():
+        for v in (_ic or {}).values():
+            try:
+                raw_values.add(int(v))
+            except (ValueError, TypeError):
+                pass
+    api_has_spot_counts = any(v > 1 for v in raw_values)
+    print(
+        f"  Availability value distribution: {sorted(raw_values)[:20]} "
+        f"→ spot tracking {'ENABLED (integer counts)' if api_has_spot_counts else 'disabled (API returns 0/1 only)'}"
+    )
+
     # 4. Build rows
     rows = []
     skipped = 0
@@ -214,6 +233,16 @@ def main():
             except ValueError:
                 continue
 
+            # Real spot count if the API is integer-valued; else None ("open").
+            spots_remaining = None
+            if api_has_spot_counts:
+                try:
+                    spots_remaining = int(available)
+                except (ValueError, TypeError):
+                    spots_remaining = None
+
+            avail = spots_to_avail(spots_remaining)
+
             date_sort    = d.isoformat()
             date_display = d.strftime("%b %-d, %Y")
             course_id    = stable_id_v2(PROVIDER["id"], date_sort, title)
@@ -231,9 +260,9 @@ def main():
                 "duration_days":      duration_days,
                 "price":              price,
                 "currency":           "CAD",
-                "spots_remaining":    None,
-                "avail":              spots_to_avail(None),
-                "active":             True,
+                "spots_remaining":    spots_remaining,
+                "avail":              avail,
+                "active":             avail != "sold",
                 "booking_url":        booking_url,
                 "summary":            "",
                 "search_document":    "",
