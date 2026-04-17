@@ -168,6 +168,8 @@ Initiative 5 shipped these, you will reuse them:
 
 ## Working conventions (from CLAUDE.md — repeated for emphasis)
 
+> Fresh codespace reminder: you don't have access to the auto-memory at `/home/codespace/.claude/projects/-workspaces-backcountryfinder/memory/` from previous sessions. `CLAUDE.md` + this handover are your full context. Read both before writing any code.
+
 - Read `CLAUDE.md` in full before making changes. All conventions, stack context, naming standards live there.
 - **Commit + push immediately after any file change, no confirmation prompt:** `git add -A && git commit -m "..." && git push`.
 - Never ask for confirmation mid-task. Complete the prompt end-to-end.
@@ -199,4 +201,9 @@ No schema change, no SQL step. After the implementation is pushed:
 
 - Re-read the corrected brief above. Follow the "What gets deleted" table literally — every item is a deletion, not a refactor.
 - Initiative 5 is the working template — its code in `validate_provider.py` and `admin.html` is the pattern to copy for Price escalations.
-- The user has been explicit: **no null-price logic, no outlier logic, in any form.** If you find yourself writing a median comparison or a null-check that produces a flag/warning, you're off-scope.
+
+---
+
+## Scope guardrail (literal)
+
+**No null-price logic, no outlier logic, in any form. If you're writing a median comparison, you're off-scope.**
