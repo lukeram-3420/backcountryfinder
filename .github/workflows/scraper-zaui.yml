@@ -40,6 +40,13 @@ jobs:
         run: python validate_provider.py vanmtnguides
         continue-on-error: true
 
+      - name: Banff Adventures
+        run: python scraper_banff_adventures.py --group $(( $(date -u +%H) / 6 % 4 ))
+        continue-on-error: true
+      - name: Validate Banff Adventures
+        run: python validate_provider.py banff-adventures
+        continue-on-error: true
+
       # ── Future Zaui providers — uncomment + rename as added ─────────────────
       # - name: Provider Name
       #   run: python scraper_PROVIDER.py --group $(( $(date -u +%H) / 6 % 4 ))
