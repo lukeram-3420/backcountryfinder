@@ -2,9 +2,9 @@
 
 Living reference for the data-quality cleanup mission. Each initiative below is self-contained — read it cold and you should understand what, why, and the decisions already made.
 
-Order of execution: **Initiative 1 → Initiative 2 → Initiative 3.** Activity is a pure deletion (low risk, unblocks the audit backlog); location is a behaviour change (medium risk, benefits from cleaner audit ground); Summary Review is a workflow redesign (low-to-medium risk, benefits from the validator being quiet).
+Order of execution: **Initiative 1 → 2 → 3 → 5.** Activity is a pure deletion (low risk, unblocks the audit backlog); location is a behaviour change (medium risk, benefits from cleaner audit ground); Summary Review is a workflow redesign (low-to-medium risk, benefits from the validator being quiet); Date sanity is an active provider-outreach loop (medium risk, benefits from every other queue being tame).
 
-**Status (2026-04-17):** all three initiatives shipped. Initiative 1 scraper-side in `5157faa`, admin fast-follow in `c83bd4a`. Initiative 2 in `5abb3f1`. Initiative 3 plan in `cd13bcc`, implementation follows this note.
+**Status (2026-04-17):** Initiatives 1–3 shipped. Initiative 1 scraper-side in `5157faa`, admin fast-follow in `c83bd4a`. Initiative 2 in `5abb3f1`. Initiative 3 plan in `cd13bcc`, implementation in `615c5e9`. Initiative 5 plan in this commit; implementation follows.
 
 ---
 
@@ -230,3 +230,130 @@ Add `validator_summary_exceptions` as a new layer. Final order:
 - `validator_warnings` table stops accumulating `summary_empty` rows.
 - First scraper run after a new provider is onboarded: summaries appear on cards without admin touch.
 - Admin-saved summaries never re-appear in the queue on subsequent validate runs (exception row matches on the text hash).
+
+---
+
+## Initiative 5 — Date sanity + provider improvement loop
+
+### Goal
+Replace passive date warnings with an active provider improvement loop. Bad dates auto-hide immediately and escalate to a provider touchpoint after 24 hours. Symmetric policy for past-date-active and far-future dates.
+
+### Why
+- Past-dated active courses and far-future (>2yr) dates are either scraper bugs or stale provider listings — both warrant provider outreach, not just admin awareness.
+- Email-only warnings for >2yr future were too passive — a course dated 2028 showing on the frontend today is worse than a hidden course.
+- Time-based escalation (24 hours) is more robust than scrape-count-based — scrape frequency may change, wall-clock time doesn't.
+- `course_availability_log` already provides the 24-hour confirmation signal. No new detection table required.
+
+### Two conditions covered
+
+| Condition | Trigger | On first detection |
+|---|---|---|
+| A — Past date, active | `date_sort < today AND active=true` | `auto_flagged=true`, `flag_reason='past_date'`. Hidden from frontend. Not yet in Flags tab |
+| B — Far future (>2yr) | `date_sort > today + interval '2 years'` | `auto_flagged=true`, `flag_reason='future_date'`. Hidden from frontend. Not yet in Flags tab |
+
+Both skip courses with `custom_dates=true` OR `date_sort IS NULL` — hard skip, not soft.
+
+### 24-hour escalation (both conditions)
+On every validate run, for each auto-flagged course with `flag_reason IN ('past_date', 'future_date')`:
+1. Look up the course in the batch result of:
+   ```sql
+   SELECT DISTINCT course_id
+   FROM course_availability_log
+   WHERE provider_id = '{pid}'
+     AND scraped_at <= now() - interval '24 hours'
+   ```
+2. If the course_id is in that set → upgrade `flag_reason` to `past_date_escalated` or `future_date_escalated`.
+3. Admin UI filters on `flag_reason LIKE '%_escalated'` to render the Flags tab date-escalation section.
+
+One query per provider per run, intersected in-process. Cheap.
+
+### Why this signal works
+`course_availability_log` writes a row on the first-ever scrape of a course (no previous row to compare against), then only writes again when `avail` or `spots_remaining` changes. Since V2 course_id encodes `date_sort` (`{provider}-{date_sort}-{title_hash}`), any log row for a given course_id from 24+ hours ago is evidence that the bad-date state was present then — the bad date is baked into the id.
+
+### Flag_reason progression (explicit two-state)
+- `past_date` / `future_date` → auto-hidden, NOT in Flags tab
+- `past_date_escalated` / `future_date_escalated` → auto-hidden AND in Flags tab with provider-email copy
+
+Admin UI filter is trivial (`LIKE '%_escalated'`). Validator re-evaluates on every run — if 24-hour log evidence exists, the suffix is set.
+
+### Admin workflow — Flags tab date-escalation section
+For each escalated group:
+- Course title, provider_id, booking_url (direct link to provider's listing)
+- Copyable pre-written email body ("One of your listings appears to have an incorrect date — here's the direct link to update it: …")
+- **Clear** button
+
+Admin copies the body, emails the provider out-of-band (no `providers.contact_email` column — admin finds contact info from the provider site), then clicks Clear to acknowledge the outreach.
+
+### Clear behaviour — course-id-scoped suppression (critical)
+Clear does NOT simply flip `auto_flagged=false`. The validator's `reset_flags(provider_id)` wipes auto_flagged at the start of every run; without a suppression row, the same course would re-flag and re-escalate on the next 6-hour run forever. Every admin Clear click would be re-undone.
+
+Clear writes a row to `validator_suppressions` keyed on `course_id + flag_reason`. Validator's priority stack consults suppressions BEFORE the date check, short-circuits for that course_id, and the zombie stays inert permanently.
+
+### Schema change
+Single `ALTER` on the existing `validator_suppressions` table:
+```sql
+ALTER TABLE validator_suppressions ADD COLUMN course_id text;
+-- no default, nullable. Existing title-based suppressions get course_id=NULL,
+-- preserving current match behaviour for duplicate / activity / summary flows.
+```
+
+No new table.
+
+### Match rule in `is_suppressed()`
+- If suppression's `course_id` is set → match requires `course_id + flag_reason category` match (exact course_id, same `flag_reason` prefix before `':'`)
+- Otherwise → existing `title_contains + flag_reason` match, unchanged
+
+One new branch in the match function. Title-based suppressions stay broad (duplicates, mappings) — only date escalations use course-id precision.
+
+### Zombie mechanics (known, accepted)
+V2 course_id includes `date_sort`. When a provider fixes a bad date, the scraper emits a NEW course_id; the OLD course_id persists in the DB with its stale date_sort (no scraper currently deactivates missing IDs in general — orthogonal scraper-hygiene problem).
+
+Under Initiative 5, every validator run sees the old course_id, sees `date_sort < today AND active=true`, re-flags and re-escalates. The course-id-scoped Clear suppression handles this cleanly: one admin click per zombie, permanent. Orphan case (provider takes the page down entirely) is handled by the same path — admin clicks Clear once, done.
+
+Auto-clear via `title_hash` correlation was considered and rejected:
+- Doesn't cover the orphan case → admin still needs the manual path → course-id suppression is required either way
+- Has to distinguish date-correction-zombies from legitimate same-title/different-date sessions
+- Saves one click per date-correction event at the cost of a new branch in check_dates
+
+Course-id suppression is the universal tool.
+
+### First-deploy behaviour note
+Current far-future courses (>2yr) are EMAIL ONLY warnings. On the first validate run after Initiative 5 lands, every existing far-future course that's been in the DB for 24+ hours will auto-hide AND immediately escalate (the first-scrape log entry predates the cutoff). Expect a one-time spike in the Flags tab date-escalation section. Not a bug — it's the point. Admin processes the backlog once, steady-state resumes.
+
+### Scope — what changes
+
+| Layer | Change |
+|---|---|
+| Supabase SQL (manual, before deploy) | `ALTER TABLE validator_suppressions ADD COLUMN course_id text;` |
+| `validate_provider.py` | Rewrite `check_dates`. Add far-future auto-hide symmetric with past-date. Skip `custom_dates=true` and `date_sort IS NULL`. Batch-query `course_availability_log` once per provider for 24+hr-old course_ids. Upgrade `flag_reason` suffix on confirmed escalations. Extend `is_suppressed()` / `any_check_suppressed()` to accept optional `course_id`; `check_dates` passes it. Remove the email-only `future_date` branch — writes flag, not warning |
+| `admin.html` | New Flags tab sub-section "Date escalations" rendering `flag_reason LIKE '%_escalated'`. Per row: booking_url link + copyable email body + Clear button. Clear posts to `validator_suppressions` with `{course_id, provider_id, flag_reason}`. Drop any stale UI that surfaced `future_date` from `validator_warnings` |
+| `validator_warnings` | `future_date` is no longer a valid `check_type` — replaced by the Flags tab escalation. `reset_warnings` at run start flushes any stale rows automatically; no migration needed |
+| `crawl_courses.py` | Audit categories `past_date_active` and `far_future_date` keep their detection. Reason strings updated to note "auto-hidden immediately; escalation after 24h" |
+| CLAUDE.md | Update Check 4 description (two auto-hide conditions + escalation mechanic + custom_dates skip). Update validator priority stack (course_id-scoped suppressions). Update `validator_warnings` check_type list (drop future_date). Update admin Flags-tab description (new Date escalations sub-section). Update `validator_suppressions` row in admin-facing tables list with the new column |
+
+### Out of scope
+- Deactivating stale course_ids not seen in recent scrapes — broader scraper-hygiene issue
+- Auto-clear via title_hash correlation — considered, rejected
+- `providers.contact_email` column — admin finds contact info from provider site
+- Automated email sending — admin copies + sends out-of-band
+- Migrating existing `validator_warnings` rows with `future_date` — `reset_warnings` handles it
+
+### Decisions made in planning (post-brief draft)
+- **Zombie handling:** course-id-scoped suppression on Clear, via nullable column on `validator_suppressions`. Universal tool; auto-clear rejected.
+- **flag_reason progression:** explicit two-state (`*_date` → `*_date_escalated`). Admin UI filters on `LIKE '%_escalated'`.
+- **Batch log query:** one DISTINCT course_id query per provider per run. Cheap.
+- **Provider contact_email:** skipped. Admin finds contact info from the provider site.
+- **First-deploy spike:** accepted. Processing the existing far-future backlog once is the point of the behaviour change.
+
+### Dependencies
+- Initiatives 1–3 complete ✓
+- `ALTER TABLE validator_suppressions ADD COLUMN course_id text;` run in Supabase before the validator changes deploy (user runs SQL manually)
+
+### Success criteria
+- Past-dated active courses auto-hide on first detection — no frontend exposure
+- Far-future courses (>2yr) auto-hide on first detection — no frontend exposure
+- Both conditions escalate to the Flags tab with provider-email copy after 24 hours confirmed via log
+- `custom_dates=true` courses never caught by either condition
+- `validator_warnings` contains no `future_date` entries after next validate run
+- Admin Clear on a date escalation writes a course-id-scoped suppression; the zombie never re-escalates on subsequent validate runs
+- Flags tab becomes the single place for date-related provider outreach
