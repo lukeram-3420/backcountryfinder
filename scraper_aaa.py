@@ -14,7 +14,7 @@ import requests
 
 from scraper_utils import (
     sb_upsert, find_place_id, send_email, stable_id_v2,
-    log_availability_change, log_price_change,
+    log_availability_change, log_price_change, spots_to_avail,
     SUPABASE_URL, SUPABASE_KEY, RESEND_API_KEY, UTM,
 )
 
@@ -144,6 +144,22 @@ def main():
     cal = fetch_availability(item_ids, start_s, end_s)
     print(f"  Calendar entries returned: {len(cal)}")
 
+    # Probe /item/cal response shape: if any value is >1, the API is returning
+    # integer spot counts per date (validated on girth-hitch-guiding tenant).
+    # If all values are 0/1, fall back to spots_remaining=None ('open').
+    raw_values = set()
+    for _ic in cal.values():
+        for v in (_ic or {}).values():
+            try:
+                raw_values.add(int(v))
+            except (ValueError, TypeError):
+                pass
+    api_has_spot_counts = any(v > 1 for v in raw_values)
+    print(
+        f"  Availability value distribution: {sorted(raw_values)[:20]} "
+        f"→ spot tracking {'ENABLED (integer counts)' if api_has_spot_counts else 'disabled (API returns 0/1 only)'}"
+    )
+
     # 3. Build rows
     rows = []
     skipped = 0
@@ -190,6 +206,14 @@ def main():
             except ValueError:
                 continue
 
+            spots_remaining = None
+            if api_has_spot_counts:
+                try:
+                    spots_remaining = int(available)
+                except (ValueError, TypeError):
+                    spots_remaining = None
+            avail = spots_to_avail(spots_remaining)
+
             date_sort    = d.isoformat()
             date_display = d.strftime("%b %-d, %Y")
             course_id    = stable_id_v2(PROVIDER["id"], date_sort, title)
@@ -208,9 +232,9 @@ def main():
                 "date_display":       date_display,
                 "duration_days":      item.get("len", 1),
                 "price":              price,
-                "spots_remaining":    None,
-                "avail":              "open",
-                "active":             True,
+                "spots_remaining":    spots_remaining,
+                "avail":              avail,
+                "active":             avail != "sold",
                 "booking_url":        booking_url,
                 "summary":            "",
                 "search_document":    "",

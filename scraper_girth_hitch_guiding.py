@@ -53,6 +53,16 @@ EXCLUDE_TITLES = [
     "custom trip",
 ]
 
+# Non-course Checkfront categories. Confirmed from first-run log:
+# Merchandise / Equipment / Samples are retail or internal items, not guided
+# activities. Drop In and Trailhead may be clinics / meetup points — leave
+# them flowing through the admin Flags tab for now.
+EXCLUDE_CATEGORIES = {
+    "merchandise",
+    "equipment",
+    "samples",
+}
+
 # Category whitelist — only keep items whose Checkfront category matches.
 # First-run logs print all categories; tune this set if real categories differ.
 # Empty-string default means "keep" — safer than over-filtering a small catalog.
@@ -139,7 +149,7 @@ def main():
     items = fetch_items()
     print(f"  Found {len(items)} items total")
 
-    # 2. Filter: EXCLUDE_TITLES + optional KEEP_CATEGORIES whitelist
+    # 2. Filter: EXCLUDE_TITLES + EXCLUDE_CATEGORIES + optional KEEP_CATEGORIES
     course_items = {}
     for iid, item in items.items():
         title = (item.get("name") or "").strip()
@@ -148,10 +158,12 @@ def main():
         if title.lower().strip() in EXCLUDE_TITLES:
             print(f"  excluding non-course product: {title!r}")
             continue
-        if KEEP_CATEGORIES:
-            cat = (item.get("category") or "").lower()
-            if cat not in KEEP_CATEGORIES:
-                continue
+        cat = (item.get("category") or "").lower()
+        if cat in EXCLUDE_CATEGORIES:
+            print(f"  excluding non-course category {cat!r}: {title!r}")
+            continue
+        if KEEP_CATEGORIES and cat not in KEEP_CATEGORIES:
+            continue
         course_items[iid] = item
     print(f"  {len(course_items)} course items after filtering")
 
