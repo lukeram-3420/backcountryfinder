@@ -405,6 +405,13 @@
   CREATE POLICY "authenticated can update provider_pipeline"
     ON provider_pipeline FOR UPDATE TO authenticated USING (true);
 
+  -- Required for the UPDATE path's Prefer: return=representation to echo back
+  -- the updated row. Without this, PATCH succeeds but returns [] and the
+  -- admin UI surfaces it as "0 rows updated" (by design — prevents silent
+  -- RLS blocks from looking like success).
+  CREATE POLICY "authenticated can select provider_pipeline"
+    ON provider_pipeline FOR SELECT TO authenticated USING (true);
+
   -- For the Flags tab "Clear all" (admin suppressions — validate_provider.py
   -- consumes this table at start of run and skips flagging matching rows).
   CREATE TABLE IF NOT EXISTS validator_suppressions (
