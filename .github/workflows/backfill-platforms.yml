@@ -1,0 +1,40 @@
+name: Backfill Platforms
+
+on:
+  workflow_dispatch:
+    inputs:
+      table:
+        description: Which table to backfill
+        required: true
+        default: both
+        type: choice
+        options:
+          - providers
+          - provider_pipeline
+          - both
+      dry_run:
+        description: Dry run (no writes)
+        required: true
+        default: false
+        type: boolean
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install requests
+      - name: Backfill platforms
+        run: |
+          FLAGS="--table ${{ github.event.inputs.table }}"
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            FLAGS="$FLAGS --dry-run"
+          fi
+          python backfill_platforms.py $FLAGS
