@@ -250,7 +250,7 @@
 
     <!-- TAB: FLAGS -->
     <div class="tab-panel hidden" id="panel-flags">
-      <details class="instructions"><summary>How to use this tab</summary><p>Auto-hidden courses are hidden from the site until the flag is resolved. Use Diagnose on duplicates to let Haiku determine if it is safe to whitelist or needs a scraper fix. Summary-related issues (bleed, user bad_description reports, generation failures) go to the Summary Review tab — this tab only surfaces duplicates, price problems, and date/availability issues. Warnings are courses still visible on the site but with data quality issues — use Mark as expected to permanently suppress price outliers. Click Re-validate all to refresh flags and warnings after making fixes. Flags and warnings auto-refresh after each validate run. Column headers in the User Reports and Auto-flags tables are clickable to sort ascending or descending.</p></details>
+      <details class="instructions"><summary>How to use this tab</summary><p>Auto-hidden courses are hidden from the site until the flag is resolved. Use Diagnose on duplicates to let Haiku determine if it is safe to whitelist or needs a scraper fix. Summary-related issues (bleed, user bad_description reports, generation failures) go to the Summary Review tab — this tab surfaces duplicates, price problems, date escalations, and availability warnings. <strong>Date escalations</strong> appear 24 hours after a past-date or far-future (&gt;2&nbsp;yr) course is first flagged — copy the email body, send to the provider, then Clear to suppress that course_id permanently. Warnings are courses still visible on the site but with data quality issues — use Mark as expected to permanently suppress price outliers. Click Re-validate all to refresh flags and warnings after making fixes.</p></details>
       <div class="stats-row" style="grid-template-columns:repeat(3,1fr);">
         <div class="stat-card"><div class="stat-label">User reports</div><div class="stat-value" id="stat-flags-user">—</div></div>
         <div class="stat-card"><div class="stat-label">Auto-hidden</div><div class="stat-value" id="stat-flags-auto" style="color:var(--red);">—</div></div>
@@ -269,6 +269,9 @@
         <div id="user-flags-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
         <h3>Validator auto-flags</h3>
         <div id="auto-flags-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
+        <h3>Date escalations</h3>
+        <p style="font-size:12px;color:var(--text-tertiary);margin:-4px 0 10px;">Past-dated or far-future (&gt;2&nbsp;yr) courses that have been in the bad state for 24+ hours. Already hidden from the frontend. Copy the email body, send to the provider, then click Clear.</p>
+        <div id="date-escalations-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
         <h3>Warnings</h3>
         <p style="font-size:12px;color:var(--text-tertiary);margin:-4px 0 10px;">Courses still visible but with data quality issues.</p>
         <div id="warnings-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
@@ -1170,7 +1173,7 @@ window.regenerateExceptionSummary = async (course_id) => {
 // ── Tab 4: Flags ─────────────────────────────────
 async function loadFlagsTab() {
   loadFlagsStats();
-  await Promise.all([loadUserFlags(), loadAutoFlags(), loadWarnings()]);
+  await Promise.all([loadUserFlags(), loadAutoFlags(), loadDateEscalations(), loadWarnings()]);
 }
 
 async function loadFlagsStats() {
@@ -1274,8 +1277,15 @@ function prettyReason(reason) {
 async function loadAutoFlags() {
   try {
     const { data } = await sb.from('courses').select('id,title,provider_id,flag_reason,booking_url').eq('auto_flagged', true).limit(2000);
-    // summary_bleed auto-flags live in the Summary Review tab, not here.
-    const rows = (data || []).filter(r => !(r.flag_reason || '').startsWith('summary_bleed'));
+    // summary_bleed → Summary Review tab. past_date_escalated / future_date_escalated → Date escalations sub-section below.
+    // past_date / future_date (pre-escalation) stay hidden — admin doesn't need to see them until 24h old.
+    const rows = (data || []).filter(r => {
+      const fr = r.flag_reason || '';
+      if (fr.startsWith('summary_bleed')) return false;
+      if (fr === 'past_date' || fr === 'future_date') return false;
+      if (fr.endsWith('_escalated')) return false;
+      return true;
+    });
     if (!rows.length) {
       autoFlagGroups = [];
       document.getElementById('auto-flags-wrap').innerHTML = '<div class="loading">No auto-flags</div>';
@@ -1518,11 +1528,112 @@ function prettyWarning(check_type, reason) {
     case 'null_price':     return `Missing price: ${reason}`;
     case 'null_avail':     return 'Missing availability';
     case 'all_sold':       return 'All dates sold out';
-    case 'future_date':    return `Far future date: ${reason}`;
     case 'count_drop':     return `Course count drop: ${reason}`;
     default:               return reason || check_type;
   }
 }
+
+// ── Date escalations (Initiative 5) ──────────────
+let dateEscalations = [];
+
+async function loadDateEscalations() {
+  const target = document.getElementById('date-escalations-wrap');
+  target.innerHTML = '<div class="loading"><span class="spinner"></span>Loading…</div>';
+  try {
+    const { data } = await sb
+      .from('courses')
+      .select('id,title,provider_id,flag_reason,booking_url,date_display,date_sort')
+      .eq('auto_flagged', true)
+      .or('flag_reason.eq.past_date_escalated,flag_reason.eq.future_date_escalated')
+      .limit(500);
+    dateEscalations = data || [];
+    if (!dateEscalations.length) {
+      target.innerHTML = '<div class="loading">No date escalations ✓</div>';
+      return;
+    }
+    target.innerHTML = dateEscalations.map(r => {
+      const isPast = r.flag_reason === 'past_date_escalated';
+      const badge = isPast
+        ? '<span class="badge badge-red">Past date</span>'
+        : '<span class="badge badge-amber">Far future</span>';
+      const issueLine = isPast
+        ? `Listing date <strong>${esc(r.date_display || r.date_sort || '')}</strong> is in the past; your page still shows the course as bookable.`
+        : `Listing date <strong>${esc(r.date_display || r.date_sort || '')}</strong> is more than two years in the future — this is usually a typo or a scraper parse error.`;
+      const bookingHref = r.booking_url || '#';
+      const body = isPast
+        ? `Hi — we're a listing aggregator at backcountryfinder.com. One of your courses appears to have an out-of-date listing date:\n\n  ${r.title}\n  Listed date: ${r.date_display || r.date_sort}\n  Direct link to your listing: ${bookingHref}\n\nWould you be able to update the date to the next scheduled occurrence? Once you do, our scraper will pick up the fresh date on the next run.\n\nThanks!`
+        : `Hi — we're a listing aggregator at backcountryfinder.com. One of your courses appears to have an unusual listing date:\n\n  ${r.title}\n  Listed date: ${r.date_display || r.date_sort}\n  Direct link to your listing: ${bookingHref}\n\nThis date is more than two years out, which is usually a typo. Would you be able to check it?\n\nThanks!`;
+      return `
+      <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;gap:10px;flex-wrap:wrap;">
+          <strong>${esc(r.title)}</strong>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <code>${esc(r.provider_id)}</code>
+            ${badge}
+          </div>
+        </div>
+        <div class="meta-line" style="margin-bottom:8px;">${issueLine}</div>
+        <label style="font-size:12px;color:var(--text-muted);margin:6px 0 4px;display:block;">Provider email body (copy and send)</label>
+        <textarea id="de-body-${esc(r.id)}" readonly style="min-height:140px;">${esc(body)}</textarea>
+        <div class="row-actions" style="margin-top:10px;gap:8px;">
+          <a class="btn btn-small" href="${esc(bookingHref)}" target="_blank" rel="noopener">Open listing ↗</a>
+          <button class="btn btn-small" onclick="window.copyEscalationBody('${esc(r.id)}')">Copy email</button>
+          <button class="btn btn-small btn-primary" onclick="window.clearDateEscalation('${esc(r.id)}')">Clear (suppress)</button>
+        </div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    target.innerHTML = `<div class="loading">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+window.copyEscalationBody = async (course_id) => {
+  const el = document.getElementById('de-body-' + course_id);
+  if (!el) return;
+  try {
+    await navigator.clipboard.writeText(el.value);
+    toast('Email body copied');
+  } catch (e) { toast('Copy failed: ' + e.message, true); }
+};
+
+window.clearDateEscalation = (course_id) => {
+  const row = dateEscalations.find(r => r.id === course_id);
+  if (!row) return;
+  const reasonCat = (row.flag_reason || '').startsWith('past_date') ? 'past_date' : 'future_date';
+  confirmAction(
+    'Clear escalation',
+    `Record a permanent suppression for this course_id so the validator stops re-escalating? Use this after you've contacted the provider — the course stays auto-hidden, but you won't see it in this list again.`,
+    async () => {
+      try {
+        // Write a course-id-scoped suppression. is_suppressed() in
+        // validate_provider.py short-circuits this course's date check on
+        // the next run, so reset_flags + re-evaluate no longer re-flags it.
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/validator_suppressions`, {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_KEY,
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=minimal',
+          },
+          body: JSON.stringify([{
+            provider_id: row.provider_id,
+            course_id,
+            title_contains: row.title,
+            flag_reason: reasonCat,
+          }]),
+        });
+        if (!res.ok) throw new Error(`POST ${res.status}: ${await res.text()}`);
+        // Clear the auto_flag on the row right now so the list updates without waiting for next validate run.
+        await callEdge('admin-clear-auto-flag', { course_id });
+        toast('Cleared · suppression recorded');
+        dateEscalations = dateEscalations.filter(r => r.id !== course_id);
+        loadDateEscalations();
+        loadFlagsStats();
+      } catch (e) { toast('Failed: ' + e.message, true); }
+    }
+  );
+};
 
 async function loadWarnings() {
   try {
@@ -1588,7 +1699,7 @@ function renderWarnings() {
     let note = '';
     if (g.check_type === 'price_outlier') {
       actionBtn = `<button class="btn btn-small btn-primary" onclick="window.warningMarkExpected('${sk}')">Mark as expected</button>`;
-    } else if (g.check_type === 'null_price' || g.check_type === 'null_avail' || g.check_type === 'future_date') {
+    } else if (g.check_type === 'null_price' || g.check_type === 'null_avail') {
       actionBtn = `<button class="btn btn-small" onclick="window.warningView('${sk}')">View</button>`;
     } else if (g.check_type === 'count_drop') {
       actionBtn = `<button class="btn btn-small" onclick="window.warningViewProvider('${sk}')">View provider</button>`;

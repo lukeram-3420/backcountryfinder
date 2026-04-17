@@ -373,7 +373,7 @@ Post-scrape validation script. Runs after any provider scraper completes. Read-o
 |-------|--------------------------------------|------------|
 | 1. Summary quality | Duplicate summary bleed (identical text across different titles — second occurrence auto-hidden with `flag_reason='summary_bleed'`). Null summary is auto-filled inline via `generate_summaries_batch()` with a title-only seed; courses that still have no summary after backfill surface in the Summary Review tab but are **not** auto-hidden | — |
 | 2. Price sanity | Zero or negative price | Null price (when peers have prices), >5x median outlier (skipped for titles matching `validator_price_exceptions`) |
-| 3. Date sanity | Past date with `active=true` | >2 years in the future |
+| 3. Date sanity | Past date with `active=true` → `flag_reason='past_date'`; >2 years in the future → `flag_reason='future_date'`. Both auto-hide on first detection. Courses with a `course_availability_log` row 24+ hours old get their `flag_reason` upgraded to the `_escalated` suffix (`past_date_escalated` / `future_date_escalated`) which the Flags tab Date escalations section renders with provider-email copy. `custom_dates=true` and `date_sort IS NULL` are a HARD skip for both branches | — (future_date warning retired in Initiative 5 — replaced by auto-hide + escalation) |
 | 4. Availability | — | Null avail, all-sold warning |
 | 5. Duplicates | All but first occurrence of same title+date (titles in `validator_whitelist` are skipped) | — |
 | 6. Course count | — | >30% drop vs last run |
@@ -386,8 +386,14 @@ The validator checks admin decisions first in this order before running
 any keyword or automated checks:
 
 1. `validator_suppressions` — explicit admin "ignore this" decision.
-   If a suppression matches (provider_id + title_contains + flag_reason),
-   skip the check entirely. Highest priority.
+   Two match modes. Title-scoped (the default / legacy): matches on
+   `(provider_id, title_contains substring, flag_reason category)` — used
+   by duplicate / activity / summary flows. Course-id-scoped (Initiative 5):
+   if the suppression row's `course_id` column is set, matching requires
+   exact `(course_id, flag_reason category)` — used by Flags tab
+   "Clear escalation" on date flags so a stale course_id can be retired
+   precisely without over-suppressing other rows sharing the same title.
+   Highest priority.
 2. `validator_summary_exceptions` — admin-saved summary text via the
    Summary Review tab. Keyed on `(provider_id, md5(summary))`. If any
    course's current summary hashes to an exception row, skip the bleed
@@ -578,8 +584,9 @@ Two tables (Providers, Location Mappings) use a shared sort helper in `admin.htm
 - `pending_location_mappings` — pending location mapping suggestions (columns: `id, location_raw, suggested_canonical, reviewed bool, created_at`)
 - `course_summaries` — unique on `(provider_id, title)`. Columns: `id, provider_id, title, course_id, summary, description_hash, approved bool, approved_at, pending_reason, created_at`
 - `validator_price_exceptions` — persistent price-outlier exceptions populated from the Flags tab Warnings "Mark as expected" inline form. Columns: `id bigserial, title_contains text not null, provider_id text, reason text, created_at timestamptz default now()`. A row means: if a course title contains `title_contains` (case-insensitive substring) and matches the scope (`provider_id` or null = global), skip the >5x median price outlier warning. **Consumed by `validate_provider.py`'s Check 3 and `write_warnings()`** — outlier warnings matching an exception are never written to `validator_warnings`. Zero/negative price auto-hides ignore this table.
-- `validator_warnings` — persists email-only validator issues (replaces the old email report). Columns: `id bigserial, provider_id text not null, course_id text, title text, check_type text not null, reason text not null, run_at timestamptz default now()`. `check_type` is one of: `price_outlier`, `null_price`, `null_avail`, `all_sold`, `future_date`, `count_drop`. `validate_provider.py` deletes all rows for the provider at the start of each run then writes fresh warnings at the end. Consumed by the Flags tab Warnings subsection in admin. (`summary_empty` was retired in Initiative 3 — the validator now backfills inline and surfaces failures via the Summary Review tab instead.)
+- `validator_warnings` — persists email-only validator issues (replaces the old email report). Columns: `id bigserial, provider_id text not null, course_id text, title text, check_type text not null, reason text not null, run_at timestamptz default now()`. `check_type` is one of: `price_outlier`, `null_price`, `null_avail`, `all_sold`, `count_drop`. `validate_provider.py` deletes all rows for the provider at the start of each run then writes fresh warnings at the end. Consumed by the Flags tab Warnings subsection in admin. (`summary_empty` retired in Initiative 3; `future_date` retired in Initiative 5 — both replaced by active flows in the Summary Review and Flags tabs respectively.)
 - `validator_whitelist` — records duplicate-flag groups that admin marked as safe to whitelist. Columns: `id bigserial, title text not null, provider_id text, reason text, created_at timestamptz default now()`. Populated by the Flags tab's Whitelist action. **Consumed by `validate_provider.py`'s duplicate check**: titles matching a whitelist entry (title + provider_id, or title + null provider_id for global whitelist) are skipped by Check 6 and never auto-flagged as duplicates.
+- `validator_suppressions` — explicit admin "ignore this" entries. Columns: `id bigserial, provider_id text, title_contains text, course_id text, flag_reason text not null, created_at timestamptz default now()`. `course_id` was added in Initiative 5 as a nullable column. Title-scoped rows (course_id IS NULL) match on `title_contains` substring + `flag_reason` category — populated by the Flags tab's "Clear all" action on auto-flag groups. Course-id-scoped rows (course_id set) match on exact `course_id + flag_reason` category — populated by the Flags tab's "Clear (suppress)" button on date escalations. **Consumed by `validate_provider.py`'s priority stack**: `is_suppressed()` checks both modes on every flag evaluation.
 - `validator_summary_exceptions` — admin-reviewed summary text exceptions from the Summary Review tab (Initiative 3). Columns: `id bigserial primary key, provider_id text not null, summary_hash text not null, course_id text, reason text not null check (reason in ('summary_bleed','bad_description','generation_failed')), saved_at timestamptz default now(), unique (provider_id, summary_hash)`. Populated by `admin-save-summary` edge function on admin Save. **Consumed by `validate_provider.py` Check 1**: bleed detection skips any group whose `(provider_id, md5(summary_text))` is in this table — one admin save clears the whole collision group on the next run. Does NOT apply to the empty-summary backfill (that's idempotent by nature).
 - `discovery_cloud` — search terms for automated provider discovery. Columns: `id bigserial, term text not null, type text not null ('activity'/'location'), weight integer default 1, active boolean default true, source text ('auto'/'manual'), last_used_at timestamptz, hit_count integer default 0, skip_count integer default 0, created_at timestamptz default now()`. Unique index on `(lower(term), type)`. Populated by `refresh_discovery_cloud.py`, consumed by `discover_providers.py`. Admin-editable in Settings tab.
 
@@ -804,6 +811,7 @@ V2 is an incremental migration on the live system. V1 and V2 coexist in the same
 | — | Activity mapping elimination (Initiative 1 of data quality mission) | Complete — scrapers, validator, Algolia, frontend, admin tab, 4 edge functions, docs all retired |
 | — | Location mapping refinement (Initiative 2 of data quality mission) | Complete — Haiku-live-write on structural `{city, province}` match, `None`-return guard across all 9 normalise_location callers, pending queue now holds only real unknowns |
 | — | Summary Review redesign (Initiative 3 of data quality mission) | Complete — Summary Review tab is now an exception inbox (bleed / user flag / generation failed). Validator backfills null summaries inline. `summary_empty` warnings retired. `bad_description` auto-clear retired. New `admin-save-summary` edge function and `validator_summary_exceptions` table |
+| — | Date sanity provider loop (Initiative 5 of data quality mission) | Complete — both past-date-active and far-future (>2 yr) now auto-hide on first detection with `flag_reason` `past_date` / `future_date`. After 24-hour confirmation via `course_availability_log` the reason upgrades to `past_date_escalated` / `future_date_escalated` and surfaces in the Flags tab Date escalations section with copyable provider email. Admin Clear writes a course-id-scoped suppression (new nullable column on `validator_suppressions`) so the zombie never re-escalates. `custom_dates` is a hard skip. `future_date` retired from `validator_warnings` |
 | 5 | Velocity signals (fill rate, price trend) | Not started — needs 4+ weeks of log data |
 | 6 | Validator simplification | Partially done — activity check removed; full simplification pending |
 | 7 | Drop V1 columns + tables post-cutover | Not started |
@@ -918,10 +926,11 @@ New card design discussed and approved. Claude Code to build against `/js/cards.
 - **Phase 7:** Drop V1 columns + tables after cutover (includes `activity`, `activity_raw`, `activity_canonical`, `badge`, `badge_canonical` from `courses` and the `activity_mappings`, `pending_mappings`, `activity_labels` tables)
 
 ### Data quality mission (parallel track)
-See [data_quality_initiatives.md](data_quality_initiatives.md) for the three-initiative plan.
+See [data_quality_initiatives.md](data_quality_initiatives.md) for the initiative plan.
 - **Initiative 1 — Activity mapping elimination:** fully complete.
 - **Initiative 2 — Location mapping refinement:** fully complete.
 - **Initiative 3 — Summary Review tab redesign:** fully complete. Tab is an exception inbox (bleed / user flag / generation failed). Validator backfills null summaries inline using a title-only Haiku seed (safety net). `bad_description` user reports no longer auto-clear. New `admin-save-summary` edge function commits admin edits + writes `(provider_id, md5(summary))` to `validator_summary_exceptions`. Bleed check consults the exception table so one admin save clears the whole collision group on the next run.
+- **Initiative 5 — Date sanity provider loop:** fully complete. Past-date-active and far-future (>2 yr) both auto-hide on first detection and escalate to the Flags tab's Date escalations section 24 hours after the first `course_availability_log` entry. Escalation surfaces with booking URL + copyable provider email body; admin Clear writes a course-id-scoped suppression (new nullable column on `validator_suppressions`) so zombies from V2-id-drifting date corrections never re-escalate. `future_date` retired from `validator_warnings`. `custom_dates=true` / `date_sort IS NULL` is a hard skip.
 
 ### One-time setup SQL
 

@@ -47,13 +47,20 @@ def _reason_category(reason: str) -> str:
     return (reason or "").split(":", 1)[0].strip().lower()
 
 
-def is_suppressed(title: str, reason: str) -> bool:
-    """True if an admin 'Clear all' suppression exists for this title+reason.
+def is_suppressed(title: str, reason: str, course_id: str = "") -> bool:
+    """True if an admin 'Clear all' suppression exists for this (title, reason)
+    or (course_id, reason) combo.
 
-    Matches when:
-      - suppression.provider_id is null (global) OR matches current provider
-      - suppression.title_contains (lowercased) is a substring of title
-      - the proposed reason's category matches the suppression's reason category
+    Two match modes (Initiative 5):
+      - Course-scoped: suppression.course_id is set → requires exact course_id
+        match + reason-category match. Used by Clear on date escalations so the
+        Flags-tab date section can retire a specific stale course_id without
+        over-suppressing other rows sharing the same title.
+      - Title-scoped (unchanged): suppression.course_id is NULL → requires
+        title_contains substring + reason-category match. Used by everything
+        else (duplicates, activity before retirement, summary flows).
+
+    In both modes, provider_id must be NULL (global) or match current provider.
     """
     if not _suppressions_cache:
         return False
@@ -65,32 +72,40 @@ def is_suppressed(title: str, reason: str) -> bool:
         s_pid = s.get("provider_id")
         if s_pid and s_pid != _current_provider_id:
             continue
+        if _reason_category(s.get("flag_reason") or "") != proposed_cat:
+            continue
+        s_cid = s.get("course_id")
+        if s_cid:
+            # Course-scoped suppression — exact match required.
+            if course_id and s_cid == course_id:
+                return True
+            continue
+        # Title-scoped suppression (legacy / default).
         s_tc = (s.get("title_contains") or "").strip().lower()
         if not s_tc or s_tc not in t:
             continue
-        if _reason_category(s.get("flag_reason") or "") == proposed_cat:
-            return True
+        return True
     return False
 
 
-def any_check_suppressed(title: str, categories) -> bool:
-    """True if an admin suppression matches this title for ANY of the given
-    flag-reason categories. Used at the top of each check's per-course loop
-    so admin decisions short-circuit the whole check — not just the final
-    flag_course() write.
+def any_check_suppressed(title: str, categories, course_id: str = "") -> bool:
+    """True if an admin suppression matches this title/course_id for ANY of
+    the given flag-reason categories. Used at the top of each check's
+    per-course loop so admin decisions short-circuit the whole check — not
+    just the final flag_course() write.
     """
     for cat in categories:
-        if is_suppressed(title, cat):
+        if is_suppressed(title, cat, course_id=course_id):
             return True
     return False
 
 
 def flag_course(course_id: str, reason: str, auto_hidden: list, title: str = ""):
-    """Patch a single course row as auto_flagged and record it — unless the
-    (title, reason-category) combo has been suppressed via admin 'Clear all'.
+    """Patch a single course row as auto_flagged and record it — unless a
+    (title, reason-category) OR (course_id, reason-category) suppression exists.
     """
-    if title and is_suppressed(title, reason):
-        logging.info(f"Suppressed flag (admin-cleared): {title!r} / {reason!r}")
+    if is_suppressed(title, reason, course_id=course_id):
+        logging.info(f"Suppressed flag (admin-cleared): {course_id or title!r} / {reason!r}")
         return
     sb_patch("courses", f"id=eq.{course_id}", {
         "auto_flagged": True,
@@ -395,20 +410,53 @@ def check_prices(courses: list, auto_hidden: list, price_exceptions: list, provi
     return email_only
 
 
-def check_dates(courses: list, auto_hidden: list) -> list:
-    """Check 4: Date sanity.
+def load_escalation_candidates(provider_id: str) -> set:
+    """Initiative 5 — return the set of course_ids that have a log row in
+    course_availability_log older than 24 hours. Any auto-flagged course in
+    this set has been in the bad-date state for long enough to warrant a
+    provider touchpoint, so its flag_reason is upgraded to the '_escalated'
+    suffix and surfaced in the Flags tab.
+    """
+    cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+    try:
+        rows = sb_get("course_availability_log", {
+            "provider_id": f"eq.{provider_id}",
+            "scraped_at": f"lte.{cutoff}",
+            "select": "course_id",
+        })
+    except Exception as e:
+        logging.warning(f"load_escalation_candidates: {e}")
+        return set()
+    return {r["course_id"] for r in rows if r.get("course_id")}
+
+
+def check_dates(courses: list, auto_hidden: list, escalation_ids: set) -> list:
+    """Check 4: Date sanity (Initiative 5 — active provider loop).
+
+    Two symmetric conditions, both auto-hide on first detection:
+      A. Past date with active=true    → flag_reason='past_date'
+      B. Far future (>2 years out)     → flag_reason='future_date'
+
+    `escalation_ids` is the pre-computed set of course_ids with at least one
+    course_availability_log row from 24+ hours ago. Any course caught by
+    condition A or B whose course_id is in that set has its flag_reason
+    upgraded to the '_escalated' suffix — the admin UI filters on that
+    suffix to render the Flags tab Date escalations section.
 
     Priority stack per course:
-      1. validator_suppressions matching 'past date still active'
-         → skip entire check.
-      2. Automated past-date auto-hide + future-date warning.
+      1. custom_dates=true OR date_sort IS NULL → skip entirely. Flex-date
+         and private-guiding rows by design; hard skip, not soft.
+      2. validator_suppressions (course_id-scoped) matching 'past_date' /
+         'future_date' → skip entire check for that course_id.
+      3. Condition A / B automated checks → auto-hide, escalate if aged.
     """
-    email_only = []
+    email_only: list = []
     today = date.today()
     two_years = today + timedelta(days=730)
 
     for c in courses:
-        if any_check_suppressed(c.get("title", ""), ["past date still active"]):
+        # 1. Hard skip for flex-date / private-guiding rows.
+        if c.get("custom_dates"):
             continue
         ds = c.get("date_sort")
         if not ds:
@@ -418,18 +466,26 @@ def check_dates(courses: list, auto_hidden: list) -> list:
         except (ValueError, TypeError):
             continue
 
-        if d < today and c.get("active") is True:
-            flag_course(c["id"], "past date still active", auto_hidden, title=c.get("title",""))
+        cid = c.get("id") or ""
+        title = c.get("title", "")
 
+        # 2. Admin suppression — course-id-scoped Clears write here.
+        if any_check_suppressed(title, ["past_date", "future_date"], course_id=cid):
+            continue
+
+        # 3. Condition A — Past date with active=true.
+        if d < today and c.get("active") is True:
+            reason = "past_date_escalated" if cid in escalation_ids else "past_date"
+            flag_course(cid, reason, auto_hidden, title=title)
+            continue
+
+        # 3. Condition B — Far future (>2 years).
         if d > two_years:
-            email_only.append({
-                "check": "Date sanity",
-                "check_type": "future_date",
-                "title": c["title"],
-                "issue": f"Date {ds} is more than 2 years in the future",
-                "value": ds,
-                "id": c["id"],
-            })
+            reason = "future_date_escalated" if cid in escalation_ids else "future_date"
+            flag_course(cid, reason, auto_hidden, title=title)
+            continue
+
+    return email_only
 
     return email_only
 
@@ -696,7 +752,7 @@ def main():
     # Fetch all courses for this provider
     courses = sb_get("courses", {
         "provider_id": f"eq.{provider_id}",
-        "select": "id,title,summary,price,date_sort,date_display,avail,active,spots_remaining",
+        "select": "id,title,summary,price,date_sort,date_display,avail,active,spots_remaining,custom_dates,booking_url",
     })
     current_count = len(courses)
     print(f"  Fetched {current_count} courses")
@@ -734,13 +790,19 @@ def main():
     suppression_rows = []
     try:
         suppression_rows = sb_get("validator_suppressions", {
-            "select": "provider_id,title_contains,flag_reason",
+            "select": "provider_id,title_contains,flag_reason,course_id",
             "or": f"(provider_id.eq.{provider_id},provider_id.is.null)",
         })
     except Exception as e:
         print(f"  ⚠ Could not load validator_suppressions: {e}")
     _suppressions_cache = suppression_rows
     logging.info(f"Loaded {len(_suppressions_cache)} admin suppressions")
+
+    # Initiative 5 — load the set of course_ids with log rows 24+ hours old.
+    # check_dates upgrades flag_reason to the '_escalated' suffix for any
+    # auto-hidden course in this set, routing it to the Flags tab.
+    escalation_ids = load_escalation_candidates(provider_id)
+    logging.info(f"Loaded {len(escalation_ids)} escalation candidates (24h+)")
 
     # Initiative 3 — load summary exceptions for this provider. Entries are
     # admin-saved summary hashes; the bleed check skips any group matching.
@@ -790,7 +852,7 @@ def main():
 
     email_only.extend(check_summaries(courses, auto_hidden, summary_exceptions))
     email_only.extend(check_prices(courses, auto_hidden, price_exceptions, provider_id))
-    email_only.extend(check_dates(courses, auto_hidden))
+    email_only.extend(check_dates(courses, auto_hidden, escalation_ids))
     email_only.extend(check_availability(courses, auto_hidden))
     email_only.extend(check_duplicates(courses, auto_hidden, whitelisted, provider_id))
     email_only.extend(check_course_count(provider_id, current_count))

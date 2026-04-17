@@ -130,9 +130,11 @@ def classify(courses):
             try:
                 d = datetime.strptime(ds, "%Y-%m-%d").date()
                 if d < today and c.get("active"):
-                    flag("past_date_active", f"date {ds} is past but active=true", "critical")
+                    # validate_provider.py Check 4 auto-hides + escalates after 24h.
+                    flag("past_date_active", f"date {ds} is past but active=true (auto-hidden by validator, escalates after 24h)", "critical")
                 if d > two_years_out:
-                    flag("far_future_date", f"date {ds} is >2 years out")
+                    # Symmetric with past-date under Initiative 5 — auto-hide + 24h escalation.
+                    flag("far_future_date", f"date {ds} is >2 years out (auto-hidden by validator, escalates after 24h)")
             except ValueError:
                 flag("unparseable_date", f"date_sort={ds!r}")
         elif not c.get("custom_dates"):
