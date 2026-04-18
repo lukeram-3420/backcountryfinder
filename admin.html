@@ -2677,24 +2677,39 @@ async function loadActivityTab() {
   const wrap = document.getElementById('activity-table-wrap');
   try {
     // Pull scraper_config and activity_controls in parallel. Both use the
-    // anon key — no edge function round-trip for reads.
-    const [cfgRows, rows, providers] = await Promise.all([
+    // anon key — no edge function round-trip for reads. Each response can be
+    // either a 200 array or a PostgREST error object (e.g. 404 when the table
+    // is missing because the admin hasn't run activity_controls_schema.sql
+    // yet). We coerce non-array responses to [] and surface a helpful hint
+    // in the table slot instead of crashing the tab.
+    const jsonOrEmpty = async (res) => {
+      const body = await res.json().catch(() => null);
+      if (!res.ok || !Array.isArray(body)) {
+        console.warn('activity-tab fetch non-array:', res.status, body);
+        return { error: body?.message || `HTTP ${res.status}`, rows: [] };
+      }
+      return { error: null, rows: body };
+    };
+    const [cfgRes, actRes, providers] = await Promise.all([
       fetch(`${SUPABASE_URL}/rest/v1/scraper_config?select=key,value&key=in.(extended_lookahead_days,immediate_lookahead_days)`, {
         headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
-      }).then(r => r.json()),
+      }).then(jsonOrEmpty),
       fetch(`${SUPABASE_URL}/rest/v1/activity_controls?select=*&order=last_seen_at.desc&limit=50000`, {
         headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, Range: '0-49999' },
-      }).then(r => r.json()),
+      }).then(jsonOrEmpty),
       sbSelect('providers', { select: 'id,name' }),
     ]);
 
+    const missingTable = (actRes.error || cfgRes.error || '').toLowerCase().includes('does not exist') ||
+                         (actRes.error || cfgRes.error || '').toLowerCase().includes('relation');
+
     // Config inputs
-    const cfgMap = Object.fromEntries((cfgRows || []).map(r => [r.key, r.value]));
+    const cfgMap = Object.fromEntries(cfgRes.rows.map(r => [r.key, r.value]));
     document.getElementById('cfg-extended').value  = cfgMap.extended_lookahead_days  || 180;
     document.getElementById('cfg-immediate').value = cfgMap.immediate_lookahead_days || 14;
     document.getElementById('cfg-status').textContent = '';
 
-    cachedActivity = Array.isArray(rows) ? rows : [];
+    cachedActivity = actRes.rows;
 
     // Populate provider dropdown (sorted by provider name, not id).
     const nameMap = Object.fromEntries((providers || []).map(p => [p.id, p.name]));
@@ -2709,6 +2724,22 @@ async function loadActivityTab() {
     sel.value = curr;
 
     activitySelected.clear();
+    if (missingTable) {
+      wrap.innerHTML = `<div class="loading" style="text-align:left;padding:16px;line-height:1.6;">
+        <strong>activity_controls / scraper_config tables are missing.</strong><br>
+        Run <code>activity_controls_schema.sql</code> in the Supabase SQL editor, then
+        <code>python seed_activity_controls.py</code> to migrate historical EXCLUDE_TITLES entries.
+        The tab will populate once the first scraper run after schema setup completes.
+      </div>`;
+      return;
+    }
+    if (!cachedActivity.length) {
+      wrap.innerHTML = `<div class="loading" style="padding:16px;">
+        No activities yet. Run a scraper (or wait for the next 6-hour scraper-all.yml tick)
+        — every activity it sees will upsert a row here.
+      </div>`;
+      return;
+    }
     renderActivityTable();
   } catch (e) {
     wrap.innerHTML = `<div class="loading">Error: ${esc(e.message)}</div>`;
