@@ -756,7 +756,10 @@ def log_price_change(course: dict) -> None:
     Call after sb_upsert("courses", ...) on every scrape run.
 
     course dict must include: provider_id, title, date_sort, price.
-    Optional: currency (defaults to 'CAD').
+    Optional: currency (defaults to 'CAD'), price_tier (Zaui — which tier
+    the displayed price was resolved from, e.g. 'adults' / 'seniors' /
+    'inferred_min'; recorded so Phase 5 velocity signals stay
+    apples-to-apples across runs).
     """
     pid = course.get("provider_id")
     price = course.get("price")
@@ -765,6 +768,7 @@ def log_price_change(course: dict) -> None:
     th = title_hash(course.get("title", ""))
     ds = course.get("date_sort")
     currency = course.get("currency", "CAD")
+    price_tier = course.get("price_tier")
 
     # Fetch the most recent price log entry for this title+date
     try:
@@ -786,15 +790,18 @@ def log_price_change(course: dict) -> None:
     if prev and prev[0].get("price") == price:
         return  # no change
 
+    payload = {
+        "provider_id": pid,
+        "title_hash": th,
+        "date_sort": ds,
+        "price": price,
+        "currency": currency,
+        "bad_data": price <= 0,
+    }
+    if price_tier:
+        payload["price_tier"] = price_tier
     try:
-        sb_insert("course_price_log", {
-            "provider_id": pid,
-            "title_hash": th,
-            "date_sort": ds,
-            "price": price,
-            "currency": currency,
-            "bad_data": price <= 0,
-        })
+        sb_insert("course_price_log", payload)
     except Exception as e:
         log.warning(f"price log failed for {pid}/{th}: {e}")
 

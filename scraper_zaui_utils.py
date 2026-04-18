@@ -136,18 +136,26 @@ def is_experience_product(
 # top-level fields like `minPrice` / `fromPrice`, or nested array shapes like
 # `customerTypePricing[]` / `ratePlans[]`.
 #
-# extract_zaui_price() walks the full fallback chain and logs the first
-# path that hits past the canonical two, so we learn which tenants warrant
-# config tweaks.
+# extract_zaui_price() returns a dict: {price, tier, has_variations}.
+# Extraction order is DETERMINISTIC across runs so course_price_log stays
+# apples-to-apples — the same activity always resolves to the same tier as
+# long as its catalog shape doesn't change. The tier is recorded explicitly
+# (not inferred at read time) so Phase 5 velocity signals can filter on it.
 
-_PRICE_KEY_PREFERENCE = (
+# Adult-equivalent keys — preferred.
+_PRICE_ADULT_KEYS = (
     "adults", "adult",
     "single", "rider",
     "default", "standard", "base",
 )
 
+# Next-closest-to-adult keys — used when no adult-equivalent has a positive value.
+_PRICE_NEAR_ADULT_KEYS = (
+    "seniors", "senior",
+    "students", "student",
+)
+
 _SCALAR_PRICE_FIELDS = (
-    "listPrice",
     "minPrice", "fromPrice", "basePrice", "startingPrice",
 )
 
@@ -166,48 +174,92 @@ def _to_positive_int(v) -> Optional[int]:
         return None
 
 
-def extract_zaui_price(act: dict) -> Optional[int]:
-    """Return the cheapest sensible adult-like price for a Zaui activity,
-    as an int in the activity's currency (usually CAD). Walks a wide
-    fallback chain to handle tenant-specific schema quirks. Returns None
-    only when no positive numeric price is found anywhere.
+def _detect_variations(act: dict) -> bool:
+    """True if the activity has >=2 distinct positive prices across any
+    recognized tier keys or the customerTypePricing array. Display-only
+    signal — drives the ↕ Price varies chip on the frontend.
     """
-    global _price_fallback_logged
-
-    # 1. listPrice — the canonical scalar (keep name so we can log which path hit)
-    lp = _to_positive_int(act.get("listPrice"))
-    if lp is not None:
-        return lp
-
-    # 2. price dict — try preferred keys in order
+    seen = set()
     price = act.get("price")
     if isinstance(price, dict):
-        for key in _PRICE_KEY_PREFERENCE:
+        for v in price.values():
+            n = _to_positive_int(v)
+            if n is not None:
+                seen.add(n)
+                if len(seen) >= 2:
+                    return True
+    for field in _ARRAY_PRICE_FIELDS:
+        arr = act.get(field)
+        if not isinstance(arr, list):
+            continue
+        for entry in arr:
+            if not isinstance(entry, dict):
+                continue
+            for k in ("price", "total", "amount", "listPrice", "adultPrice"):
+                n = _to_positive_int(entry.get(k))
+                if n is not None:
+                    seen.add(n)
+                    if len(seen) >= 2:
+                        return True
+                    break
+    return False
+
+
+def extract_zaui_price(act: dict) -> dict:
+    """Resolve price + tier + variation flag for a Zaui activity.
+
+    Returns {"price": int | None, "tier": str | None, "has_variations": bool}.
+    Extraction order is deterministic (see _PRICE_ADULT_KEYS → _PRICE_NEAR_ADULT_KEYS
+    → inferred_min → scalar fallbacks → array fallbacks). The tier string is
+    recorded so `course_price_log.price_tier` can track apples-to-apples across
+    runs; Phase 5 velocity signals should filter to a single tier per course.
+    """
+    global _price_fallback_logged
+    has_variations = _detect_variations(act)
+
+    def _log_fallback(path: str):
+        global _price_fallback_logged
+        if not _price_fallback_logged["done"]:
+            log.info(f"extract_zaui_price: using {path} (first hit)")
+            _price_fallback_logged["done"] = True
+
+    def _ret(price, tier):
+        return {"price": price, "tier": tier, "has_variations": has_variations}
+
+    # 1. listPrice scalar — canonical
+    lp = _to_positive_int(act.get("listPrice"))
+    if lp is not None:
+        return _ret(lp, "list")
+
+    price = act.get("price")
+    if isinstance(price, dict):
+        # 2. Adult-equivalent keys — preferred tier
+        for key in _PRICE_ADULT_KEYS:
             v = _to_positive_int(price.get(key))
             if v is not None:
-                if key not in ("adults", "adult") and not _price_fallback_logged["done"]:
-                    log.info(f"extract_zaui_price: using price.{key!r} fallback (first hit)")
-                    _price_fallback_logged["done"] = True
-                return v
-
-        # 3. Any positive numeric in the price dict (last-resort key-agnostic)
+                if key not in ("adults", "adult"):
+                    _log_fallback(f"price.{key!r} adult-equivalent")
+                return _ret(v, key)
+        # 3. Next-closest-to-adult (senior / student) — explicit tier
+        for key in _PRICE_NEAR_ADULT_KEYS:
+            v = _to_positive_int(price.get(key))
+            if v is not None:
+                _log_fallback(f"price.{key!r} near-adult tier")
+                return _ret(v, key)
+        # 4. Min of any positive value in the price dict (child/infant territory)
         vals = [n for n in (_to_positive_int(v) for v in price.values()) if n is not None]
         if vals:
-            if not _price_fallback_logged["done"]:
-                log.info(f"extract_zaui_price: using min-of-price-dict fallback (keys={list(price.keys())[:6]})")
-                _price_fallback_logged["done"] = True
-            return min(vals)
+            _log_fallback(f"price-dict inferred_min (keys={list(price.keys())[:6]})")
+            return _ret(min(vals), "inferred_min")
 
-    # 4. Other top-level scalar price fields
-    for field in _SCALAR_PRICE_FIELDS[1:]:  # skip listPrice, already tried
+    # 5. Top-level scalar fallbacks
+    for field in _SCALAR_PRICE_FIELDS:
         v = _to_positive_int(act.get(field))
         if v is not None:
-            if not _price_fallback_logged["done"]:
-                log.info(f"extract_zaui_price: using {field!r} scalar fallback")
-                _price_fallback_logged["done"] = True
-            return v
+            _log_fallback(f"{field!r} scalar")
+            return _ret(v, f"scalar_{field}")
 
-    # 5. Array shapes — customerTypePricing / ratePlans / rates
+    # 6. Array shapes — customerTypePricing / ratePlans / rates
     for field in _ARRAY_PRICE_FIELDS:
         arr = act.get(field)
         if not isinstance(arr, list):
@@ -216,19 +268,16 @@ def extract_zaui_price(act: dict) -> Optional[int]:
         for entry in arr:
             if not isinstance(entry, dict):
                 continue
-            # Try common price-bearing keys inside each entry
             for k in ("price", "total", "amount", "listPrice", "adultPrice"):
                 n = _to_positive_int(entry.get(k))
                 if n is not None:
                     vals.append(n)
                     break
         if vals:
-            if not _price_fallback_logged["done"]:
-                log.info(f"extract_zaui_price: using {field}[] array fallback")
-                _price_fallback_logged["done"] = True
-            return min(vals)
+            _log_fallback(f"{field}[] array")
+            return _ret(min(vals), f"array_{field}")
 
-    return None
+    return _ret(None, None)
 
 
 def _throttle():

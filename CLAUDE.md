@@ -195,6 +195,11 @@ Required scoping heuristic:
 
 Reference implementation: `extract_schedule_text(soup)` in `scraper_altus.py` — replicate in other scrapers that parse schedules from HTML. The optional-year fallback in `parse_wp_dates` (defaults to current year, bumps to next year if past) amplifies this bug if unscoped, so the scoping rule is a hard requirement, not a nice-to-have.
 
+### Variable pricing — Zaui tier policy
+Zaui tenants with multi-tier pricing (adults / seniors / students / children / infants) sometimes leave the adult tier null on specific products (day passes, single-person rentals). To avoid writing a misleading child/infant rate as the canonical price AND to keep `course_price_log` apples-to-apples across runs, all 5 Zaui scrapers resolve price via `extract_zaui_price(act)` in `scraper_zaui_utils.py` which returns `{price, tier, has_variations}`. Deterministic extraction order: `listPrice` → adult-equivalent keys (`adults`/`adult`/`single`/`rider`/`default`/`standard`/`base`) → near-adult tiers (`seniors`/`senior`/`students`/`student`) → `min` of remaining positive values → scalar fallbacks (`minPrice`/`fromPrice`/`basePrice`/`startingPrice`) → array fallbacks (`customerTypePricing[]`/`ratePlans[]`/`rates[]`).
+
+Every Zaui row must write three fields: `price`, `price_tier` (the exact tier the price came from — e.g. `'adults'` / `'seniors'` / `'inferred_min'` / `'scalar_minPrice'` / `'array_customerTypePricing'`), and `price_has_variations` (true iff ≥2 distinct positive prices exist across any tier). `log_price_change()` propagates `price_tier` into `course_price_log` so Phase 5 velocity signals filter on a single tier per course. `price_has_variations` is a frontend display signal only — drives the `↕ Price varies` chip rendered below the card price. Extraction order never changes run-to-run, so a course's logged price tier is stable as long as its upstream catalog shape is.
+
 ## Architecture
 
 ### Scraping Pipeline
@@ -757,6 +762,8 @@ Never wait for manual confirmation to commit.
 | date_sort | date | `YYYY-MM-DD` |
 | duration_days | numeric | |
 | price | integer | CAD |
+| price_tier | text | Which tier the price was resolved from (Zaui) — `'adults'` / `'seniors'` / `'inferred_min'` / `'scalar_<field>'` / `'array_<field>'`. Null for non-Zaui providers. |
+| price_has_variations | boolean | default false. True when the activity has ≥2 distinct positive tier prices. Drives the `↕ Price varies` chip on the card. |
 | spots_remaining | integer | null if unknown |
 | avail | text | `open` `low` `critical` `sold` |
 | image_url | text | |
@@ -850,6 +857,7 @@ Indexed on `(provider_id)` and `(title_hash, date_sort)`. Append only when value
 | currency | text | not null, ISO 4217, default 'CAD' |
 | logged_at | timestamptz | not null, default now() |
 | bad_data | boolean | default false — set to true by `log_price_change` when `price <= 0` (Initiative 4). Lets Phase 5 velocity-signal consumers filter out polluting zero/negative rows without re-deriving the condition at read time. |
+| price_tier | text | Which price tier the logged value came from (Zaui `extract_zaui_price` output — `'adults'` / `'seniors'` / `'inferred_min'` / etc.). Null for non-Zaui providers and for rows logged before the tier column landed. Phase 5 velocity signals should filter to a single tier per course so drift analysis stays apples-to-apples. |
 
 Indexed on `(provider_id)` and `(title_hash)`. Append only when price changes. **Never truncate, delete, or run cleanup.** Consumed by `validate_provider.py`'s `load_price_escalation_candidates(provider_id)` (Initiative 4) which returns V2 course_ids reconstructed from `(provider_id, date_sort, title_hash)` for rows 24+ hours old — these upgrade zero/negative-priced courses to `invalid_price_escalated` in the Flags tab Price escalations sub-section.
 

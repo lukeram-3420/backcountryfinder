@@ -80,6 +80,9 @@ function buildCard(c) {
     <div class="card-footer">
       <div class="price-block">
         <div class="card-price">$${c.price||'—'} <sub>CAD</sub></div>
+        ${c.price_has_variations
+          ? `<div class="price-varies" title="Pricing varies — see booking page for full breakdown">↕ Price varies</div>`
+          : ''}
         <div class="avail ${c.avail}">${availLabel}</div>
       </div>
       <div class="card-actions">
@@ -134,6 +137,7 @@ function mapHit(hit) {
     location_raw: hit.location_raw || '',
     image_url: hit.image_url,
     price: hit.price,
+    price_has_variations: hit.price_has_variations || false,
     currency: hit.currency || 'CAD',
     avail: hit.avail || 'open',
     spots_remaining: hit.spots_remaining ?? null,
