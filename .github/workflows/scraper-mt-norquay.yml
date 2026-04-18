@@ -1,0 +1,37 @@
+name: Scraper — Mt. Norquay
+
+on:
+  workflow_dispatch:
+    inputs:
+      group:
+        description: 'Activity group to scrape (0..3)'
+        required: true
+        default: '0'
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4 anthropic
+      - name: Run scraper
+        run: python scraper_mt_norquay.py --group ${{ github.event.inputs.group }}
+        env:
+          SUPABASE_URL:          ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY:  ${{ secrets.SUPABASE_SERVICE_KEY }}
+          RESEND_API_KEY:        ${{ secrets.RESEND_API_KEY }}
+          GOOGLE_PLACES_API_KEY: ${{ secrets.GOOGLE_PLACES_API_KEY }}
+          ANTHROPIC_API_KEY:     ${{ secrets.ANTHROPIC_API_KEY }}
+      - name: Validate
+        run: python validate_provider.py mt-norquay
+        continue-on-error: true
+        env:
+          SUPABASE_URL:          ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY:  ${{ secrets.SUPABASE_SERVICE_KEY }}
+          RESEND_API_KEY:        ${{ secrets.RESEND_API_KEY }}
+          GOOGLE_PLACES_API_KEY: ${{ secrets.GOOGLE_PLACES_API_KEY }}
+          ANTHROPIC_API_KEY:     ${{ secrets.ANTHROPIC_API_KEY }}

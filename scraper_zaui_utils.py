@@ -23,6 +23,13 @@ UA = (
 MIN_INTERVAL_SECONDS = 0.5
 _DAY_NAMES = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
+# Zaui's categories/list endpoints filter by the probe date's totalActivities,
+# which hides any category whose next booking is outside the probe window. We
+# probe today + 45d + 135d by default so seasonal categories (e.g. via ferrata
+# Jun-Oct, tubing Dec-Mar) surface regardless of which month we run in.
+# Callers that only care about today can pass date_offsets=(0,) explicitly.
+DEFAULT_DATE_OFFSETS = (0, 45, 135)
+
 _last_request_ts = {"t": 0.0}
 
 log = logging.getLogger(__name__)
@@ -55,36 +62,64 @@ def zaui_get(tenant_slug: str, portal_id: int, endpoint: str, params: Optional[d
 
 
 def fetch_categories(tenant_slug: str, portal_id: int,
-                     exclude_names: Iterable[str] = ("Rentals",)) -> list:
-    """Return categories with totalActivities > 0, excluding any whose name
-    exactly matches an entry in `exclude_names`.
+                     exclude_names: Iterable[str] = ("Rentals",),
+                     date_offsets: Iterable[int] = DEFAULT_DATE_OFFSETS) -> list:
+    """Return categories with totalActivities > 0 on any probed date,
+    excluding any whose name exactly matches an entry in `exclude_names`.
+
+    Probes today + each offset (in days) and unions the results, deduped by
+    category id. Default offsets cover ~6 months forward so seasonal categories
+    surface in shoulder seasons too.
     """
-    today = datetime.date.today().isoformat()
-    data = zaui_get(tenant_slug, portal_id, "activity/categories", {"date": today})
-    cats = data.get("data") or []
+    today = datetime.date.today()
     exclude = set(exclude_names)
-    out = []
-    for c in cats:
-        name = (c.get("name") or "").strip()
-        if name in exclude:
+    by_id: dict = {}
+    for offset in date_offsets:
+        probe = (today + datetime.timedelta(days=int(offset))).isoformat()
+        try:
+            data = zaui_get(tenant_slug, portal_id, "activity/categories", {"date": probe})
+        except Exception as e:
+            log.warning(f"activity/categories failed for probe date {probe}: {e}")
             continue
-        if (c.get("totalActivities") or 0) <= 0:
-            continue
-        out.append(c)
-    return out
+        for c in data.get("data") or []:
+            name = (c.get("name") or "").strip()
+            if name in exclude:
+                continue
+            if (c.get("totalActivities") or 0) <= 0:
+                continue
+            cid = c.get("id")
+            if cid is not None and cid not in by_id:
+                by_id[cid] = c
+    return list(by_id.values())
 
 
-def fetch_activity_list(tenant_slug: str, portal_id: int, category_id: int) -> list:
+def fetch_activity_list(tenant_slug: str, portal_id: int, category_id: int,
+                        date_offsets: Iterable[int] = DEFAULT_DATE_OFFSETS) -> list:
     """Full activity list for a category. Each activity includes description,
     listPrice, price (per-pax dict), image, availability (weekly template),
     durationDays, etc.
+
+    Probes today + each offset (in days) and unions the results, deduped by
+    activity id. Default offsets cover ~6 months forward so seasonal
+    activities surface in shoulder seasons too.
     """
-    today = datetime.date.today().isoformat()
-    data = zaui_get(
-        tenant_slug, portal_id, "activity/list",
-        {"category": category_id, "date": today},
-    )
-    return data.get("data") or []
+    today = datetime.date.today()
+    by_id: dict = {}
+    for offset in date_offsets:
+        probe = (today + datetime.timedelta(days=int(offset))).isoformat()
+        try:
+            data = zaui_get(
+                tenant_slug, portal_id, "activity/list",
+                {"category": category_id, "date": probe},
+            )
+        except Exception as e:
+            log.warning(f"activity/list failed for cat {category_id} probe date {probe}: {e}")
+            continue
+        for a in data.get("data") or []:
+            aid = a.get("id")
+            if aid is not None and aid not in by_id:
+                by_id[aid] = a
+    return list(by_id.values())
 
 
 def fetch_unavailability(tenant_slug: str, portal_id: int, activity_id: int,

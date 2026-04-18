@@ -355,6 +355,75 @@ def parse_course_page(url, html):
 rows = fetch_detail_pages(course_urls, parse_course_page, delay=0.5)
 ```
 
+### Hybrid platform pattern (booking system + own website)
+
+Many providers split their catalogue between a **booking platform** (Rezdy /
+Checkfront / Zaui) for transactional, dated products and their **own marketing
+website** (WordPress / Squarespace) for inquiry-based programs that don't have
+fixed dates published. A single scraper covers both with two passes.
+
+**When to use it:** if the booking-platform storefront returns suspiciously few
+products relative to the provider's stated offerings (e.g. a guide service
+advertising rock + ice + alpine + AST + ski touring but the Rezdy storefront
+only lists 11 ski-focused items), assume the rest is on the marketing website
+and add Pass 2.
+
+**Reference implementations:**
+- `scraper_altus.py` — Rezdy + WordPress (altusmountainguides.com). Pass 2
+  crawls listing pages (`/mountaineering-courses`, `/climbing-courses`,
+  `/climbing-trips`) and follows links to detail pages.
+- `scraper_cloud_nine_guides.py` — Rezdy + Squarespace (cloudnineguides.com).
+  Pass 2 uses a hardcoded `WEBSITE_PROGRAM_URLS` list because Squarespace
+  exposes no clean nav-discoverable listing pages — every program lives at
+  a top-level slug with no /category/ prefix.
+
+**Pass 2 dedup contract:** before emitting a website row, check if Pass 1
+already produced a row with the same title (or title containing a known
+overlap keyword from a `PASS2_TITLE_SKIP_KEYWORDS` list). Pass 1 wins because
+it has real dates and availability; Pass 2 is the inquiry-only safety net.
+
+**Squarespace-specific notes:**
+- No standard listing-page hierarchy — `/category/` URLs don't exist
+- No discoverable sitemap.xml in many cases — use Google web-search probe
+  (`site:provider.com`) to enumerate program URLs at build time
+- Program slugs are arbitrary (e.g. `/c9g-day-rock-climbing-experience`,
+  `/wicked-wanda-wi4-65m`) — never try to derive them from a URL pattern
+- Hardcode the discovered URL list at module-level. Re-probe annually or
+  when the provider adds a new program; the list will rarely churn.
+
+**WordPress-specific notes:**
+- Listing pages exist at predictable category URLs (e.g. `/courses`,
+  `/trips`, `/mountaineering-courses`) — discoverable via nav or sitemap
+- Detail pages have h1 + description paragraphs + price text
+- Apply the **CLAUDE.md hard date-scoping rule** to any HTML date
+  extraction: only run regex against containers whose class/id matches
+  `schedule|dates|upcoming|session|availability|calendar`, never against
+  `soup.get_text()`
+
+**URL drift detection (for hardcoded URL lists):**
+Scrapers with hardcoded program URL lists (`scraper_yamnuska.py`,
+`scraper_cloud_nine_guides.py`) call `detect_url_drift()` from
+`scraper_utils.py` at the end of `main()`. The helper fetches the provider
+homepage, extracts every `<a href>` that matches a per-scraper
+`url_pattern` regex (and doesn't match `exclude_pattern`), compares to the
+known URL set, and INSERTs any new findings into `provider_url_drift`
+(idempotent via unique constraint on `(provider_id, url)`). Findings
+surface in the admin Pipeline tab → URL drift section for review.
+Auto-discovery scrapers (Rezdy / Checkfront / Zaui APIs, WordPress nav
+crawlers) don't need this — they pick up new programs automatically.
+
+```python
+from scraper_utils import detect_url_drift
+
+detect_url_drift(
+    provider_id="yamnuska",
+    homepage_url="https://yamnuska.com",
+    known_urls=set(PROVIDER["courses"]),
+    url_pattern=re.compile(r"yamnuska\.com/(avalanche-courses|mountaineering|...)/[^?#]+"),
+    exclude_pattern=re.compile(r"/(about|contact|cart|wp-content)"),
+)
+```
+
 ### Grouped scraper pattern
 
 Some providers (Zaui, Checkfront variants) expose so many activity IDs that a single run would exceed GitHub Actions step timeouts or burn through Claude summary budget in one go. These use a **grouped** scraper pattern: the activity list is deterministically partitioned into N interleaved groups (typically 4), and each run processes only one group via `--group N` (0-indexed). Full catalog coverage requires N runs back-to-back.
@@ -592,7 +661,7 @@ Two tables (Providers, Location Mappings) use a shared sort helper in `admin.htm
 3. **Summary Review** — exception inbox (Initiative 3). Three row sources merged client-side: (a) `auto_flagged=true` + `flag_reason LIKE 'summary_bleed%'` — the validator detected identical summary text across different titles and auto-hid the second occurrence, (b) `flagged=true` + `flagged_reason='bad_description'` — user reports, (c) `summary IS NULL` + `active=true` — generation failures (the validator's inline `generate_summaries_batch()` backfill could not produce text). Two fields per row: **Card description** (editable textarea, maps to `courses.summary`) and **Search document** (read-only textarea, maps to `courses.search_document`). Two buttons: **Save** calls `admin-save-summary` edge function which writes the text, clears `auto_flagged` and/or `flagged` on the course, and inserts a `(provider_id, md5(summary), reason)` row into `validator_summary_exceptions` so the validator skips this summary text on future runs. **Regenerate** calls `admin-regenerate-summary` with the title as the description seed (scrapers strip description before upsert) and populates the textarea — does not save; admin must click Save to commit. The old `approved=false` queue from `course_summaries` is bypassed; scraper-generated summaries go live immediately via direct `courses.summary` writes at scrape time. The legacy `admin-approve-summary` / `admin-reject-summary` edge functions still exist but are not called by the current UI.
 4. **Flags** — Stats row (User reports / Auto-hidden / Warnings). Header buttons: "Reload flags" (re-runs `loadFlagsTab`), "Re-validate all ↗" (loops `admin-trigger-scraper` over all active providers with 500ms spacing), "Copy fixable flags prompt" (bundles wrong_price, wrong_date, bad_description, sold_out flags for Claude Code). User reports section (only `button_broken` and `other` get a Mark resolved button — `bad_description` is handled in Summary Review, `wrong_date`/`wrong_price`/`sold_out` auto-clear via validator when the issue resolves). Validator auto-flags section is **grouped by `(title, flag_reason)`** so identical rows collapse to one row with an occurrences badge. `summary_bleed`, pre-escalation `past_date` / `future_date` / `invalid_price`, and all `*_escalated` auto-flags are filtered out of this section's fetch — they live in Summary Review or the escalation sub-sections below. **Duplicate groups are read-only (Initiative 6)** — each row shows one `scraper_{provider_id}.py ↗` button per provider_id linking directly to the offending scraper file on GitHub (`https://github.com/lukeram-3420/backcountryfinder/blob/main/scraper_{provider_id}.py`), plus a Clear all button that writes a title-scoped suppression as a last resort. No Diagnose or Whitelist button — the resolution is always "open the scraper, fix the iteration logic, re-run." A **Date escalations** sub-section (Initiative 5) renders courses with `flag_reason IN ('past_date_escalated','future_date_escalated')` — per row: booking URL, copyable provider-email body, Clear (writes course-id-scoped suppression). A **Price escalations** sub-section (Initiative 4) renders `flag_reason='invalid_price_escalated'` — same card layout: current price, booking URL, copyable email body, Clear. A **Warnings** sub-section surfaces the `validator_warnings` table (email-only issues persisted by `validate_provider.py`): grouped by `(title, check_type)`, actions per type — `null_avail` → View (opens booking URL); `all_sold` → informational only. The Warnings section no longer surfaces price rows (Initiative 4 retired `price_outlier`/`null_price`) nor count-drop rows (Initiative 7 moved `count_drop` to the Providers tab as a yellow badge). Remaining `validator_warnings` check_types are `null_avail` + `all_sold`.
 5. **Audit Log** — last 100 rows of `admin_log` with search filter.
-6. **Pipeline** — two stacked sections sharing one tab. **Top: Discovery Cloud** — two lists (activity terms + location terms) that drive the weekly automated provider discovery search queries. Each term shows a weight bar, quality indicator (X found / Y skipped — warning at >80% skip rate with 5+ total), last-used date, and a single **Remove** button (toggles to **Restore** once removed). Remove is a soft-delete — it sets `discovery_cloud.active = false` rather than DELETEing the row. This matters because `refresh_discovery_cloud.py` preserves `active=false` on every run, so a removed term stays blocked permanently instead of being re-added next Sunday; a hard DELETE would re-appear on the next refresh. Manual **Add term** POSTs `{term, type, weight: 1, source: 'manual', active: true}` directly to `/rest/v1/discovery_cloud` with the authenticated session token. Populated by `refresh_discovery_cloud.py`, consumed by `discover_providers.py`. **Bottom: Provider pipeline** — onboarding tracker backed by `provider_pipeline` table. Header has an **"Add provider"** button that opens an inline URL-only form: `admin-analyse-provider` runs Haiku web_search + Google Places lookup, slugifies the returned name, then POSTs to `provider_pipeline` (status='candidate', `id` = slug). Each non-live row (candidate/scouted/scraper_built) has a **"Copy prompt ↗"** button that copies a Claude Code instruction to the clipboard for building the scraper. **Client-side hide of already-live providers:** on every tab load, `loadPipelineTab` fetches active providers alongside pipeline rows and builds `activeProviderKeys = {domains, names}`. `renderPipelineTable` hides any pipeline row whose normalised website domain or lowercase name is in those sets. Domain comparison uses `domainOf()` which normalises via lowercase → strip `https?://` → strip `www.` → strip trailing `/`. No PATCH writes happen during display — the pipeline's own `status` column is not updated by the UI's filter logic; the status PATCH only fires via the inline Edit form. Excludes `status='skip'` from display. Columns: Name (linked to website), Location, **Rating** (`★ X.X (N)` / `★ —` / `—`), Platform, Complexity, Status (coloured badge: candidate=grey, scouted=blue, scraper_built=yellow, live=green, skip=faded), Priority (1/2/3), Notes (truncated to ~60 chars with full-text tooltip), Edit + Copy prompt. Inline edit lets you change status/platform/priority/notes plus the Google enrichment fields (`google_place_id`, `rating`, `review_count`). Name/Platform/Status/Priority headers are sortable. Pipeline `id` is a text slug — onclick handlers must quote it (`editPipelineRow('${id}')`) or it will be evaluated as a global variable.
+6. **Pipeline** — three stacked sections sharing one tab. **Top: Discovery Cloud** — two lists (activity terms + location terms) that drive the weekly automated provider discovery search queries. Each term shows a weight bar, quality indicator (X found / Y skipped — warning at >80% skip rate with 5+ total), last-used date, and a single **Remove** button (toggles to **Restore** once removed). Remove is a soft-delete — it sets `discovery_cloud.active = false` rather than DELETEing the row. This matters because `refresh_discovery_cloud.py` preserves `active=false` on every run, so a removed term stays blocked permanently instead of being re-added next Sunday; a hard DELETE would re-appear on the next refresh. Manual **Add term** POSTs `{term, type, weight: 1, source: 'manual', active: true}` directly to `/rest/v1/discovery_cloud` with the authenticated session token. Populated by `refresh_discovery_cloud.py`, consumed by `discover_providers.py`. **Middle: Provider pipeline** — onboarding tracker backed by `provider_pipeline` table. Header has an **"Add provider"** button that opens an inline URL-only form: `admin-analyse-provider` runs Haiku web_search + Google Places lookup, slugifies the returned name, then POSTs to `provider_pipeline` (status='candidate', `id` = slug). Each non-live row (candidate/scouted/scraper_built) has a **"Copy prompt ↗"** button that copies a Claude Code instruction to the clipboard for building the scraper. **Client-side hide of already-live providers:** on every tab load, `loadPipelineTab` fetches active providers alongside pipeline rows and builds `activeProviderKeys = {domains, names}`. `renderPipelineTable` hides any pipeline row whose normalised website domain or lowercase name is in those sets. Domain comparison uses `domainOf()` which normalises via lowercase → strip `https?://` → strip `www.` → strip trailing `/`. No PATCH writes happen during display — the pipeline's own `status` column is not updated by the UI's filter logic; the status PATCH only fires via the inline Edit form. Excludes `status='skip'` from display. Columns: Name (linked to website), Location, **Rating** (`★ X.X (N)` / `★ —` / `—`), Platform, Complexity, Status (coloured badge: candidate=grey, scouted=blue, scraper_built=yellow, live=green, skip=faded), Priority (1/2/3), Notes (truncated to ~60 chars with full-text tooltip), Edit + Copy prompt. Inline edit lets you change status/platform/priority/notes plus the Google enrichment fields (`google_place_id`, `rating`, `review_count`). Name/Platform/Status/Priority headers are sortable. Pipeline `id` is a text slug — onclick handlers must quote it (`editPipelineRow('${id}')`) or it will be evaluated as a global variable. **Bottom: URL drift** — surfaces program URLs detected on a provider homepage that aren't in the scraper's hardcoded list. Only populated for scrapers with hardcoded URL lists (currently `scraper_yamnuska.py` and `scraper_cloud_nine_guides.py` — see `detect_url_drift()` in `scraper_utils.py`). Rows grouped by provider_id, each with **Add** (copies the URL with paste instructions for the scraper file, marks `reviewed=true, action='added'`) and **Reject** (`reviewed=true, action='rejected'`) buttons. Reviewed rows stay in the table but don't re-surface; the unique constraint on `(provider_id, url)` makes re-detection idempotent.
 7. **Settings** — Static reference for the canonical location format (`City, Province`). Discovery Cloud UI moved to the Pipeline tab.
 
 ### Admin-facing tables (create in Supabase if not already)
@@ -606,6 +675,7 @@ Two tables (Providers, Location Mappings) use a shared sort helper in `admin.htm
 - `validator_suppressions` — explicit admin "ignore this" entries. Columns: `id bigserial, provider_id text, title_contains text, course_id text, flag_reason text not null, created_at timestamptz default now()`. `course_id` was added in Initiative 5 as a nullable column. Title-scoped rows (course_id IS NULL) match on `title_contains` substring + `flag_reason` category — populated by the Flags tab's "Clear all" action on auto-flag groups. Course-id-scoped rows (course_id set) match on exact `course_id + flag_reason` category — populated by the Flags tab's "Clear (suppress)" button on Date escalations (Initiative 5) and Price escalations (Initiative 4). **Consumed by `validate_provider.py`'s priority stack**: `is_suppressed()` checks both modes on every flag evaluation.
 - `validator_summary_exceptions` — admin-reviewed summary text exceptions from the Summary Review tab (Initiative 3). Columns: `id bigserial primary key, provider_id text not null, summary_hash text not null, course_id text, reason text not null check (reason in ('summary_bleed','bad_description','generation_failed')), saved_at timestamptz default now(), unique (provider_id, summary_hash)`. Populated by `admin-save-summary` edge function on admin Save. **Consumed by `validate_provider.py` Check 1**: bleed detection skips any group whose `(provider_id, md5(summary_text))` is in this table — one admin save clears the whole collision group on the next run. Does NOT apply to the empty-summary backfill (that's idempotent by nature).
 - `discovery_cloud` — search terms for automated provider discovery. Columns: `id bigserial, term text not null, type text not null ('activity'/'location'), weight integer default 1, active boolean default true, source text ('auto'/'manual'), last_used_at timestamptz, hit_count integer default 0, skip_count integer default 0, created_at timestamptz default now()`. Unique index on `(lower(term), type)`. Populated by `refresh_discovery_cloud.py`, consumed by `discover_providers.py`. Admin-editable in Settings tab.
+- `provider_url_drift` — homepage-probe findings for scrapers with hardcoded URL lists (yamnuska, cloud-nine-guides). Columns: `id bigserial primary key, provider_id text not null, url text not null, link_text text, detected_at timestamptz default now(), reviewed boolean default false, action text, unique (provider_id, url)`. Populated by `detect_url_drift()` in `scraper_utils.py` at the end of each scraper run. Admin reviews unreviewed rows in the Pipeline tab → URL drift section: **Add** copies the URL with paste instructions and marks `action='added'`; **Reject** marks `action='rejected'`. The unique constraint means re-detection of an already-recorded URL is a no-op (idempotent).
 
 ### Admin edge functions (deployed via deploy-functions.yml)
 All live in `supabase/functions/admin-*/index.ts`. Every one verifies the JWT, checks `user.email === 'luke@backcountryfinder.com'`, executes, then writes a row to `admin_log`.
