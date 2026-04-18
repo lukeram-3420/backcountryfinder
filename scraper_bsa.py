@@ -23,7 +23,21 @@ from scraper_utils import (
     generate_summaries_batch,
     SUPABASE_URL, SUPABASE_KEY, RESEND_API_KEY, ANTHROPIC_API_KEY,
     GOOGLE_PLACES_API_KEY, UTM,
+    title_hash, activity_key,
+    upsert_activity_control, load_activity_controls,
 )
+
+_CONTROLS: dict = {}
+
+
+def _is_visible(provider_id: str, title: str) -> bool:
+    key = activity_key("title", None, title)
+    upsert_activity_control(
+        provider_id, key, title,
+        title_hash_=title_hash(title), platform="wordpress",
+    )
+    ctrl = _CONTROLS.get(key)
+    return not (ctrl and ctrl.get("visible") is False)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -242,6 +256,10 @@ def scrape_course_page(url: str) -> list[dict]:
     title_el = soup.find("h1") or soup.find("h2")
     title = title_el.get_text(strip=True) if title_el else "Unknown Course"
 
+    if not _is_visible(PROVIDER["id"], title):
+        log.info(f"  Skipping hidden title: {title}")
+        return []
+
     paras = soup.find_all("p")
     chunks = [p.get_text(strip=True) for p in paras if len(p.get_text(strip=True)) > 60]
     description = " ".join(chunks[:3])
@@ -364,6 +382,10 @@ def send_summary(total: int, upserted: int):
 
 def main():
     log.info(f"Starting scraper: {PROVIDER['name']}")
+
+    global _CONTROLS
+    _CONTROLS = load_activity_controls(PROVIDER["id"])
+    log.info(f"Loaded {len(_CONTROLS)} activity controls")
 
     place_info = find_place_id_bsa(PROVIDER["location"])
     if place_info:

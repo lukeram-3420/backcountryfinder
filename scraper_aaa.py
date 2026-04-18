@@ -16,7 +16,21 @@ from scraper_utils import (
     sb_upsert, find_place_id, send_email, stable_id_v2,
     log_availability_change, log_price_change, spots_to_avail,
     SUPABASE_URL, SUPABASE_KEY, RESEND_API_KEY, UTM,
+    title_hash, activity_key,
+    upsert_activity_control, load_activity_controls,
 )
+
+_CONTROLS: dict = {}
+
+
+def _is_visible(provider_id: str, title: str) -> bool:
+    key = activity_key("title", None, title)
+    upsert_activity_control(
+        provider_id, key, title,
+        title_hash_=title_hash(title), platform="checkfront",
+    )
+    ctrl = _CONTROLS.get(key)
+    return not (ctrl and ctrl.get("visible") is False)
 
 # ── Config ────────────────────────────────────────────────────────────────────
 PROVIDER = {
@@ -126,6 +140,10 @@ def send_summary(upserted: int, skipped: int):
 def main():
     print("🏔 Alpine Air Adventures — Checkfront API scraper")
 
+    global _CONTROLS
+    _CONTROLS = load_activity_controls(PROVIDER["id"])
+    print(f"  Loaded {len(_CONTROLS)} activity controls")
+
     today      = datetime.date.today()
     end_date   = today + datetime.timedelta(days=LOOKAHEAD_DAYS)
     start_s    = today.strftime("%Y%m%d")
@@ -172,6 +190,9 @@ def main():
     for item_id, item in course_items.items():
         title = item.get("name", "").strip()
         if not title:
+            skipped += 1
+            continue
+        if not _is_visible(PROVIDER["id"], title):
             skipped += 1
             continue
 

@@ -27,7 +27,21 @@ from scraper_utils import (
     send_scraper_summary,
     SUPABASE_URL, SUPABASE_KEY, RESEND_API_KEY,
     ANTHROPIC_API_KEY, UTM,
+    title_hash, activity_key,
+    upsert_activity_control, load_activity_controls,
 )
+
+_CONTROLS: dict = {}
+
+
+def _is_visible(provider_id: str, title: str) -> bool:
+    key = activity_key("title", None, title)
+    upsert_activity_control(
+        provider_id, key, title,
+        title_hash_=title_hash(title), platform="static-html",
+    )
+    ctrl = _CONTROLS.get(key)
+    return not (ctrl and ctrl.get("visible") is False)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -152,6 +166,9 @@ def scrape_skaha() -> list:
     log.info(f"=== Scraping {provider['name']} ===")
     all_courses = []
     for i, course_meta in enumerate(SKAHA_COURSE_PAGES):
+        if not _is_visible(provider_id, course_meta["title"]):
+            log.info(f"[{i+1}/{len(SKAHA_COURSE_PAGES)}] Skipping hidden title: {course_meta['title']}")
+            continue
         url = base_url + course_meta["path"]
         log.info(f"[{i+1}/{len(SKAHA_COURSE_PAGES)}] {course_meta['title']}")
         soup = _skaha_fetch(url)
@@ -204,6 +221,10 @@ def main():
 
     # Update provider ratings from Google Places
     update_provider_ratings(SKAHA_PROVIDER["id"])
+
+    global _CONTROLS
+    _CONTROLS = load_activity_controls(SKAHA_PROVIDER["id"])
+    log.info(f"Loaded {len(_CONTROLS)} activity controls")
 
     raw_courses = scrape_skaha()
     processed = []

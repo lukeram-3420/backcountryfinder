@@ -38,7 +38,21 @@ from scraper_utils import (
     parse_date_sort,
     is_future,
     UTM,
+    title_hash, activity_key,
+    upsert_activity_control, load_activity_controls,
 )
+
+_CONTROLS: dict = {}
+
+
+def _is_visible(provider_id: str, title: str) -> bool:
+    key = activity_key("title", None, title)
+    upsert_activity_control(
+        provider_id, key, title,
+        title_hash_=title_hash(title), platform="wordpress",
+    )
+    ctrl = _CONTROLS.get(key)
+    return not (ctrl and ctrl.get("visible") is False)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -251,6 +265,10 @@ def get_iframe_src_playwright(browser, course_url: str) -> tuple:
         h1 = soup.find("h1")
         if h1:
             title = h1.get_text(strip=True)
+
+        if not _is_visible(PROVIDER["id"], title):
+            log.info(f"  Skipping hidden title: {title}")
+            return []
 
         content = soup.find("div", class_=re.compile(r"entry-content|page-content|course-content"))
         if content:
@@ -480,6 +498,10 @@ def main():
         update_provider_ratings(PROVIDER["id"])
     except Exception as e:
         log.warning(f"  Places update failed: {e}")
+
+    global _CONTROLS
+    _CONTROLS = load_activity_controls(PROVIDER["id"])
+    log.info(f"Loaded {len(_CONTROLS)} activity controls")
 
     loc_mappings = load_location_mappings()
     log.info(f"Loaded {len(loc_mappings)} location mappings")

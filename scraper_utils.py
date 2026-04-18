@@ -16,6 +16,8 @@ Public API:
   Email:     send_email, send_scraper_summary
   Logging:   log_availability_change, log_price_change
   Two-pass:  fetch_detail_pages
+  Activity:  activity_key, upsert_activity_control, bulk_upsert_activity_controls,
+             load_activity_controls, load_lookahead_windows
 """
 
 import os
@@ -1006,3 +1008,184 @@ def fetch_detail_pages(
             time.sleep(delay)
 
     return all_rows
+
+
+# ── Activity tracking ────────────────────────────────────────────────────────
+# activity_controls is the persistent catalogue of every (provider, activity)
+# pair any scraper has ever seen. The admin "Activity Tracking" tab writes
+# `visible` (exclude) and `tracking_mode` (Zaui lookahead window) to it.
+#
+# Scraper contract on every run:
+#   1. upsert_activity_control(...) — idempotent, stamps last_seen_at=now().
+#      Never touches visible/tracking_mode on existing rows — admin-owned.
+#   2. load_activity_controls(provider_id) — one query per run, returns a
+#      dict keyed by activity_key so the per-activity loop is O(1).
+#   3. if not ctrl['visible']: continue  — before any detail fetch / summary
+#      generation / row emit.
+#   4. (Zaui only) lookahead_days = windows['extended' if tm=='extended'
+#      else 'immediate'] from load_lookahead_windows().
+
+def activity_key(platform: str, upstream_id=None, title: str = "") -> str:
+    """Unified prefixed dedup key for activity_controls.
+
+    `zaui:{id}` for Zaui tenants (stable numeric upstream id), falls back
+    to `title:{title_hash_8}` for everything else (WP, Squarespace, HTML).
+    """
+    if upstream_id not in (None, "", 0):
+        return f"{platform or 'zaui'}:{upstream_id}"
+    return f"title:{title_hash(title)}"
+
+
+def upsert_activity_control(
+    provider_id: str,
+    activity_key_: str,
+    title: str,
+    *,
+    upstream_id=None,
+    title_hash_: Optional[str] = None,
+    platform: Optional[str] = None,
+) -> None:
+    """Idempotent upsert into activity_controls.
+
+    Writes title/upstream_id/title_hash/platform/last_seen_at every run so
+    the admin can see the freshest metadata. Critically, does NOT write
+    `visible` or `tracking_mode` — those are admin-owned. PostgREST's
+    merge-duplicates upsert preserves existing columns that aren't in the
+    payload, which is exactly what we want.
+    """
+    if not provider_id or not activity_key_ or not title:
+        return
+    payload = {
+        "provider_id":  provider_id,
+        "activity_key": activity_key_,
+        "title":        title,
+        "last_seen_at": datetime.utcnow().isoformat(),
+        "updated_at":   datetime.utcnow().isoformat(),
+    }
+    if upstream_id not in (None, ""):
+        payload["upstream_id"] = str(upstream_id)
+    if title_hash_ is not None:
+        payload["title_hash"] = title_hash_
+    if platform:
+        payload["platform"] = platform
+    # Merge-duplicates upsert on (provider_id, activity_key). First-write sets
+    # defaults (visible=true, tracking_mode='immediate'); subsequent writes
+    # only refresh the metadata columns above.
+    try:
+        r = requests.post(
+            f"{SUPABASE_URL}/rest/v1/activity_controls",
+            headers={
+                "apikey":        SUPABASE_KEY,
+                "Authorization": f"Bearer {SUPABASE_KEY}",
+                "Content-Type":  "application/json",
+                "Prefer":        "resolution=merge-duplicates,return=minimal",
+            },
+            json=[payload],
+            params={"on_conflict": "provider_id,activity_key"},
+            timeout=10,
+        )
+        if not r.ok:
+            log.warning(f"activity_controls upsert failed {r.status_code}: {r.text[:200]}")
+    except Exception as e:
+        log.warning(f"activity_controls upsert error: {e}")
+
+
+def bulk_upsert_activity_controls(rows: list) -> None:
+    """Batch version of upsert_activity_control. Use when a scraper has
+    dozens-to-thousands of activities (Zaui tenants) and N single POSTs
+    would add minutes of latency. Each row must have provider_id,
+    activity_key, and title at minimum.
+    """
+    if not rows:
+        return
+    now = datetime.utcnow().isoformat()
+    payload = []
+    for r in rows:
+        if not r.get("provider_id") or not r.get("activity_key") or not r.get("title"):
+            continue
+        payload.append({
+            "provider_id":  r["provider_id"],
+            "activity_key": r["activity_key"],
+            "title":        r["title"],
+            **({"upstream_id": str(r["upstream_id"])} if r.get("upstream_id") not in (None, "") else {}),
+            **({"title_hash":  r["title_hash"]}         if r.get("title_hash")  else {}),
+            **({"platform":    r["platform"]}           if r.get("platform")    else {}),
+            "last_seen_at": now,
+            "updated_at":   now,
+        })
+    if not payload:
+        return
+    try:
+        r = requests.post(
+            f"{SUPABASE_URL}/rest/v1/activity_controls",
+            headers={
+                "apikey":        SUPABASE_KEY,
+                "Authorization": f"Bearer {SUPABASE_KEY}",
+                "Content-Type":  "application/json",
+                "Prefer":        "resolution=merge-duplicates,return=minimal",
+            },
+            json=payload,
+            params={"on_conflict": "provider_id,activity_key"},
+            timeout=30,
+        )
+        if not r.ok:
+            log.warning(f"bulk activity_controls upsert failed {r.status_code}: {r.text[:200]}")
+    except Exception as e:
+        log.warning(f"bulk activity_controls upsert error: {e}")
+
+
+def load_activity_controls(provider_id: str) -> dict:
+    """Fetch every activity_controls row for a provider.
+
+    Returns {activity_key: {'visible': bool, 'tracking_mode': str}}. One
+    query per scraper run. Missing key in the dict is treated as
+    visible=true, tracking_mode='immediate' (defaults for first-seen rows).
+    """
+    if not provider_id:
+        return {}
+    try:
+        rows = sb_get("activity_controls", {
+            "select":      "activity_key,visible,tracking_mode",
+            "provider_id": f"eq.{provider_id}",
+            "limit":       "10000",
+        })
+    except Exception as e:
+        log.warning(f"load_activity_controls failed for {provider_id}: {e}")
+        return {}
+    return {
+        r["activity_key"]: {
+            "visible":       r.get("visible") is not False,
+            "tracking_mode": r.get("tracking_mode") or "immediate",
+        }
+        for r in rows
+    }
+
+
+def load_lookahead_windows() -> dict:
+    """Read scraper_config. Returns {'extended': int, 'immediate': int}.
+    Baked-in defaults (180/14) if rows are missing or values unparseable.
+    Used by Zaui scrapers to pick per-activity availability-walk length.
+    """
+    out = {"extended": 180, "immediate": 14}
+    try:
+        rows = sb_get("scraper_config", {
+            "select": "key,value",
+            "key":    "in.(extended_lookahead_days,immediate_lookahead_days)",
+        })
+    except Exception as e:
+        log.warning(f"load_lookahead_windows failed: {e}")
+        return out
+    for r in rows:
+        k = r.get("key")
+        v = r.get("value")
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            continue
+        if n < 1 or n > 730:
+            continue
+        if k == "extended_lookahead_days":
+            out["extended"] = n
+        elif k == "immediate_lookahead_days":
+            out["immediate"] = n
+    return out
