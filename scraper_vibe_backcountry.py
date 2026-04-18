@@ -140,9 +140,17 @@ def fetch_availability_pks(item_pk: int, year: int, month: int) -> list:
         ctype = r.headers.get("content-type", "?")
         print(f"  [diag] calendar HTML first fetch: url={url}")
         print(f"  [diag] status={r.status_code} content-type={ctype} len={len(body)}")
-        print(f"  [diag] body head: {body[:1500]!r}")
-        print(f"  [diag] body tail: {body[-600:]!r}")
-        print(f"  [diag] regex hits: {sorted(pks)[:10]}")
+        # HTML is 1.9MB of embedded Angular bootstrap JSON. Look for the keys
+        # that actually identify availability records and show a sample window.
+        for key in ('"start_at"', '"capacity_remaining"', '"availability_pk"',
+                    'data-availability-pk', 'fh.bootstrap', 'window.FH',
+                    '/availabilities/', '"availabilities"', '"pk"'):
+            count = body.count(key)
+            idx = body.find(key)
+            sample = body[max(0, idx-60):idx+240] if idx >= 0 else ""
+            print(f"  [diag] '{key}' count={count} first_idx={idx}")
+            if sample:
+                print(f"           sample={sample!r}")
 
     return sorted(pks)
 
