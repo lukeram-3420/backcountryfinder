@@ -174,34 +174,64 @@ def _to_positive_int(v) -> Optional[int]:
         return None
 
 
-def _detect_variations(act: dict) -> bool:
-    """True if the activity has >=2 distinct positive prices across any
-    recognized tier keys or the customerTypePricing array. Display-only
-    signal — drives the ↕ Price varies chip on the frontend.
+def _primary_pax_tiers(act: dict) -> list:
+    """Return the list of tier names where `pax[tier].default > 0` — i.e.
+    tiers the tenant has marked as a sellable primary guest type on this
+    activity. Sorted by default count descending so the most-common primary
+    wins ties.
+
+    Standard Zaui shape: `pax: {"adults": {"default": 1}}` → returns ['adults'].
+    Toby Creek inversion: `pax: {"seniors": {"default": 1}}` → returns ['seniors']
+    (seniors is labelled "Driver (18+)"; the `adults` price entry is a
+    passenger/pillion add-on, not a sellable primary).
+
+    When pax is missing or has no default>0 tiers, returns [] and callers
+    fall back to the adult-equivalent key walk.
     """
-    seen = set()
+    pax = act.get("pax") or {}
+    primaries = []
+    for tier, info in pax.items():
+        if not isinstance(info, dict):
+            continue
+        try:
+            d = int(info.get("default", 0) or 0)
+        except (TypeError, ValueError):
+            d = 0
+        if d > 0:
+            primaries.append((tier, d))
+    primaries.sort(key=lambda x: -x[1])
+    return [t for t, _ in primaries]
+
+
+def _detect_variations(act: dict) -> bool:
+    """True iff >=2 distinct positive prices exist among tiers that are
+    primary guest types (per `act.pax`). Falls back to the old
+    whole-price-dict scan only when the tenant doesn't populate pax —
+    drops the `customerTypePricing[]` path since those entries duplicate
+    the `price` dict for every Zaui tenant we've seen.
+    """
+    primaries = _primary_pax_tiers(act)
     price = act.get("price")
+
+    if primaries and isinstance(price, dict):
+        seen = set()
+        for tier in primaries:
+            n = _to_positive_int(price.get(tier))
+            if n is not None:
+                seen.add(n)
+                if len(seen) >= 2:
+                    return True
+        return False
+
+    # Fallback: tenant has no `pax` data at all, reason over the whole price dict
     if isinstance(price, dict):
+        seen = set()
         for v in price.values():
             n = _to_positive_int(v)
             if n is not None:
                 seen.add(n)
                 if len(seen) >= 2:
                     return True
-    for field in _ARRAY_PRICE_FIELDS:
-        arr = act.get(field)
-        if not isinstance(arr, list):
-            continue
-        for entry in arr:
-            if not isinstance(entry, dict):
-                continue
-            for k in ("price", "total", "amount", "listPrice", "adultPrice"):
-                n = _to_positive_int(entry.get(k))
-                if n is not None:
-                    seen.add(n)
-                    if len(seen) >= 2:
-                        return True
-                    break
     return False
 
 
@@ -209,10 +239,22 @@ def extract_zaui_price(act: dict) -> dict:
     """Resolve price + tier + variation flag for a Zaui activity.
 
     Returns {"price": int | None, "tier": str | None, "has_variations": bool}.
-    Extraction order is deterministic (see _PRICE_ADULT_KEYS → _PRICE_NEAR_ADULT_KEYS
-    → inferred_min → scalar fallbacks → array fallbacks). The tier string is
-    recorded so `course_price_log.price_tier` can track apples-to-apples across
-    runs; Phase 5 velocity signals should filter to a single tier per course.
+
+    Extraction order — deterministic across runs so `course_price_log`
+    stays apples-to-apples:
+
+      1. PRIMARY — `pax`-declared tiers: the tenant's own signal for
+         which tier is the sellable primary guest type. This handles
+         tier-inversion cases like Toby Creek where `seniors` is the
+         Driver tier, not an age-based discount.
+      2. `listPrice` scalar — canonical fallback for tenants that
+         don't populate pax.
+      3. Adult-equivalent key walk (`adults`/`adult`/`single`/`rider`/
+         `default`/`standard`/`base`).
+      4. Near-adult tiers (`seniors`/`senior`/`students`/`student`).
+      5. `inferred_min` of whole price dict.
+      6. Scalar fallbacks.
+      7. Array fallbacks.
     """
     global _price_fallback_logged
     has_variations = _detect_variations(act)
@@ -226,27 +268,39 @@ def extract_zaui_price(act: dict) -> dict:
     def _ret(price, tier):
         return {"price": price, "tier": tier, "has_variations": has_variations}
 
-    # 1. listPrice scalar — canonical
+    # 1. PRIMARY — pax-declared tier (tenant's own "which tier is actually sold" signal)
+    price = act.get("price")
+    primaries = _primary_pax_tiers(act)
+    if primaries and isinstance(price, dict):
+        tier_prices = [(tier, _to_positive_int(price.get(tier))) for tier in primaries]
+        tier_prices = [(tier, n) for tier, n in tier_prices if n is not None]
+        if tier_prices:
+            tier_prices.sort(key=lambda x: x[1])  # cheapest primary-tier wins ties
+            tier, n = tier_prices[0]
+            if tier not in ("adults", "adult"):
+                _log_fallback(f"pax-primary tier {tier!r}")
+            return _ret(n, tier)
+
+    # 2. listPrice scalar — canonical fallback when pax gives us nothing
     lp = _to_positive_int(act.get("listPrice"))
     if lp is not None:
         return _ret(lp, "list")
 
-    price = act.get("price")
     if isinstance(price, dict):
-        # 2. Adult-equivalent keys — preferred tier
+        # 3. Adult-equivalent keys
         for key in _PRICE_ADULT_KEYS:
             v = _to_positive_int(price.get(key))
             if v is not None:
                 if key not in ("adults", "adult"):
                     _log_fallback(f"price.{key!r} adult-equivalent")
                 return _ret(v, key)
-        # 3. Next-closest-to-adult (senior / student) — explicit tier
+        # 4. Next-closest-to-adult (senior / student)
         for key in _PRICE_NEAR_ADULT_KEYS:
             v = _to_positive_int(price.get(key))
             if v is not None:
                 _log_fallback(f"price.{key!r} near-adult tier")
                 return _ret(v, key)
-        # 4. Min of any positive value in the price dict (child/infant territory)
+        # 5. Min of any positive value in the price dict
         vals = [n for n in (_to_positive_int(v) for v in price.values()) if n is not None]
         if vals:
             _log_fallback(f"price-dict inferred_min (keys={list(price.keys())[:6]})")

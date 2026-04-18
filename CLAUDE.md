@@ -196,9 +196,21 @@ Required scoping heuristic:
 Reference implementation: `extract_schedule_text(soup)` in `scraper_altus.py` — replicate in other scrapers that parse schedules from HTML. The optional-year fallback in `parse_wp_dates` (defaults to current year, bumps to next year if past) amplifies this bug if unscoped, so the scoping rule is a hard requirement, not a nice-to-have.
 
 ### Variable pricing — Zaui tier policy
-Zaui tenants with multi-tier pricing (adults / seniors / students / children / infants) sometimes leave the adult tier null on specific products (day passes, single-person rentals). To avoid writing a misleading child/infant rate as the canonical price AND to keep `course_price_log` apples-to-apples across runs, all 5 Zaui scrapers resolve price via `extract_zaui_price(act)` in `scraper_zaui_utils.py` which returns `{price, tier, has_variations}`. Deterministic extraction order: `listPrice` → adult-equivalent keys (`adults`/`adult`/`single`/`rider`/`default`/`standard`/`base`) → near-adult tiers (`seniors`/`senior`/`students`/`student`) → `min` of remaining positive values → scalar fallbacks (`minPrice`/`fromPrice`/`basePrice`/`startingPrice`) → array fallbacks (`customerTypePricing[]`/`ratePlans[]`/`rates[]`).
+Zaui tenants with multi-tier pricing (adults / seniors / students / children / infants) sometimes leave the adult tier null on specific products (day passes, single-person rentals). Worse, some tenants invert the tier semantics entirely — Toby Creek labels `seniors` as "Driver (18+)" (the sellable primary) while `adults` is a passenger/pillion add-on rate. Trusting the key name at face value picks the wrong price.
 
-Every Zaui row must write three fields: `price`, `price_tier` (the exact tier the price came from — e.g. `'adults'` / `'seniors'` / `'inferred_min'` / `'scalar_minPrice'` / `'array_customerTypePricing'`), and `price_has_variations` (true iff ≥2 distinct positive prices exist across any tier). `log_price_change()` propagates `price_tier` into `course_price_log` so Phase 5 velocity signals filter on a single tier per course. `price_has_variations` is a frontend display signal only — drives the `↕ Price varies` chip rendered below the card price. Extraction order never changes run-to-run, so a course's logged price tier is stable as long as its upstream catalog shape is.
+All 5 Zaui scrapers resolve price via `extract_zaui_price(act)` in `scraper_zaui_utils.py` which returns `{price, tier, has_variations}`. Extraction order is deterministic (stable across runs so `course_price_log` stays apples-to-apples):
+
+1. **`pax`-declared primary tier** — the tenant's own `act.pax` dict tells us which tier is sellable. `pax: {"seniors": {"default": 1}}` means `seniors` is the primary guest type, regardless of what the key is called. Cheapest positive primary-tier price wins.
+2. `listPrice` scalar — fallback when pax is missing.
+3. Adult-equivalent keys: `adults` / `adult` / `single` / `rider` / `default` / `standard` / `base`.
+4. Near-adult tiers: `seniors` / `senior` / `students` / `student`.
+5. `inferred_min` of remaining positive values.
+6. Scalar fallbacks: `minPrice` / `fromPrice` / `basePrice` / `startingPrice`.
+7. Array fallbacks: `customerTypePricing[]` / `ratePlans[]` / `rates[]`.
+
+Variation detection (drives the `↕ Price varies` chip) is gated on the primary tier set: only counts ≥2 distinct positive prices among `pax`-declared primary tiers. If no `pax` info exists, falls back to the whole-price-dict scan.
+
+Every Zaui row writes three fields: `price`, `price_tier` (e.g. `'seniors'` for Toby Creek's Driver tier, `'adults'` for standard tenants, `'inferred_min'` / `'scalar_minPrice'` / `'array_customerTypePricing'` for tier-less products), and `price_has_variations` (display signal only). `log_price_change()` propagates `price_tier` into `course_price_log` so Phase 5 velocity signals filter on a single tier per course.
 
 ## Architecture
 
