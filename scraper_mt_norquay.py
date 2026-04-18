@@ -33,7 +33,7 @@ from scraper_utils import (
 from scraper_zaui_utils import (
     fetch_categories, fetch_activity_list, fetch_unavailability,
     compute_bookable_dates, get_activity_group,
-    is_experience_product,
+    is_experience_product, extract_zaui_price,
 )
 
 PROVIDER = {
@@ -166,16 +166,7 @@ def main():
 
         description = html_to_text(act.get("description") or act.get("shortDescription") or "")
 
-        # Price: prefer listPrice, then price.adults
-        raw_price = act.get("listPrice")
-        if not raw_price:
-            p = act.get("price") or {}
-            if isinstance(p, dict):
-                raw_price = p.get("adults")
-        try:
-            price = int(raw_price) if raw_price else None
-        except (ValueError, TypeError):
-            price = None
+        price = extract_zaui_price(act)
 
         # Image URL
         image_url = act.get("image") or None

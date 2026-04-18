@@ -127,6 +127,110 @@ def is_experience_product(
     return True
 
 
+# ─── Price extraction ───────────────────────────────────────────────────────
+# Zaui activity pricing lives under several different shapes depending on the
+# tenant's product config. The canonical shape is `listPrice` (scalar) or
+# `price.adults` (keyed per customer type), but some tenants (Toby Creek for
+# eBike passes, ski-area day passes, single-person products) use alternative
+# keys like `price.single` / `price.rider` / `price.default`, or scalar
+# top-level fields like `minPrice` / `fromPrice`, or nested array shapes like
+# `customerTypePricing[]` / `ratePlans[]`.
+#
+# extract_zaui_price() walks the full fallback chain and logs the first
+# path that hits past the canonical two, so we learn which tenants warrant
+# config tweaks.
+
+_PRICE_KEY_PREFERENCE = (
+    "adults", "adult",
+    "single", "rider",
+    "default", "standard", "base",
+)
+
+_SCALAR_PRICE_FIELDS = (
+    "listPrice",
+    "minPrice", "fromPrice", "basePrice", "startingPrice",
+)
+
+_ARRAY_PRICE_FIELDS = ("customerTypePricing", "ratePlans", "rates")
+
+# One-shot log guard so we don't spam — only the first non-canonical
+# extraction path per run gets printed.
+_price_fallback_logged = {"done": False}
+
+
+def _to_positive_int(v) -> Optional[int]:
+    try:
+        n = int(float(v))
+        return n if n > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def extract_zaui_price(act: dict) -> Optional[int]:
+    """Return the cheapest sensible adult-like price for a Zaui activity,
+    as an int in the activity's currency (usually CAD). Walks a wide
+    fallback chain to handle tenant-specific schema quirks. Returns None
+    only when no positive numeric price is found anywhere.
+    """
+    global _price_fallback_logged
+
+    # 1. listPrice — the canonical scalar (keep name so we can log which path hit)
+    lp = _to_positive_int(act.get("listPrice"))
+    if lp is not None:
+        return lp
+
+    # 2. price dict — try preferred keys in order
+    price = act.get("price")
+    if isinstance(price, dict):
+        for key in _PRICE_KEY_PREFERENCE:
+            v = _to_positive_int(price.get(key))
+            if v is not None:
+                if key not in ("adults", "adult") and not _price_fallback_logged["done"]:
+                    log.info(f"extract_zaui_price: using price.{key!r} fallback (first hit)")
+                    _price_fallback_logged["done"] = True
+                return v
+
+        # 3. Any positive numeric in the price dict (last-resort key-agnostic)
+        vals = [n for n in (_to_positive_int(v) for v in price.values()) if n is not None]
+        if vals:
+            if not _price_fallback_logged["done"]:
+                log.info(f"extract_zaui_price: using min-of-price-dict fallback (keys={list(price.keys())[:6]})")
+                _price_fallback_logged["done"] = True
+            return min(vals)
+
+    # 4. Other top-level scalar price fields
+    for field in _SCALAR_PRICE_FIELDS[1:]:  # skip listPrice, already tried
+        v = _to_positive_int(act.get(field))
+        if v is not None:
+            if not _price_fallback_logged["done"]:
+                log.info(f"extract_zaui_price: using {field!r} scalar fallback")
+                _price_fallback_logged["done"] = True
+            return v
+
+    # 5. Array shapes — customerTypePricing / ratePlans / rates
+    for field in _ARRAY_PRICE_FIELDS:
+        arr = act.get(field)
+        if not isinstance(arr, list):
+            continue
+        vals = []
+        for entry in arr:
+            if not isinstance(entry, dict):
+                continue
+            # Try common price-bearing keys inside each entry
+            for k in ("price", "total", "amount", "listPrice", "adultPrice"):
+                n = _to_positive_int(entry.get(k))
+                if n is not None:
+                    vals.append(n)
+                    break
+        if vals:
+            if not _price_fallback_logged["done"]:
+                log.info(f"extract_zaui_price: using {field}[] array fallback")
+                _price_fallback_logged["done"] = True
+            return min(vals)
+
+    return None
+
+
 def _throttle():
     elapsed = time.time() - _last_request_ts["t"]
     if elapsed < MIN_INTERVAL_SECONDS:
