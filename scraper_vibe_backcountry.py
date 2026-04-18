@@ -38,17 +38,21 @@ PROVIDER = {
 }
 
 FH_SHORTNAME = "vibebackcountry"
-FH_BASE      = f"https://fareharbor.com/api/external/v1/companies/{FH_SHORTNAME}"
+FH_BASE      = f"https://fareharbor.com/api/v1/companies/{FH_SHORTNAME}"
 BOOKING_URL  = f"https://fareharbor.com/embeds/book/{FH_SHORTNAME}/items"
 
 LOOKAHEAD_DAYS = 180
 
-# FareHarbor's public External API tolerates unauthenticated GET from any
-# origin — that's what their own embed widget JS calls. Browser UA to avoid
-# edge-case CDN filters.
+# FareHarbor's /api/v1/ widget path is the anonymous CORS-enabled endpoint
+# used by the Lightframe / Flow-Down JS embed on any operator's website.
+# /api/external/v1/ is auth-only (X-FareHarbor-API-App + X-FareHarbor-API-User
+# headers) and returns 400 without them. Operator Referer + browser UA help
+# satisfy CDN heuristics without triggering auth requirements.
 FH_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; BackcountryFinderBot/1.0)",
-    "Accept":     "application/json",
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept":     "application/json, text/plain, */*",
+    "Referer":    "https://www.vibebackcountry.com/",
+    "Origin":     "https://www.vibebackcountry.com",
 }
 
 # Non-course product titles to skip. Mirrors the Girth Hitch list.
