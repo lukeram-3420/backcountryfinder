@@ -130,6 +130,7 @@ def map_record(course):
         "date_display": course.get("date_display"),
         "duration_days": course.get("duration_days"),
         "price": course.get("price"),
+        "price_has_variations": course.get("price_has_variations") or False,
         "currency": course.get("currency"),
         "avail": course.get("avail"),
         "spots_remaining": course.get("spots_remaining"),

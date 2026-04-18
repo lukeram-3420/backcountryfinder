@@ -183,7 +183,10 @@ def main():
 
         description = html_to_text(act.get("description") or act.get("shortDescription") or "")
 
-        price = extract_zaui_price(act)
+        _p = extract_zaui_price(act)
+        price = _p["price"]
+        price_tier = _p["tier"]
+        price_has_variations = _p["has_variations"]
 
         # Image URL (may be absolute CDN URL or relative)
         image_url = act.get("image") or None
@@ -217,6 +220,8 @@ def main():
                 "date_display":       "Flexible dates",
                 "duration_days":      duration_days,
                 "price":              price,
+                "price_tier":         price_tier,
+                "price_has_variations": price_has_variations,
                 "currency":           "CAD",
                 "spots_remaining":    None,
                 "avail":              "open",
@@ -267,6 +272,8 @@ def main():
                 "date_display":       d.strftime("%b %-d, %Y"),
                 "duration_days":      duration_days,
                 "price":              price,
+                "price_tier":         price_tier,
+                "price_has_variations": price_has_variations,
                 "currency":           "CAD",
                 "spots_remaining":    None,
                 "avail":              "open",
