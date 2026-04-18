@@ -118,6 +118,12 @@ jobs:
       - name: Validate Girth Hitch Guiding
         run: python validate_provider.py girth-hitch-guiding
         continue-on-error: true
+      - name: Vibe Backcountry
+        run: python scraper_vibe_backcountry.py
+        continue-on-error: true
+      - name: Validate Vibe Backcountry
+        run: python validate_provider.py vibe-backcountry
+        continue-on-error: true
       - name: Sync Algolia
         run: python algolia_sync.py --skip-settings
         continue-on-error: true

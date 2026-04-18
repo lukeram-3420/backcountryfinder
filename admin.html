@@ -654,6 +654,7 @@ const REUSABLE_PLATFORMS = new Set([
   'checkfront',  // scraper_aaa
   'woocommerce', // scraper_cwms (WooCommerce REST)
   'squarespace', // scraper_jht
+  'fareharbor',  // scraper_vibe_backcountry (FareHarbor External API v1)
   // NOT included — each WP site needs a bespoke parser:
   //   'wordpress', 'unknown', 'custom', ''
 ]);
@@ -2321,6 +2322,7 @@ const PLATFORM_REFERENCE = {
   zaui:        { files: ['scraper_vanmtnguides.py', 'scraper_zaui_utils.py'], note: 'GROUPED scraper — accepts --group N (0..3). Add all 4 steps to scraper-all.yml or accept a structural ~50% drop-badge on the Providers tab.' },
   woocommerce: { files: ['scraper_cwms.py'],                                  note: 'WooCommerce REST.' },
   squarespace: { files: ['scraper_jht.py'],                                   note: 'Squarespace JSON feed — note site chrome may be Squarespace even when booking is Checkfront.' },
+  fareharbor:  { files: ['scraper_vibe_backcountry.py'],                      note: 'FareHarbor External API v1 — unauthenticated JSON items + per-item availability. First FareHarbor adapter; extract scraper_fareharbor_utils.py when a second provider lands.' },
   wordpress:   { files: ['scraper_bsa.py', 'scraper_srg.py', 'scraper_summit.py'], note: 'Custom WordPress / The Events Calendar / custom CPT.' },
 };
 

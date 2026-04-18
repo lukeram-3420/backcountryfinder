@@ -229,6 +229,7 @@ Key helper functions exposed by `scraper_utils.py`: `sb_get()`, `sb_upsert()`, `
 | Black Sheep Adventure | Custom WordPress | `scraper_bsa.py` | — |
 | Jasper Hikes & Tours | Squarespace | `scraper_jht.py` | — |
 | Vancouver Mountain Guides | Zaui booking API (`vanmtnguides.zaui.net`) | `scraper_vanmtnguides.py` (+ `scraper_zaui_utils.py` helper) — **grouped scraper**, see below | — |
+| Vibe Backcountry | FareHarbor External API v1 (`fareharbor.com/api/external/v1/companies/vibebackcountry`) | `scraper_vibe_backcountry.py` — first FareHarbor adapter | — |
 
 ### Supabase Edge Functions
 
