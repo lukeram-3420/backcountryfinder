@@ -308,7 +308,9 @@ def main():
                 }
         if by_title:
             try:
-                summaries = generate_summaries_batch(list(by_title.values()))
+                summaries = generate_summaries_batch(
+                    list(by_title.values()), provider_id=PROVIDER["id"],
+                )
                 log.info(f"Generated {len(summaries)} summaries")
                 for r in rows:
                     result = summaries.get(r["title"])
