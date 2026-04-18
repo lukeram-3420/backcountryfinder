@@ -18,7 +18,24 @@ from typing import Optional
 import requests
 from bs4 import BeautifulSoup
 
-from scraper_utils import normalise_location, log_availability_change, log_price_change, stable_id_v2, generate_summaries_batch
+from scraper_utils import (
+    normalise_location, log_availability_change, log_price_change,
+    stable_id_v2, generate_summaries_batch, title_hash,
+    activity_key, upsert_activity_control, load_activity_controls,
+)
+
+
+def _is_visible(provider_id: str, title: str) -> bool:
+    """Activity Tracking gate. Upserts the (provider, title) pair so the
+    admin sees it, then returns False if the admin has flipped visible=false
+    on it. Defaults to visible for first-seen titles."""
+    key = activity_key("title", None, title)
+    upsert_activity_control(
+        provider_id, key, title,
+        title_hash_=title_hash(title), platform="rezdy",
+    )
+    ctrl = _CONTROLS.get(key)
+    return not (ctrl and ctrl.get("visible") is False)
 
 # ── CONFIG ──
 SUPABASE_URL          = os.environ["SUPABASE_URL"]
@@ -64,8 +81,14 @@ STATIC_DATE_PATTERNS = [
     r"\d{1,2}/\d{1,2}/20\d{2}",
 ]
 
-# Non-course products to skip (Thinkific subscription club, merchandise, etc.)
-EXCLUDE_TITLES = ["altus mtn club", "altus mountain club"]
+# Per-title exclusions live in the `activity_controls` table now — hide a
+# title by flipping visible=false in the admin Activity Tracking tab. Seeded
+# from the historical hardcoded list ("altus mtn club", "altus mountain club")
+# via seed_activity_controls.py; see CLAUDE.md for the full contract.
+# _CONTROLS is populated at main() start via load_activity_controls() and
+# consulted by the deep scrape functions without threading it through
+# every signature.
+_CONTROLS: dict = {}
 
 # Scope date regex to schedule-like containers so stray dates in footers,
 # testimonials, copyright, and Thinkific billing terms aren't parsed as course dates.
@@ -436,8 +459,8 @@ def scrape_rezdy_page(provider: dict, url: str) -> list:
                 title = title_el.get_text(strip=True) if title_el else None
                 if not title:
                     continue
-                if title.lower().strip() in EXCLUDE_TITLES:
-                    log.info(f"Skipping excluded title (Rezdy): {title}")
+                if not _is_visible(provider["id"], title):
+                    log.info(f"Skipping hidden title (Rezdy): {title}")
                     continue
 
                 # Booking URL — relative href on the title link
@@ -748,8 +771,8 @@ def scrape_website_course(url: str) -> list:
     # Title
     h1 = soup.find("h1")
     title = h1.get_text(strip=True) if h1 else url.rstrip("/").split("/")[-1].replace("-", " ").title()
-    if title.lower().strip() in EXCLUDE_TITLES:
-        log.info(f"  Skipping excluded title (website): {title}")
+    if not _is_visible(PROVIDER["id"], title):
+        log.info(f"  Skipping hidden title (website): {title}")
         return []
 
     # Price — look for $NNN pattern in page text
@@ -868,6 +891,13 @@ def main():
     # Load location mappings
     mappings = load_location_mappings()
     log.info(f"Loaded {len(mappings)} location mappings")
+
+    # Load activity controls — admin-toggled visibility per (provider, title).
+    # Populated here once so the deep scrape functions can consult it via
+    # the module-level _CONTROLS dict. See _is_visible() above.
+    global _CONTROLS
+    _CONTROLS = load_activity_controls(provider["id"])
+    log.info(f"Loaded {len(_CONTROLS)} activity controls")
 
     location_flags = []
 

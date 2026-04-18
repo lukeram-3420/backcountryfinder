@@ -188,6 +188,7 @@
     <div class="tab" data-tab="flags">Flags</div>
     <div class="tab" data-tab="audit">Audit Log</div>
     <div class="tab" data-tab="pipeline">Pipeline</div>
+    <div class="tab" data-tab="activity">Activity Tracking</div>
     <div class="tab" data-tab="settings">Settings</div>
   </div>
 
@@ -353,6 +354,50 @@
           <strong>Add</strong> copies the URL with paste instructions; <strong>Reject</strong> marks it as not a real program.
         </p>
         <div id="url-drift-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
+      </div>
+    </div>
+
+    <!-- TAB: ACTIVITY TRACKING -->
+    <div class="tab-panel hidden" id="panel-activity">
+      <details class="instructions"><summary>How to use this tab</summary><p>The catalog of every activity any scraper has seen. Each row is one <code>(provider, activity)</code> pair. <strong>Visible</strong> controls whether the scraper scans the activity AND whether it appears on the frontend — flipping a row off stops all work (detail fetch, availability walk, card render). <strong>Tracking mode</strong> is Zaui-only: <code>immediate</code> (short lookahead, default 14 days) vs <code>extended</code> (long lookahead, default 180 days). Non-Zaui rows have this column disabled. Edit the two numeric windows at the top to tune the day counts globally; scrapers read them on next run. Rows never disappear when toggled — the table reflects the admin-facing catalog, not "rows still needing attention". Use the provider dropdown and search box to narrow. Bulk actions act on the currently-filtered set; non-Zaui rows silently skip tracking-mode bulk updates. Columns are sortable.</p></details>
+
+      <div class="section">
+        <h2 style="margin-top:0;">Lookahead windows (days)</h2>
+        <div style="display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap;">
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--text-secondary);">
+            Extended
+            <input type="number" id="cfg-extended" min="1" max="730" style="width:110px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:14px;">
+          </label>
+          <label style="display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--text-secondary);">
+            Immediate
+            <input type="number" id="cfg-immediate" min="1" max="730" style="width:110px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:14px;">
+          </label>
+          <button class="btn btn-primary" onclick="window.saveScraperConfig()">Save windows</button>
+          <span id="cfg-status" style="font-size:12px;color:var(--text-tertiary);"></span>
+        </div>
+      </div>
+
+      <div class="section">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap;">
+          <h2 style="margin:0;">Activity catalog</h2>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <select id="activity-provider-filter" onchange="window.renderActivityTable()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;">
+              <option value="">All providers</option>
+            </select>
+            <input type="search" id="activity-search" placeholder="Search title…" oninput="window.renderActivityTable()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;width:220px;">
+            <button class="btn btn-small" onclick="window.loadActivityTab()">Reload</button>
+          </div>
+        </div>
+        <div id="activity-bulk-bar" class="hidden" style="display:flex;gap:8px;align-items:center;padding:10px 14px;background:#faf9f5;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:12px;flex-wrap:wrap;">
+          <span id="activity-bulk-count" style="font-size:13px;color:var(--text-secondary);"></span>
+          <button class="btn btn-small" onclick="window.bulkActivity('show')">Show</button>
+          <button class="btn btn-small" onclick="window.bulkActivity('hide')">Hide</button>
+          <span style="color:var(--text-tertiary);font-size:12px;">· Zaui-only:</span>
+          <button class="btn btn-small" onclick="window.bulkActivity('immediate')">→ immediate</button>
+          <button class="btn btn-small" onclick="window.bulkActivity('extended')">→ extended</button>
+          <button class="btn btn-small" onclick="window.clearActivitySelection()" style="margin-left:auto;">Clear selection</button>
+        </div>
+        <div id="activity-table-wrap"><div class="loading"><span class="spinner"></span>Loading…</div></div>
       </div>
     </div>
 
@@ -595,6 +640,7 @@ document.querySelectorAll('.tab').forEach(t => {
       flags:     loadFlagsTab,
       audit:     loadAuditTab,
       pipeline:  loadPipelineTab,
+      activity:  loadActivityTab,
       settings:  loadSettingsTab,
     };
     loaders[t.dataset.tab]?.();
@@ -2614,6 +2660,249 @@ function updateNextScrapeCountdown() {
 }
 updateNextScrapeCountdown();
 setInterval(updateNextScrapeCountdown, 60000);
+
+// ── Tab: Activity Tracking ──────────────────────
+// Replaces the per-scraper hardcoded EXCLUDE_TITLES lists. Every scraper
+// upserts (provider_id, activity_key) into activity_controls on run; this
+// tab reads that catalog and writes back visible + tracking_mode via the
+// admin-toggle-activity-control edge function. Two number fields at top
+// write scraper_config via admin-update-scraper-config.
+
+let cachedActivity = [];          // raw rows from activity_controls
+let activityProviders = [];       // distinct provider_ids (for filter dropdown)
+let activitySort = { col: 'last_seen_at', dir: 'desc' };
+let activitySelected = new Set(); // activity_keys marked for bulk action
+
+async function loadActivityTab() {
+  const wrap = document.getElementById('activity-table-wrap');
+  try {
+    // Pull scraper_config and activity_controls in parallel. Both use the
+    // anon key — no edge function round-trip for reads.
+    const [cfgRows, rows, providers] = await Promise.all([
+      fetch(`${SUPABASE_URL}/rest/v1/scraper_config?select=key,value&key=in.(extended_lookahead_days,immediate_lookahead_days)`, {
+        headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+      }).then(r => r.json()),
+      fetch(`${SUPABASE_URL}/rest/v1/activity_controls?select=*&order=last_seen_at.desc&limit=50000`, {
+        headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`, Range: '0-49999' },
+      }).then(r => r.json()),
+      sbSelect('providers', { select: 'id,name' }),
+    ]);
+
+    // Config inputs
+    const cfgMap = Object.fromEntries((cfgRows || []).map(r => [r.key, r.value]));
+    document.getElementById('cfg-extended').value  = cfgMap.extended_lookahead_days  || 180;
+    document.getElementById('cfg-immediate').value = cfgMap.immediate_lookahead_days || 14;
+    document.getElementById('cfg-status').textContent = '';
+
+    cachedActivity = Array.isArray(rows) ? rows : [];
+
+    // Populate provider dropdown (sorted by provider name, not id).
+    const nameMap = Object.fromEntries((providers || []).map(p => [p.id, p.name]));
+    const distinct = Array.from(new Set(cachedActivity.map(r => r.provider_id))).sort(
+      (a, b) => (nameMap[a] || a).localeCompare(nameMap[b] || b)
+    );
+    activityProviders = distinct;
+    const sel = document.getElementById('activity-provider-filter');
+    const curr = sel.value;
+    sel.innerHTML = '<option value="">All providers</option>' +
+      distinct.map(pid => `<option value="${esc(pid)}">${esc(nameMap[pid] || pid)}</option>`).join('');
+    sel.value = curr;
+
+    activitySelected.clear();
+    renderActivityTable();
+  } catch (e) {
+    wrap.innerHTML = `<div class="loading">Error: ${esc(e.message)}</div>`;
+  }
+}
+window.loadActivityTab = loadActivityTab;
+
+function activitySortValue(r, col) {
+  switch (col) {
+    case 'provider':      return r.provider_id;
+    case 'activity_key':  return r.activity_key;
+    case 'title':         return (r.title || '').toLowerCase();
+    case 'last_seen_at':  return r.last_seen_at;
+    case 'visible':       return r.visible ? 1 : 0;
+    case 'tracking_mode': return r.tracking_mode;
+    default: return null;
+  }
+}
+
+function renderActivityTable() {
+  const wrap = document.getElementById('activity-table-wrap');
+  const providerFilter = document.getElementById('activity-provider-filter').value;
+  const searchQ = (document.getElementById('activity-search').value || '').trim().toLowerCase();
+
+  // Filter does NOT drop rows from the fetched set — it only controls
+  // render. Sort/toggle operates on the fetched set, not the filtered one.
+  const filtered = cachedActivity.filter(r => {
+    if (providerFilter && r.provider_id !== providerFilter) return false;
+    if (searchQ && !(r.title || '').toLowerCase().includes(searchQ)) return false;
+    return true;
+  });
+  filtered.sort((a, b) =>
+    cmpValues(activitySortValue(a, activitySort.col), activitySortValue(b, activitySort.col), activitySort.dir)
+  );
+
+  if (!filtered.length) {
+    wrap.innerHTML = '<div class="loading">No activities match this filter.</div>';
+    updateActivityBulkBar();
+    return;
+  }
+
+  const rowHtml = filtered.map(r => {
+    const isZaui = (r.platform === 'zaui') || (r.activity_key || '').startsWith('zaui:');
+    const tmDisabled = isZaui ? '' : 'disabled';
+    const tmTitle = isZaui ? 'Zaui lookahead' : 'Tracking mode is Zaui-only';
+    const checked = activitySelected.has(r.activity_key) ? 'checked' : '';
+    const vis = r.visible !== false;
+    return `<tr>
+      <td><input type="checkbox" ${checked} onchange="window.toggleActivitySelect('${esc(r.activity_key)}', this.checked)"></td>
+      <td><code>${esc(r.provider_id)}</code></td>
+      <td><code style="font-size:11px;color:var(--text-tertiary);">${esc(r.activity_key)}</code></td>
+      <td><strong>${esc(r.title || '')}</strong></td>
+      <td style="white-space:nowrap;font-size:12px;color:var(--text-tertiary);">${r.last_seen_at ? fmt(r.last_seen_at) : '—'}</td>
+      <td><label class="toggle"><input type="checkbox" ${vis ? 'checked' : ''} onchange="window.toggleActivityVisible('${esc(r.provider_id)}','${esc(r.activity_key)}', this.checked)"><span class="toggle-slider"></span></label></td>
+      <td>
+        <select ${tmDisabled} title="${esc(tmTitle)}" onchange="window.setActivityTrackingMode('${esc(r.provider_id)}','${esc(r.activity_key)}', this.value)" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;${isZaui ? '' : 'opacity:0.45;cursor:not-allowed;'}">
+          <option value="immediate" ${r.tracking_mode !== 'extended' ? 'selected' : ''}>immediate</option>
+          <option value="extended"  ${r.tracking_mode === 'extended'  ? 'selected' : ''}>extended</option>
+        </select>
+      </td>
+    </tr>`;
+  }).join('');
+
+  const h = (col, label) => sortableHeader(activitySort, col, label, `window.sortActivity('${col}')`);
+  wrap.innerHTML = `
+    <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:8px;">${filtered.length} of ${cachedActivity.length} rows</div>
+    <table><thead><tr>
+      <th style="width:24px;"><input type="checkbox" onchange="window.selectAllActivity(this.checked)"></th>
+      ${h('provider','Provider')}${h('activity_key','Activity key')}${h('title','Title')}${h('last_seen_at','Last seen')}${h('visible','Visible')}${h('tracking_mode','Tracking')}
+    </tr></thead><tbody>${rowHtml}</tbody></table>`;
+  updateActivityBulkBar();
+}
+window.renderActivityTable = renderActivityTable;
+
+window.sortActivity = (col) => {
+  toggleSortState(activitySort, col);
+  renderActivityTable();
+};
+
+function updateActivityBulkBar() {
+  const bar = document.getElementById('activity-bulk-bar');
+  const count = activitySelected.size;
+  if (!count) {
+    bar.classList.add('hidden');
+    return;
+  }
+  bar.classList.remove('hidden');
+  document.getElementById('activity-bulk-count').textContent = `${count} selected`;
+}
+
+window.toggleActivitySelect = (key, checked) => {
+  if (checked) activitySelected.add(key);
+  else activitySelected.delete(key);
+  updateActivityBulkBar();
+};
+
+window.selectAllActivity = (checked) => {
+  const providerFilter = document.getElementById('activity-provider-filter').value;
+  const searchQ = (document.getElementById('activity-search').value || '').trim().toLowerCase();
+  const filtered = cachedActivity.filter(r => {
+    if (providerFilter && r.provider_id !== providerFilter) return false;
+    if (searchQ && !(r.title || '').toLowerCase().includes(searchQ)) return false;
+    return true;
+  });
+  if (checked) filtered.forEach(r => activitySelected.add(r.activity_key));
+  else filtered.forEach(r => activitySelected.delete(r.activity_key));
+  renderActivityTable();
+};
+
+window.clearActivitySelection = () => {
+  activitySelected.clear();
+  renderActivityTable();
+};
+
+window.toggleActivityVisible = async (provider_id, activity_key, visible) => {
+  try {
+    await callEdge('admin-toggle-activity-control', {
+      rows: [{ provider_id, activity_key, visible }],
+    });
+    // In-place update — rows don't drop out just because the admin toggled them.
+    const row = cachedActivity.find(r => r.provider_id === provider_id && r.activity_key === activity_key);
+    if (row) row.visible = visible;
+    toast(`${activity_key} ${visible ? 'shown' : 'hidden'}`);
+  } catch (e) {
+    toast('Failed: ' + e.message, true);
+    loadActivityTab();
+  }
+};
+
+window.setActivityTrackingMode = async (provider_id, activity_key, tracking_mode) => {
+  try {
+    await callEdge('admin-toggle-activity-control', {
+      rows: [{ provider_id, activity_key, tracking_mode }],
+    });
+    const row = cachedActivity.find(r => r.provider_id === provider_id && r.activity_key === activity_key);
+    if (row) row.tracking_mode = tracking_mode;
+    toast(`${activity_key} → ${tracking_mode}`);
+  } catch (e) {
+    toast('Failed: ' + e.message, true);
+    loadActivityTab();
+  }
+};
+
+window.bulkActivity = async (action) => {
+  if (!activitySelected.size) return;
+  const keys = Array.from(activitySelected);
+  const isTracking = action === 'immediate' || action === 'extended';
+  const rows = [];
+  let skipped = 0;
+  for (const k of keys) {
+    const r = cachedActivity.find(x => x.activity_key === k);
+    if (!r) continue;
+    const isZaui = (r.platform === 'zaui') || (r.activity_key || '').startsWith('zaui:');
+    if (isTracking && !isZaui) { skipped++; continue; }
+    const patch = { provider_id: r.provider_id, activity_key: r.activity_key };
+    if (action === 'show') patch.visible = true;
+    else if (action === 'hide') patch.visible = false;
+    else if (isTracking) patch.tracking_mode = action;
+    rows.push(patch);
+  }
+  if (!rows.length) { toast(`Nothing to update (${skipped} non-Zaui skipped)`, true); return; }
+  try {
+    const res = await callEdge('admin-toggle-activity-control', { rows });
+    // Reflect changes in the local cache so the UI updates without a fetch.
+    for (const patch of rows) {
+      const r = cachedActivity.find(x => x.provider_id === patch.provider_id && x.activity_key === patch.activity_key);
+      if (!r) continue;
+      if ('visible' in patch) r.visible = patch.visible;
+      if ('tracking_mode' in patch) r.tracking_mode = patch.tracking_mode;
+    }
+    const skipNote = skipped ? ` (${skipped} non-Zaui skipped)` : '';
+    toast(`Updated ${res.changed || rows.length}${skipNote}`);
+    renderActivityTable();
+  } catch (e) {
+    toast('Failed: ' + e.message, true);
+    loadActivityTab();
+  }
+};
+
+window.saveScraperConfig = async () => {
+  const ext = Number(document.getElementById('cfg-extended').value);
+  const imm = Number(document.getElementById('cfg-immediate').value);
+  const status = document.getElementById('cfg-status');
+  status.textContent = 'Saving…';
+  try {
+    await callEdge('admin-update-scraper-config', { key: 'extended_lookahead_days', value: ext });
+    await callEdge('admin-update-scraper-config', { key: 'immediate_lookahead_days', value: imm });
+    status.textContent = 'Saved ✓';
+    setTimeout(() => { status.textContent = ''; }, 2500);
+  } catch (e) {
+    status.textContent = '';
+    toast('Failed: ' + e.message, true);
+  }
+};
 
 // ── Init ─────────────────────────────────────────
 checkSession();

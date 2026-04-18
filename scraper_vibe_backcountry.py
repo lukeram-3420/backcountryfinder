@@ -39,6 +39,8 @@ from scraper_utils import (
     load_location_mappings, normalise_location,
     generate_summaries_batch,
     spots_to_avail, append_utm,
+    title_hash,
+    activity_key, upsert_activity_control, load_activity_controls,
 )
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -62,13 +64,22 @@ FH_HEADERS = {
     "Origin":     "https://www.vibebackcountry.com",
 }
 
-EXCLUDE_TITLES = [
-    "gift card",
-    "gift certificate",
-    "deposit",
-    "membership",
-    "custom trip",
-]
+# Per-title exclusions live in activity_controls now — hide a title by
+# flipping visible=false in the admin Activity Tracking tab. Seeded from
+# the historical list via seed_activity_controls.py.
+_CONTROLS: dict = {}
+
+
+def _is_visible(provider_id: str, title: str) -> bool:
+    """Activity Tracking gate. Upserts the (provider, title) pair so the
+    admin sees it, then returns False if the admin has flipped visible=false."""
+    key = activity_key("title", None, title)
+    upsert_activity_control(
+        provider_id, key, title,
+        title_hash_=title_hash(title), platform="fareharbor",
+    )
+    ctrl = _CONTROLS.get(key)
+    return not (ctrl and ctrl.get("visible") is False)
 
 LOCATION_MAP = [
     ("colonel foster",    "Strathcona Park, BC"),
@@ -232,6 +243,10 @@ def main():
     loc_mappings = load_location_mappings()
     print(f"  Loaded {len(loc_mappings)} location mappings")
 
+    global _CONTROLS
+    _CONTROLS = load_activity_controls(PROVIDER["id"])
+    print(f"  Loaded {len(_CONTROLS)} activity controls")
+
     today      = datetime.date.today()
     end_date   = today + datetime.timedelta(days=LOOKAHEAD_DAYS)
     scraped_at = datetime.datetime.utcnow().isoformat()
@@ -246,8 +261,8 @@ def main():
         title = (item.get("name") or "").strip()
         if not title:
             continue
-        if title.lower().strip() in EXCLUDE_TITLES:
-            print(f"  excluding non-course product: {title!r}")
+        if not _is_visible(PROVIDER["id"], title):
+            print(f"  hidden via activity_controls: {title!r}")
             continue
         if item.get("is_archived") or item.get("is_unlisted"):
             print(f"  skipping archived/unlisted: {title!r}")
