@@ -109,17 +109,47 @@ def fetch_items() -> list:
     return items
 
 
-def fetch_availability(item_pk: int, start: str, end: str) -> list:
-    # FareHarbor's anonymous widget API requires the /minimal/ segment for
-    # availability — bare /availabilities/... is auth-only (External API)
-    # and 404s on this path. The /minimal/ payload still includes start_at,
-    # end_at, capacity, capacity_remaining, and customer_type_rates.
+def fetch_availability_pks(item_pk: int, year: int, month: int) -> list:
+    """
+    GET the per-item per-month server-rendered calendar HTML and regex out
+    every availability pk it links to. FareHarbor's anonymous widget does
+    NOT expose a list-availabilities JSON endpoint — only single-PK detail
+    fetches — so the calendar HTML is the source of truth for "which dates
+    have availability this month".
+    """
+    url = (
+        f"https://fareharbor.com/embeds/book/{FH_SHORTNAME}/items/"
+        f"{item_pk}/calendar/{year}/{month:02d}/?full-items=yes&flow=no&g4=yes"
+    )
     try:
-        data = fh_get(f"items/{item_pk}/minimal/availabilities/date-range/{start}/{end}/")
-        return data.get("availabilities") or []
+        r = requests.get(url, headers=FH_HEADERS, timeout=20)
+        r.raise_for_status()
     except Exception as e:
-        print(f"  availabilities failed for item {item_pk}: {e}")
+        print(f"  calendar HTML failed for item {item_pk} {year}-{month:02d}: {e}")
         return []
+    pks = set(re.findall(r"/availabilities/(\d+)/", r.text))
+    return sorted(pks)
+
+
+def fetch_availability_detail(item_pk: int, avail_pk: str) -> dict:
+    """Single-PK availability JSON — confirmed working via DevTools log."""
+    try:
+        data = fh_get(f"items/{item_pk}/availabilities/{avail_pk}/")
+        return data.get("availability") or {}
+    except Exception as e:
+        print(f"  availability {avail_pk} failed for item {item_pk}: {e}")
+        return {}
+
+
+def months_between(start: datetime.date, end: datetime.date):
+    """Yield (year, month) tuples covering every month in [start, end]."""
+    y, m = start.year, start.month
+    while (y, m) <= (end.year, end.month):
+        yield y, m
+        m += 1
+        if m > 12:
+            m = 1
+            y += 1
 
 
 def parse_iso_date(ts: str) -> datetime.date:
@@ -197,8 +227,9 @@ def main():
         print("  No course items — exiting")
         return
 
-    # 3. Build rows — per-item availability fetch
-    print(f"  Fetching availability {start_s} → {end_s}...")
+    # 3. Build rows — calendar HTML scrape per item × month → per-PK detail
+    print(f"  Fetching availability {start_s} → {end_s} (calendar HTML + per-PK detail)...")
+    months = list(months_between(today, end_date))
     rows = []
     skipped = 0
     spot_samples = []
@@ -214,10 +245,22 @@ def main():
         loc_raw       = resolve_location_raw(title)
         loc_canonical = normalise_location(loc_raw, loc_mappings)
 
-        avails = fetch_availability(pk, start_s, end_s)
-        if not avails:
+        # Pass 1: scrape each month's calendar HTML, collect availability PKs
+        avail_pks = []
+        seen = set()
+        for y, m in months:
+            for ap in fetch_availability_pks(pk, y, m):
+                if ap not in seen:
+                    seen.add(ap)
+                    avail_pks.append(ap)
+
+        if not avail_pks:
             skipped += 1
             continue
+
+        # Pass 2: fetch each availability's detail JSON
+        avails = [fetch_availability_detail(pk, ap) for ap in avail_pks]
+        avails = [a for a in avails if a]
 
         for a in avails:
             start_at = a.get("start_at")
