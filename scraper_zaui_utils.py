@@ -11,6 +11,7 @@ Rate-limited: 0.5s minimum interval between any two GETs from this module.
 
 import datetime
 import logging
+import re
 import time
 from typing import Iterable, Optional
 
@@ -79,6 +80,13 @@ DEFAULT_EXCLUDE_CATEGORIES = {
 }
 
 
+def _matches_whole_word(text: str, word: str) -> bool:
+    """Case-insensitive word-boundary match — used for short hotel keywords
+    like 'inn' that substring-match against real experience titles
+    (e.g. 'Minnewanka', 'beginner', 'dinner' all contain 'inn')."""
+    return re.search(rf"\b{re.escape(word)}\b", text) is not None
+
+
 def is_experience_product(
     title: str,
     category_name: str = "",
@@ -87,9 +95,19 @@ def is_experience_product(
     """True if this Zaui catalogue row is a guided experience worth scraping.
 
     Filters out hotels, airport transfers, equipment rentals, merchandise,
-    gift cards, and anything in an excluded category. All matches are
-    case-insensitive substring checks against the title; category match is
-    case-insensitive equality.
+    gift cards, and anything in an excluded category.
+
+    Match rules:
+      - DEFAULT_EXCLUDE_TITLES: case-insensitive substring — 'rental' catches
+        both 'Rental' and 'Rentals'.
+      - DEFAULT_HOTEL_KEYWORDS: case-insensitive WORD-BOUNDARY to avoid
+        false positives on short words like 'inn' inside 'Minnewanka',
+        'beginner', 'dinner'.
+      - DEFAULT_TRANSPORT_KEYWORDS: case-insensitive substring (they're
+        multi-word phrases, no collision risk).
+      - DEFAULT_EXCLUDE_CATEGORIES: case-insensitive substring on the
+        category name so compound labels like 'Accommodation / Hotels'
+        still match 'accommodation'.
 
     Per-provider scrapers may pass `extra_exclude_titles` for tenant-specific
     products not covered by the shared defaults.
@@ -100,11 +118,11 @@ def is_experience_product(
     excludes = DEFAULT_EXCLUDE_TITLES + (extra_exclude_titles or [])
     if any(excl in t for excl in excludes):
         return False
-    if any(kw in t for kw in DEFAULT_HOTEL_KEYWORDS):
+    if any(_matches_whole_word(t, kw) for kw in DEFAULT_HOTEL_KEYWORDS):
         return False
     if any(kw in t for kw in DEFAULT_TRANSPORT_KEYWORDS):
         return False
-    if cat and cat in DEFAULT_EXCLUDE_CATEGORIES:
+    if cat and any(ex in cat for ex in DEFAULT_EXCLUDE_CATEGORIES):
         return False
     return True
 
