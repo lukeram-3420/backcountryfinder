@@ -1,0 +1,43 @@
+name: Seed Activity Controls
+
+# One-shot (or occasional re-run) seed of visible=false rows into
+# activity_controls from the historical EXCLUDE_TITLES constants. Idempotent —
+# merge-duplicates on (provider_id, activity_key). Safe to re-run. Admin-made
+# changes (flipping a seeded row back to visible=true) are NOT reverted,
+# because the seed script only writes the columns it cares about.
+#
+# Prerequisite: activity_controls_schema.sql must have been run in Supabase
+# SQL editor first, otherwise the seed will 404.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Print rows without writing"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL:          ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY:  ${{ secrets.SUPABASE_SERVICE_KEY }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install requests
+      - name: Seed activity_controls
+        run: |
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            python seed_activity_controls.py --dry-run
+          else
+            python seed_activity_controls.py
+          fi
