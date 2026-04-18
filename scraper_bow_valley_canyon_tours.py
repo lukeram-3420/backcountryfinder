@@ -16,6 +16,7 @@ Public API in Checkfront admin), swap this back to a JSON-API scraper
 mirroring scraper_aaa.py / scraper_girth_hitch_guiding.py.
 """
 
+import os
 import re
 import time
 import datetime
@@ -93,13 +94,18 @@ def resolve_location_raw(title: str, description: str = "") -> str:
 # ── Playwright widget scrape ──────────────────────────────────────────────────
 
 def widget_url(category_id: int) -> str:
-    today = datetime.date.today().strftime("%Y-%m-%d")
+    # Probe with a mid-season date range so canyoning (summer-only) items
+    # all render. The widget filters item visibility by the start/end date
+    # availability, so a shoulder-season probe (April) hides summer items.
+    today = datetime.date.today()
+    summer_start = today.replace(month=7, day=15) if today.month < 7 else today
+    summer_end = summer_start + datetime.timedelta(days=30)
     return (
         f"{WIDGET_BASE}?inline=1&header=hide&options=tabs"
         f"&filter_item_id={ITEM_FILTER}"
         f"&filter_category_id=3,4,5"
         f"&category_id={category_id}"
-        f"&start_date={today}&end_date={today}"
+        f"&start_date={summer_start.isoformat()}&end_date={summer_end.isoformat()}"
         f"&ssl=1&provider=droplet"
     )
 
@@ -160,17 +166,47 @@ def scrape_category(browser, category_id: int, category_name: str) -> list:
     if not container:
         return []
 
-    # Checkfront widget renders each item as a panel/tile. The exact class
-    # varies by tenant/theme — try several selector patterns.
-    item_nodes = (
-        container.select("div.cf-item")
-        or container.select("div.item")
-        or container.select("article")
-        or container.select("div.panel")
-        or container.find_all("div", recursive=False)
-    )
+    if os.environ.get("BVC_DEBUG"):
+        dump = str(container)[:4000]
+        log.info(f"    [DEBUG] cf-items HTML (first 4000 chars):\n{dump}")
 
-    log.info(f"    Found {len(item_nodes)} item nodes")
+    # Checkfront widget renders item classes inconsistently across tenants.
+    # Instead of guessing class names, find every element that has:
+    #   - a title heading (h2/h3/h4 with at least 3 chars), AND
+    #   - distinguishing content (a $price or a Book/Reserve link).
+    # Then walk up to the smallest enclosing ancestor that contains the heading
+    # and nothing else above it (avoids grabbing the whole category as one item).
+    headings = container.find_all(["h2", "h3", "h4"])
+    item_nodes = []
+    seen_titles = set()
+    for h in headings:
+        title_text = h.get_text(strip=True)
+        if len(title_text) < 3 or title_text.lower() in seen_titles:
+            continue
+        # Ascend a few levels to find a container that has pricing or booking
+        node = h
+        for _ in range(6):
+            parent = node.parent
+            if not parent or parent is container:
+                break
+            text = parent.get_text(" ", strip=True)
+            has_price = bool(re.search(r"\$\s*\d", text))
+            has_book  = bool(parent.find("a", href=re.compile(r"reserve|book|item_id", re.I))) \
+                        or bool(parent.find(string=re.compile(r"book|reserve|details", re.I)))
+            if has_price or has_book:
+                node = parent
+                break
+            node = parent
+        item_nodes.append(node)
+        seen_titles.add(title_text.lower())
+
+    # If the heuristic grabs the whole container (every heading points to the
+    # same ancestor), fall back to treating each heading's immediate parent
+    # as one item.
+    if item_nodes and all(n is item_nodes[0] for n in item_nodes):
+        item_nodes = [h.parent or h for h in headings]
+
+    log.info(f"    Found {len(item_nodes)} item nodes from {len(headings)} headings")
 
     for node in item_nodes:
         title_el = node.find(["h2", "h3", "h4"]) or node.find(class_=re.compile(r"title|name", re.I))
