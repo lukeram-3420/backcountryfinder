@@ -116,19 +116,17 @@ def fetch_items() -> dict:
 
 
 def fetch_availability(item_ids: list, start: str, end: str) -> dict:
-    # Fetch one item at a time — this tenant's /item/cal 500s on multi-item requests.
+    # Batch into groups of 20 — Checkfront 500s on large item_id[] lists.
     result = {}
-    for iid in item_ids:
-        try:
-            params = {
-                "item_id[]": [iid],
-                "start_date": start,
-                "end_date":   end,
-            }
-            data = cf_get("item/cal", params=params)
-            result.update(data.get("items", {}))
-        except Exception as e:
-            print(f"  item/cal failed for item {iid}: {e}")
+    for i in range(0, len(item_ids), 20):
+        batch = item_ids[i:i + 20]
+        params = {
+            "item_id[]": batch,
+            "start_date": start,
+            "end_date":   end,
+        }
+        data = cf_get("item/cal", params=params)
+        result.update(data.get("items", {}))
     return result
 
 
