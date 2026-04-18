@@ -1,24 +1,36 @@
 #!/usr/bin/env python3
 """
 Scraper: Vibe Backcountry (vibe-backcountry)
-Platform: FareHarbor External API v1 at fareharbor.com/api/external/v1/companies/vibebackcountry
-Endpoints used:
-  GET /items/                                                — full item catalogue
-  GET /items/{pk}/availabilities/date-range/{start}/{end}/   — per-item availability
+Platform: FareHarbor (Lightframe embed on Squarespace store)
 
-Mirrors scraper_girth_hitch_guiding.py (Checkfront). Single-pass API scraper.
+FareHarbor exposes an anonymous item catalogue at
+  GET /api/v1/companies/vibebackcountry/items/
+(works in plain requests — no auth needed).
+
+But availability is NOT listable via public JSON. The widget renders a
+server-side HTML shell at
+  /embeds/book/vibebackcountry/items/{pk}/calendar/{YYYY}/{MM}/
+and hydrates the grid via an in-browser Angular app that issues XHRs to
+/availabilities/ endpoints at runtime. No list-availabilities endpoint
+exists on the anonymous surface. We confirmed this by DevTools capture +
+static-HTML key-sniffing: start_at / capacity_remaining / availability_pk
+all have count=0 in the raw HTML body.
+
+So we use Playwright: load the item's lightframe, intercept every
+JSON /availabilities/ response the Angular app fetches, advance through
+N months by navigating to calendar/{YYYY}/{MM}/ URLs, then dedup and
+parse. All availability data comes from the captured XHR responses — we
+don't parse the rendered DOM.
+
 Vibe Backcountry is an ACMG-certified Vancouver Island guiding operation
 covering backcountry skiing / splitboarding / AST / rock / alpine /
 mountaineering / sea kayaking out of Nanaimo, BC.
-
-First FareHarbor adapter in the codebase. If a second FareHarbor provider
-lands, extract the fh_get / fetch_items / fetch_availability helpers into
-scraper_fareharbor_utils.py (mirror the scraper_zaui_utils.py precedent).
 """
 
 import re
 import datetime
 import requests
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 from scraper_utils import (
     sb_upsert, stable_id_v2,
@@ -43,11 +55,6 @@ BOOKING_URL  = f"https://fareharbor.com/embeds/book/{FH_SHORTNAME}/items"
 
 LOOKAHEAD_DAYS = 180
 
-# FareHarbor's /api/v1/ widget path is the anonymous CORS-enabled endpoint
-# used by the Lightframe / Flow-Down JS embed on any operator's website.
-# /api/external/v1/ is auth-only (X-FareHarbor-API-App + X-FareHarbor-API-User
-# headers) and returns 400 without them. Operator Referer + browser UA help
-# satisfy CDN heuristics without triggering auth requirements.
 FH_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept":     "application/json, text/plain, */*",
@@ -55,7 +62,6 @@ FH_HEADERS = {
     "Origin":     "https://www.vibebackcountry.com",
 }
 
-# Non-course product titles to skip. Mirrors the Girth Hitch list.
 EXCLUDE_TITLES = [
     "gift card",
     "gift certificate",
@@ -64,8 +70,6 @@ EXCLUDE_TITLES = [
     "custom trip",
 ]
 
-# Title-keyword location resolution. First match wins; result passes through
-# normalise_location() so unknowns queue to pending_location_mappings.
 LOCATION_MAP = [
     ("colonel foster",    "Strathcona Park, BC"),
     ("strathcona",        "Strathcona Park, BC"),
@@ -88,7 +92,7 @@ def resolve_location_raw(title: str) -> str:
     return PROVIDER["location"]
 
 
-# ── FareHarbor API ────────────────────────────────────────────────────────────
+# ── FareHarbor catalogue (plain HTTP) ─────────────────────────────────────────
 def fh_get(path, params=None):
     r = requests.get(
         f"{FH_BASE}/{path}",
@@ -102,71 +106,11 @@ def fh_get(path, params=None):
 
 def fetch_items() -> list:
     data = fh_get("items/")
-    items = data.get("items") or []
-    if items:
-        sample_keys = sorted(items[0].keys())
-        print(f"  Item keys (first row): {sample_keys}")
-    return items
+    return data.get("items") or []
 
 
-_CALENDAR_DUMPED = False
-
-def fetch_availability_pks(item_pk: int, year: int, month: int) -> list:
-    """
-    GET the per-item per-month server-rendered calendar HTML and regex out
-    every availability pk it links to. FareHarbor's anonymous widget does
-    NOT expose a list-availabilities JSON endpoint — only single-PK detail
-    fetches — so the calendar HTML is the source of truth for "which dates
-    have availability this month".
-    """
-    global _CALENDAR_DUMPED
-    url = (
-        f"https://fareharbor.com/embeds/book/{FH_SHORTNAME}/items/"
-        f"{item_pk}/calendar/{year}/{month:02d}/?full-items=yes&flow=no&g4=yes"
-    )
-    try:
-        r = requests.get(url, headers=FH_HEADERS, timeout=20)
-        r.raise_for_status()
-    except Exception as e:
-        print(f"  calendar HTML failed for item {item_pk} {year}-{month:02d}: {e}")
-        return []
-    pks = set(re.findall(r"/availabilities/(\d+)/", r.text))
-
-    # One-shot diagnostic dump on the first calendar fetch to confirm what
-    # FareHarbor is actually returning to the runner (vs. browser).
-    if not _CALENDAR_DUMPED:
-        _CALENDAR_DUMPED = True
-        body = r.text or ""
-        ctype = r.headers.get("content-type", "?")
-        print(f"  [diag] calendar HTML first fetch: url={url}")
-        print(f"  [diag] status={r.status_code} content-type={ctype} len={len(body)}")
-        # HTML is 1.9MB of embedded Angular bootstrap JSON. Look for the keys
-        # that actually identify availability records and show a sample window.
-        for key in ('"start_at"', '"capacity_remaining"', '"availability_pk"',
-                    'data-availability-pk', 'fh.bootstrap', 'window.FH',
-                    '/availabilities/', '"availabilities"', '"pk"'):
-            count = body.count(key)
-            idx = body.find(key)
-            sample = body[max(0, idx-60):idx+240] if idx >= 0 else ""
-            print(f"  [diag] '{key}' count={count} first_idx={idx}")
-            if sample:
-                print(f"           sample={sample!r}")
-
-    return sorted(pks)
-
-
-def fetch_availability_detail(item_pk: int, avail_pk: str) -> dict:
-    """Single-PK availability JSON — confirmed working via DevTools log."""
-    try:
-        data = fh_get(f"items/{item_pk}/availabilities/{avail_pk}/")
-        return data.get("availability") or {}
-    except Exception as e:
-        print(f"  availability {avail_pk} failed for item {item_pk}: {e}")
-        return {}
-
-
+# ── FareHarbor availability (Playwright XHR capture) ──────────────────────────
 def months_between(start: datetime.date, end: datetime.date):
-    """Yield (year, month) tuples covering every month in [start, end]."""
     y, m = start.year, start.month
     while (y, m) <= (end.year, end.month):
         yield y, m
@@ -176,27 +120,98 @@ def months_between(start: datetime.date, end: datetime.date):
             y += 1
 
 
+def collect_availabilities(browser, item_pk: int, months: list) -> list:
+    """
+    Open the item's Lightframe calendar in a headless page. Listen to every
+    response the Angular app fetches and keep those whose URL contains
+    /availabilities/ with a JSON body. Navigate through each month in the
+    lookahead range so every month's XHRs fire. Return a deduped list of
+    availability dicts.
+    """
+    captured = {}  # availability_pk → dict
+
+    def on_response(response):
+        try:
+            url = response.url
+        except Exception:
+            return
+        if "/availabilities" not in url:
+            return
+        ctype = response.headers.get("content-type", "") if hasattr(response, "headers") else ""
+        if "json" not in ctype:
+            return
+        try:
+            body = response.json()
+        except Exception:
+            return
+        if not isinstance(body, dict):
+            return
+        # Collect both shapes: {"availability": {...}} and {"availabilities": [...]}.
+        one = body.get("availability")
+        if isinstance(one, dict):
+            pk = one.get("pk")
+            if pk is not None:
+                captured[pk] = one
+        many = body.get("availabilities")
+        if isinstance(many, list):
+            for a in many:
+                if isinstance(a, dict):
+                    pk = a.get("pk")
+                    if pk is not None:
+                        captured[pk] = a
+
+    page = browser.new_page()
+    page.on("response", on_response)
+
+    try:
+        for y, m in months:
+            nav_url = (
+                f"https://fareharbor.com/embeds/book/{FH_SHORTNAME}/items/"
+                f"{item_pk}/calendar/{y}/{m:02d}/?full-items=yes&flow=no&g4=yes"
+            )
+            try:
+                page.goto(nav_url, wait_until="domcontentloaded", timeout=30000)
+            except PlaywrightTimeout:
+                print(f"  [playwright] goto timeout {item_pk} {y}-{m:02d}")
+                continue
+            except Exception as e:
+                print(f"  [playwright] goto failed {item_pk} {y}-{m:02d}: {e}")
+                continue
+            # Give the Angular app time to issue its availability XHRs.
+            try:
+                page.wait_for_load_state("networkidle", timeout=8000)
+            except PlaywrightTimeout:
+                pass
+            page.wait_for_timeout(500)
+    finally:
+        try:
+            page.close()
+        except Exception:
+            pass
+
+    return list(captured.values())
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
 def parse_iso_date(ts: str) -> datetime.date:
-    # FareHarbor returns start_at like "2025-05-15T09:00:00-08:00" — python's
-    # fromisoformat handles this on 3.11. Strip to date only.
     return datetime.datetime.fromisoformat(ts).date()
 
 
-def cheapest_price_cad(item: dict) -> "int | None":
+def cheapest_price_cad(avail: dict, item: dict) -> "int | None":
     """
-    FareHarbor stores prices in cents on customer_prototypes[].total (when
-    set at the item level). Return the cheapest adult-like rate as an int
-    CAD amount, or None if not extractable.
+    Prefer the availability's own customer_type_rates (live per-date price).
+    Fall back to the item's customer_prototypes (catalogue default).
+    FareHarbor amounts are in cents — convert to CAD int.
     """
-    protos = item.get("customer_prototypes") or []
-    totals = []
-    for p in protos:
-        t = p.get("total")
-        if isinstance(t, (int, float)) and t > 0:
-            totals.append(int(t))
-    if not totals:
-        return None
-    return int(min(totals) / 100)
+    for src in (avail.get("customer_type_rates") or [], item.get("customer_prototypes") or []):
+        totals = []
+        for r in src:
+            t = r.get("total")
+            if isinstance(t, (int, float)) and t > 0:
+                totals.append(int(t))
+        if totals:
+            return int(min(totals) / 100)
+    return None
 
 
 def strip_html(s: str) -> str:
@@ -207,9 +222,8 @@ def strip_html(s: str) -> str:
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
-    print(f"🧗 {PROVIDER['name']} — FareHarbor API scraper")
+    print(f"🧗 {PROVIDER['name']} — FareHarbor (Playwright XHR capture) scraper")
 
-    # Places rating
     try:
         update_provider_ratings(PROVIDER["id"])
     except Exception as e:
@@ -220,16 +234,13 @@ def main():
 
     today      = datetime.date.today()
     end_date   = today + datetime.timedelta(days=LOOKAHEAD_DAYS)
-    start_s    = today.strftime("%Y-%m-%d")
-    end_s      = end_date.strftime("%Y-%m-%d")
     scraped_at = datetime.datetime.utcnow().isoformat()
 
-    # 1. Fetch item catalogue
+    # 1. Catalogue (plain HTTP — confirmed working)
     print("  Fetching item catalogue...")
     items = fetch_items()
     print(f"  Found {len(items)} items total")
 
-    # 2. Filter: EXCLUDE_TITLES + is_bookable_online
     course_items = []
     for item in items:
         title = (item.get("name") or "").strip()
@@ -251,101 +262,100 @@ def main():
         print("  No course items — exiting")
         return
 
-    # 3. Build rows — calendar HTML scrape per item × month → per-PK detail
-    print(f"  Fetching availability {start_s} → {end_s} (calendar HTML + per-PK detail)...")
+    # 2. Availability via Playwright XHR capture
     months = list(months_between(today, end_date))
+    print(f"  Collecting availability via Playwright for {len(months)} months × {len(course_items)} items...")
+
     rows = []
     skipped = 0
     spot_samples = []
 
-    for item in course_items:
-        pk    = item.get("pk")
-        title = (item.get("name") or "").strip()
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        print("  [playwright] browser launched")
 
-        price       = cheapest_price_cad(item)
-        description = strip_html(item.get("description") or item.get("headline") or "")
-        image_url   = item.get("image_cdn_url") or None
+        for idx, item in enumerate(course_items, 1):
+            pk    = item.get("pk")
+            title = (item.get("name") or "").strip()
 
-        loc_raw       = resolve_location_raw(title)
-        loc_canonical = normalise_location(loc_raw, loc_mappings)
+            description = strip_html(item.get("description") or item.get("headline") or "")
+            image_url   = item.get("image_cdn_url") or None
 
-        # Pass 1: scrape each month's calendar HTML, collect availability PKs
-        avail_pks = []
-        seen = set()
-        for y, m in months:
-            for ap in fetch_availability_pks(pk, y, m):
-                if ap not in seen:
-                    seen.add(ap)
-                    avail_pks.append(ap)
+            loc_raw       = resolve_location_raw(title)
+            loc_canonical = normalise_location(loc_raw, loc_mappings)
 
-        if not avail_pks:
-            skipped += 1
-            continue
-
-        # Pass 2: fetch each availability's detail JSON
-        avails = [fetch_availability_detail(pk, ap) for ap in avail_pks]
-        avails = [a for a in avails if a]
-
-        for a in avails:
-            start_at = a.get("start_at")
-            end_at   = a.get("end_at")
-            if not start_at:
+            print(f"  [{idx:>2}/{len(course_items)}] item {pk} · {title!r}")
+            avails = collect_availabilities(browser, pk, months)
+            if not avails:
+                skipped += 1
                 continue
-            try:
-                d_start = parse_iso_date(start_at)
-            except Exception:
-                continue
+            print(f"           captured {len(avails)} availabilities")
 
-            duration_days = None
-            if end_at:
+            for a in avails:
+                start_at = a.get("start_at")
+                end_at   = a.get("end_at")
+                if not start_at:
+                    continue
                 try:
-                    d_end = parse_iso_date(end_at)
-                    delta = (d_end - d_start).days
-                    if delta > 0:
-                        duration_days = delta + 1
+                    d_start = parse_iso_date(start_at)
                 except Exception:
-                    pass
+                    continue
+                if d_start < today or d_start > end_date:
+                    continue
 
-            capacity_remaining = a.get("capacity_remaining")
-            if isinstance(capacity_remaining, int):
-                spot_samples.append(capacity_remaining)
-                spots_remaining = capacity_remaining
-            else:
-                spots_remaining = None
+                duration_days = None
+                if end_at:
+                    try:
+                        d_end = parse_iso_date(end_at)
+                        delta = (d_end - d_start).days
+                        if delta > 0:
+                            duration_days = delta + 1
+                    except Exception:
+                        pass
 
-            avail = spots_to_avail(spots_remaining)
+                capacity_remaining = a.get("capacity_remaining")
+                if isinstance(capacity_remaining, int):
+                    spot_samples.append(capacity_remaining)
+                    spots_remaining = capacity_remaining
+                else:
+                    spots_remaining = None
 
-            date_sort    = d_start.isoformat()
-            date_display = d_start.strftime("%b %-d, %Y")
-            course_id    = stable_id_v2(PROVIDER["id"], date_sort, title)
-            booking_url  = append_utm(
-                f"{BOOKING_URL}/{pk}/?full-items=yes&flow=no&g4=yes"
-            )
+                avail = spots_to_avail(spots_remaining)
+                price = cheapest_price_cad(a, item)
 
-            row = {
-                "id":                 course_id,
-                "provider_id":        PROVIDER["id"],
-                "title":              title,
-                "location_raw":       loc_raw,
-                "date_sort":          date_sort,
-                "date_display":       date_display,
-                "duration_days":      duration_days,
-                "price":              price,
-                "currency":           "CAD",
-                "spots_remaining":    spots_remaining,
-                "avail":              avail,
-                "active":             avail != "sold",
-                "booking_url":        booking_url,
-                "summary":            "",
-                "search_document":    "",
-                "image_url":          image_url,
-                "custom_dates":       False,
-                "description":        description or None,
-                "scraped_at":         scraped_at,
-            }
-            if loc_canonical is not None:
-                row["location_canonical"] = loc_canonical
-            rows.append(row)
+                date_sort    = d_start.isoformat()
+                date_display = d_start.strftime("%b %-d, %Y")
+                course_id    = stable_id_v2(PROVIDER["id"], date_sort, title)
+                booking_url  = append_utm(
+                    f"{BOOKING_URL}/{pk}/?full-items=yes&flow=no&g4=yes"
+                )
+
+                row = {
+                    "id":                 course_id,
+                    "provider_id":        PROVIDER["id"],
+                    "title":              title,
+                    "location_raw":       loc_raw,
+                    "date_sort":          date_sort,
+                    "date_display":       date_display,
+                    "duration_days":      duration_days,
+                    "price":              price,
+                    "currency":           "CAD",
+                    "spots_remaining":    spots_remaining,
+                    "avail":              avail,
+                    "active":             avail != "sold",
+                    "booking_url":        booking_url,
+                    "summary":            "",
+                    "search_document":    "",
+                    "image_url":          image_url,
+                    "custom_dates":       False,
+                    "description":        description or None,
+                    "scraped_at":         scraped_at,
+                }
+                if loc_canonical is not None:
+                    row["location_canonical"] = loc_canonical
+                rows.append(row)
+
+        browser.close()
 
     if spot_samples:
         distinct = sorted(set(spot_samples))[:20]
@@ -353,7 +363,7 @@ def main():
 
     print(f"  Built {len(rows)} course-date rows · {skipped} items skipped (no availability)")
 
-    # 4. Summaries — dedup by title (all dates of same course share the summary)
+    # 3. Summaries — dedup by title
     if rows:
         by_title = {}
         for r in rows:
@@ -378,17 +388,16 @@ def main():
             except Exception as e:
                 print(f"  Summary batch failed: {e}")
 
-    # 5. Strip description (not a courses column)
+    # 4. Strip description (not a courses column)
     for r in rows:
         r.pop("description", None)
 
-    # 6. Upsert in batches of 50
+    # 5. Upsert in batches of 50
     for i in range(0, len(rows), 50):
         sb_upsert("courses", rows[i:i + 50])
 
     print(f"  ✅ Upserted {len(rows)} rows")
 
-    # Log intelligence (V2 — append-only, change-detected)
     for c in rows:
         log_availability_change(c)
         log_price_change(c)
