@@ -93,8 +93,10 @@ function buildCard(c) {
           }
           <span class="save-label">my list</span>
         </button>
-        ${c.custom_dates
+        ${c.custom_dates && c.booking_mode !== 'instant'
           ?`<button class="book-btn" style="background:#f5f4f0;color:#1a2e1a;border:1px solid #c8c7c2;" onclick="openNotifyModal('${c.id}','${safeTitle}','${c.provider_id}','${c._queryID||''}')">Notify me 🔔</button>`
+          :c.custom_dates
+            ?`<a class="book-btn" href="${utmUrl(bookingUrl)}" target="_blank" rel="noopener" onclick="logClick(JSON.parse('${courseJson}'));trackAlgoliaConversion('${c.id}','${c._queryID||''}','Course Booking Initiated')">Check dates <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-left:2px;"><path d="M7 17L17 7"/><path d="M7 7h10v10"/></svg></a>`
           :c.avail==='sold'
             ?`<button class="book-btn" style="background:#f5f4f0;color:#888;border:1px solid #c8c7c2;cursor:default;">Sold out</button>`
             :`<a class="book-btn" href="${utmUrl(bookingUrl)}" target="_blank" rel="noopener" onclick="logClick(JSON.parse('${courseJson}'));trackAlgoliaConversion('${c.id}','${c._queryID||''}','Course Booking Initiated');setTimeout(showToast,800)">Book Now <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-left:2px;"><path d="M7 17L17 7"/><path d="M7 7h10v10"/></svg></a>`

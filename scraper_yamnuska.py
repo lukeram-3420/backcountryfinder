@@ -275,6 +275,7 @@ def scrape_course_page(session: requests.Session, browser, course_url: str, utm:
                 "image_url":       image_url,
                 "description":     description,
                 "custom_dates":    True,
+                "booking_mode":    "request",
             }]
 
         parsed = urlparse(iframe_src)
@@ -302,6 +303,7 @@ def scrape_course_page(session: requests.Session, browser, course_url: str, utm:
                 "image_url":       image_url,
                 "description":     description,
                 "custom_dates":    True,
+                "booking_mode":    "request",
             }]
 
         location_raw = IFRAME_LOCATION_MAP[location_key]
@@ -373,6 +375,7 @@ def scrape_course_page(session: requests.Session, browser, course_url: str, utm:
                 "image_url":       image_url,
                 "description":     description,
                 "custom_dates":    True,
+                "booking_mode":    "request",
             }]
 
         open_count = sold_count = 0
