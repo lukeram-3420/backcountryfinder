@@ -240,7 +240,10 @@ def scrape_category(browser, category_id: int, category_name: str) -> list:
         if len(title) < 3:
             continue
         key = title.lower()
-        if key in seen_titles or key in EXCLUDE_TITLES:
+        if key in seen_titles:
+            continue
+        if not _is_visible(PROVIDER["id"], title):
+            seen_titles.add(key)
             continue
         scopes.append((title, _item_scope(h, container)))
         seen_titles.add(key)
