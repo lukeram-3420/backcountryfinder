@@ -109,6 +109,8 @@ def fetch_items() -> list:
     return items
 
 
+_CALENDAR_DUMPED = False
+
 def fetch_availability_pks(item_pk: int, year: int, month: int) -> list:
     """
     GET the per-item per-month server-rendered calendar HTML and regex out
@@ -117,6 +119,7 @@ def fetch_availability_pks(item_pk: int, year: int, month: int) -> list:
     fetches — so the calendar HTML is the source of truth for "which dates
     have availability this month".
     """
+    global _CALENDAR_DUMPED
     url = (
         f"https://fareharbor.com/embeds/book/{FH_SHORTNAME}/items/"
         f"{item_pk}/calendar/{year}/{month:02d}/?full-items=yes&flow=no&g4=yes"
@@ -128,6 +131,19 @@ def fetch_availability_pks(item_pk: int, year: int, month: int) -> list:
         print(f"  calendar HTML failed for item {item_pk} {year}-{month:02d}: {e}")
         return []
     pks = set(re.findall(r"/availabilities/(\d+)/", r.text))
+
+    # One-shot diagnostic dump on the first calendar fetch to confirm what
+    # FareHarbor is actually returning to the runner (vs. browser).
+    if not _CALENDAR_DUMPED:
+        _CALENDAR_DUMPED = True
+        body = r.text or ""
+        ctype = r.headers.get("content-type", "?")
+        print(f"  [diag] calendar HTML first fetch: url={url}")
+        print(f"  [diag] status={r.status_code} content-type={ctype} len={len(body)}")
+        print(f"  [diag] body head: {body[:1500]!r}")
+        print(f"  [diag] body tail: {body[-600:]!r}")
+        print(f"  [diag] regex hits: {sorted(pks)[:10]}")
+
     return sorted(pks)
 
 
