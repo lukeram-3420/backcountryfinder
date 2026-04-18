@@ -962,7 +962,6 @@ Algolia InstantSearch is live in `index.html` and replaces the Supabase-backed s
 - **Provider deep link** (`?provider=`) applies as an Algolia `facetFilters` constraint rather than a Supabase `eq.` filter
 - Old Supabase search functions are commented out (not deleted) as a fallback reference until V1 cutover
 - `courses_v2` is the single source of truth for the search grid, synced every 6 hours by `scraper-all.yml`'s final step and on-demand via `sync-algolia.yml`
-- **"Search by Algolia" attribution** — required by the Algolia Build (free) plan terms. Rendered as a static `#algolia-attribution` block inside `#page-search`, positioned directly below the infinite-hits `#load-more-wrap` ("show more" button). Pure markup + CSS, no JS — persists across empty / populated result states. Only visible on the Search tab (scoped via the existing `.page.active` toggle). Inline SVG links to `https://www.algolia.com/` per brand guidelines. If the site ever moves to the Algolia Grow plan, this attribution can be removed.
 
 ### Algolia Insights (event tracking)
 Event tracking is wired so the Analytics tab in the Algolia dashboard accumulates CTR + conversion data per query, and so the dataset is ready for future personalisation / dynamic re-ranking.
