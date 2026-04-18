@@ -32,6 +32,8 @@ from scraper_utils import (
     parse_date_sort, is_future, stable_id_v2,
     update_provider_ratings,
     detect_url_drift,
+    title_hash,
+    activity_key, upsert_activity_control, load_activity_controls,
     UTM,
 )
 
@@ -85,14 +87,20 @@ LOCATION_MAP = [
     ("lofoten",       "Lofoten, NO"),
 ]
 
-# Non-course products to skip.
-EXCLUDE_TITLES = [
-    "gift card",
-    "gift certificate",
-    "deposit",
-    "membership",
-    "merchandise",
-]
+# Per-title exclusions live in activity_controls now — hide a title by
+# flipping visible=false in the admin Activity Tracking tab. Seeded from
+# the historical list via seed_activity_controls.py.
+_CONTROLS: dict = {}
+
+
+def _is_visible(provider_id: str, title: str) -> bool:
+    key = activity_key("title", None, title)
+    upsert_activity_control(
+        provider_id, key, title,
+        title_hash_=title_hash(title), platform="rezdy",
+    )
+    ctrl = _CONTROLS.get(key)
+    return not (ctrl and ctrl.get("visible") is False)
 
 NO_AVAILABILITY_SIGNALS = [
     "no availability",
@@ -238,8 +246,8 @@ def scrape_rezdy_page(provider: dict, url: str) -> list:
                 title = title_el.get_text(strip=True) if title_el else None
                 if not title:
                     continue
-                if title.lower().strip() in EXCLUDE_TITLES:
-                    log.info(f"Skipping excluded title: {title}")
+                if not _is_visible(PROVIDER["id"], title):
+                    log.info(f"Skipping hidden title: {title}")
                     continue
 
                 # Booking URL (relative or absolute)
@@ -443,7 +451,7 @@ def scrape_website_program(url: str) -> Optional[dict]:
         return None
 
     title_lower = title.lower()
-    if title_lower in EXCLUDE_TITLES:
+    if not _is_visible(PROVIDER["id"], title):
         return None
     if any(kw in title_lower for kw in PASS2_TITLE_SKIP_KEYWORDS):
         log.info(f"  Skipping (Pass 1 covers): {title}")
@@ -515,6 +523,10 @@ def main():
 
     mappings = load_location_mappings()
     log.info(f"Loaded {len(mappings)} location mappings")
+
+    global _CONTROLS
+    _CONTROLS = load_activity_controls(provider["id"])
+    log.info(f"Loaded {len(_CONTROLS)} activity controls")
 
     raw_courses = scrape_rezdy_catalogs(provider)
     if not raw_courses:

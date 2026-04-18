@@ -32,6 +32,8 @@ from scraper_utils import (
     load_location_mappings, normalise_location,
     generate_summaries_batch,
     append_utm,
+    title_hash,
+    activity_key, upsert_activity_control, load_activity_controls,
     UTM,
 )
 
@@ -61,13 +63,20 @@ KEEP_CATEGORIES = [
     (5, "Courses"),
 ]
 
-EXCLUDE_TITLES = [
-    "gift card",
-    "gift certificate",
-    "deposit",
-    "membership",
-    "merchandise",
-]
+# Per-title exclusions live in activity_controls now — hide a title by
+# flipping visible=false in the admin Activity Tracking tab. Seeded from
+# the historical list via seed_activity_controls.py.
+_CONTROLS: dict = {}
+
+
+def _is_visible(provider_id: str, title: str) -> bool:
+    key = activity_key("title", None, title)
+    upsert_activity_control(
+        provider_id, key, title,
+        title_hash_=title_hash(title), platform="checkfront",
+    )
+    ctrl = _CONTROLS.get(key)
+    return not (ctrl and ctrl.get("visible") is False)
 
 LOCATION_MAP = [
     ("kananaskis",   "Kananaskis, AB"),
@@ -213,7 +222,7 @@ def scrape_category(browser, category_id: int, category_name: str) -> list:
         title = title_el.get_text(strip=True) if title_el else ""
         if not title:
             continue
-        if title.lower().strip() in EXCLUDE_TITLES:
+        if not _is_visible(PROVIDER["id"], title):
             continue
 
         node_text = node.get_text(separator=" ", strip=True)
@@ -269,6 +278,10 @@ def main():
 
     loc_mappings = load_location_mappings()
     log.info(f"Loaded {len(loc_mappings)} location mappings")
+
+    global _CONTROLS
+    _CONTROLS = load_activity_controls(PROVIDER["id"])
+    log.info(f"Loaded {len(_CONTROLS)} activity controls")
 
     scraped_at = datetime.datetime.utcnow().isoformat()
     raw_items = []
