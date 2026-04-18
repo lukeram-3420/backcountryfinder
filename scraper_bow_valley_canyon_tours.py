@@ -135,6 +135,53 @@ def parse_duration_days(text: str) -> float | None:
     return None
 
 
+def normalize_title(raw: str) -> str:
+    """Strip trailing punctuation and collapse internal whitespace. The
+    Checkfront widget sometimes renders a title with a trailing period and
+    sometimes without — identical titles that differ only by punctuation hash
+    to different stable IDs and leave orphan courses/course_summaries rows
+    behind each run.
+    """
+    if not raw:
+        return ""
+    t = re.sub(r"\s+", " ", raw).strip()
+    return t.rstrip(".,;:!?·")
+
+
+def _item_scope(h, container):
+    """Return a list of Tag nodes covering a single item anchored at heading h.
+
+    Ascends from h until we hit a parent that either (a) encloses multiple
+    sibling item headings (it's a list container, not an item container) or
+    (b) carries a price/book signal. When the first ancestor is already a
+    list container, the item has no dedicated wrapper — slice by sibling
+    from h up to (but not including) the next heading.
+    """
+    node = h
+    for _ in range(6):
+        parent = node.parent
+        if not parent or parent is container:
+            break
+        if len(parent.find_all(["h2", "h3", "h4"])) > 1:
+            break  # list container — don't collapse neighbours into this item
+        text = parent.get_text(" ", strip=True)
+        has_price = bool(re.search(r"\$\s*\d", text))
+        has_book  = bool(parent.find("a", href=re.compile(r"reserve|book|item_id", re.I))) \
+                    or bool(parent.find(string=re.compile(r"book|reserve|details", re.I)))
+        if has_price or has_book:
+            return [parent]
+        node = parent
+
+    if node is h:
+        slice_ = [h]
+        for sib in h.find_next_siblings():
+            if getattr(sib, "name", None) in ("h2", "h3", "h4"):
+                break
+            slice_.append(sib)
+        return slice_
+    return [node]
+
+
 def scrape_category(browser, category_id: int, category_name: str) -> list:
     """Load the widget for one category, wait for items, parse the DOM."""
     url = widget_url(category_id)
@@ -171,75 +218,69 @@ def scrape_category(browser, category_id: int, category_name: str) -> list:
         log.info(f"    [DEBUG] cf-items HTML (first 4000 chars):\n{dump}")
 
     # Checkfront widget renders item classes inconsistently across tenants.
-    # Instead of guessing class names, find every element that has:
-    #   - a title heading (h2/h3/h4 with at least 3 chars), AND
-    #   - distinguishing content (a $price or a Book/Reserve link).
-    # Then walk up to the smallest enclosing ancestor that contains the heading
-    # and nothing else above it (avoids grabbing the whole category as one item).
+    # Anchor each item on a heading, then find the smallest DOM scope that
+    # belongs to that item only. _item_scope stops ascending when a parent
+    # encloses multiple sibling headings (collapsing them would produce
+    # identical descriptions and kneecap summary generation — Haiku dedups
+    # by description).
     headings = container.find_all(["h2", "h3", "h4"])
-    item_nodes = []
+    scopes = []  # [(title, [Tag, ...]), ...]
     seen_titles = set()
     for h in headings:
-        title_text = h.get_text(strip=True)
-        if len(title_text) < 3 or title_text.lower() in seen_titles:
+        title = normalize_title(h.get_text(" ", strip=True))
+        if len(title) < 3:
             continue
-        # Ascend a few levels to find a container that has pricing or booking
-        node = h
-        for _ in range(6):
-            parent = node.parent
-            if not parent or parent is container:
-                break
-            text = parent.get_text(" ", strip=True)
-            has_price = bool(re.search(r"\$\s*\d", text))
-            has_book  = bool(parent.find("a", href=re.compile(r"reserve|book|item_id", re.I))) \
-                        or bool(parent.find(string=re.compile(r"book|reserve|details", re.I)))
-            if has_price or has_book:
-                node = parent
-                break
-            node = parent
-        item_nodes.append(node)
-        seen_titles.add(title_text.lower())
-
-    # If the heuristic grabs the whole container (every heading points to the
-    # same ancestor), fall back to treating each heading's immediate parent
-    # as one item.
-    if item_nodes and all(n is item_nodes[0] for n in item_nodes):
-        item_nodes = [h.parent or h for h in headings]
-
-    log.info(f"    Found {len(item_nodes)} item nodes from {len(headings)} headings")
-
-    for node in item_nodes:
-        title_el = node.find(["h2", "h3", "h4"]) or node.find(class_=re.compile(r"title|name", re.I))
-        title = title_el.get_text(strip=True) if title_el else ""
-        if not title:
+        key = title.lower()
+        if key in seen_titles or key in EXCLUDE_TITLES:
             continue
-        if title.lower().strip() in EXCLUDE_TITLES:
-            continue
+        scopes.append((title, _item_scope(h, container)))
+        seen_titles.add(key)
 
-        node_text = node.get_text(separator=" ", strip=True)
+    log.info(f"    Found {len(scopes)} item scopes from {len(headings)} headings")
+
+    for title, scope in scopes:
+        node_text = " ".join(n.get_text(" ", strip=True) for n in scope if hasattr(n, "get_text"))
         price = parse_price(node_text)
         duration = parse_duration_days(node_text)
 
-        # Description — first substantial paragraph, fallback to longest text block
+        # Description — first substantial <p> in scope, fallback to node_text slice
         desc = ""
-        for p in node.find_all("p"):
-            t = p.get_text(strip=True)
-            if len(t) > 60:
-                desc = t[:600]
+        for n in scope:
+            if not hasattr(n, "find_all"):
+                continue
+            for p in n.find_all("p"):
+                t = p.get_text(strip=True)
+                if len(t) > 60:
+                    desc = t[:600]
+                    break
+            if desc:
                 break
         if not desc:
             desc = node_text[:400]
 
-        # Image
+        # Image — first <img> anywhere in scope
         image_url = None
-        img = node.find("img")
-        if img:
-            image_url = img.get("src") or img.get("data-src")
-            if image_url and image_url.startswith("//"):
-                image_url = "https:" + image_url
+        for n in scope:
+            if not hasattr(n, "find"):
+                continue
+            img = n.find("img")
+            if img:
+                image_url = img.get("src") or img.get("data-src")
+                if image_url and image_url.startswith("//"):
+                    image_url = "https:" + image_url
+                break
 
-        # Booking URL — point at the tenant widget for that item
-        item_id = node.get("data-item-id") or ""
+        # Booking URL — first data-item-id attribute anywhere in scope
+        item_id = ""
+        for n in scope:
+            if hasattr(n, "get") and n.get("data-item-id"):
+                item_id = n.get("data-item-id")
+                break
+            if hasattr(n, "find"):
+                nested = n.find(attrs={"data-item-id": True})
+                if nested:
+                    item_id = nested.get("data-item-id")
+                    break
         if item_id:
             booking_url = append_utm(f"{WIDGET_BASE}?item_id={item_id}")
         else:
