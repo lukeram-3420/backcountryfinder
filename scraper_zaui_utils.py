@@ -35,6 +35,80 @@ _last_request_ts = {"t": 0.0}
 log = logging.getLogger(__name__)
 
 
+# ─── Shared catalogue filtering ─────────────────────────────────────────────
+# Zaui tenants frequently carry hotels, transfers, rentals, merchandise, and
+# gift cards alongside guided experiences. These defaults centralize the
+# filter so every Zaui scraper drops the noise consistently.
+
+DEFAULT_EXCLUDE_TITLES = [
+    # Non-bookable / admin products
+    "gift card", "gift certificate",
+    "deposit",
+    "membership",
+    # Equipment — covers "Bike Rental", "E-Bike Rental", "Ski Rental",
+    # "Urban (Sausalito) E-Bike Rental" via substring match.
+    "rental",
+    # Ski-area adjuncts
+    "season pass", "lift ticket",
+    # Retail / upsells
+    "merchandise",
+    "package add-on",
+]
+
+DEFAULT_HOTEL_KEYWORDS = [
+    "hotel", "resort", "inn", "chalet", "suites",
+    "condo", "apartment",
+    # Intentionally NOT "lodge" — many backcountry operators use "Lodge"
+    # in legitimate guided-experience names (Bugaboo Lodge etc.).
+]
+
+DEFAULT_TRANSPORT_KEYWORDS = [
+    "airport to", "airport transfer",
+    "shuttle to",
+]
+
+# Zaui category names we never want in the experience catalogue.
+# Matched case-insensitively against `category.name`.
+DEFAULT_EXCLUDE_CATEGORIES = {
+    "rentals",
+    "accommodation", "accommodations",
+    "lodging",
+    "transportation", "transfers", "shuttles",
+    "merchandise",
+    "add-ons", "add ons",
+}
+
+
+def is_experience_product(
+    title: str,
+    category_name: str = "",
+    extra_exclude_titles: Optional[list] = None,
+) -> bool:
+    """True if this Zaui catalogue row is a guided experience worth scraping.
+
+    Filters out hotels, airport transfers, equipment rentals, merchandise,
+    gift cards, and anything in an excluded category. All matches are
+    case-insensitive substring checks against the title; category match is
+    case-insensitive equality.
+
+    Per-provider scrapers may pass `extra_exclude_titles` for tenant-specific
+    products not covered by the shared defaults.
+    """
+    t = (title or "").lower()
+    cat = (category_name or "").lower()
+
+    excludes = DEFAULT_EXCLUDE_TITLES + (extra_exclude_titles or [])
+    if any(excl in t for excl in excludes):
+        return False
+    if any(kw in t for kw in DEFAULT_HOTEL_KEYWORDS):
+        return False
+    if any(kw in t for kw in DEFAULT_TRANSPORT_KEYWORDS):
+        return False
+    if cat and cat in DEFAULT_EXCLUDE_CATEGORIES:
+        return False
+    return True
+
+
 def _throttle():
     elapsed = time.time() - _last_request_ts["t"]
     if elapsed < MIN_INTERVAL_SECONDS:
@@ -62,17 +136,23 @@ def zaui_get(tenant_slug: str, portal_id: int, endpoint: str, params: Optional[d
 
 
 def fetch_categories(tenant_slug: str, portal_id: int,
-                     exclude_names: Iterable[str] = ("Rentals",),
+                     exclude_names: Iterable[str] = (),
                      date_offsets: Iterable[int] = DEFAULT_DATE_OFFSETS) -> list:
-    """Return categories with totalActivities > 0 on any probed date,
-    excluding any whose name exactly matches an entry in `exclude_names`.
+    """Return categories with totalActivities > 0 on any probed date.
+
+    By default drops `DEFAULT_EXCLUDE_CATEGORIES` (rentals / accommodation /
+    lodging / transportation / transfers / shuttles / merchandise / add-ons)
+    case-insensitively. Callers may pass `exclude_names` to EXTEND (not
+    replace) the default set with tenant-specific names.
 
     Probes today + each offset (in days) and unions the results, deduped by
     category id. Default offsets cover ~6 months forward so seasonal categories
     surface in shoulder seasons too.
     """
     today = datetime.date.today()
-    exclude = set(exclude_names)
+    exclude_lower = set(DEFAULT_EXCLUDE_CATEGORIES)
+    if exclude_names:
+        exclude_lower.update(n.lower() for n in exclude_names)
     by_id: dict = {}
     for offset in date_offsets:
         probe = (today + datetime.timedelta(days=int(offset))).isoformat()
@@ -83,7 +163,7 @@ def fetch_categories(tenant_slug: str, portal_id: int,
             continue
         for c in data.get("data") or []:
             name = (c.get("name") or "").strip()
-            if name in exclude:
+            if name.lower() in exclude_lower:
                 continue
             if (c.get("totalActivities") or 0) <= 0:
                 continue

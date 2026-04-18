@@ -33,6 +33,7 @@ from scraper_utils import (
 from scraper_zaui_utils import (
     fetch_categories, fetch_activity_list, fetch_unavailability,
     compute_bookable_dates, get_activity_group,
+    is_experience_product,
 )
 
 PROVIDER = {
@@ -63,17 +64,11 @@ LOCATION_MAP = [
 # Zaui activity fields that may carry a human-readable location string.
 ZAUI_LOCATION_FIELDS = ("location", "meetingLocation", "address", "venue", "city")
 
-# Non-course products the Zaui catalogue sometimes lists alongside activities.
-# Filtered by case-insensitive title match (see scraper_altus.py for pattern).
-EXCLUDE_TITLES = [
-    "gift card",
-    "gift certificate",
-    "deposit",
-    "membership",
-    "rental",
-    "season pass",
-    "lift ticket",
-]
+# Provider-specific title exclusions to layer on top of the shared Zaui
+# defaults in is_experience_product(). The shared filter already covers
+# gift cards, deposits, memberships, rentals, season passes, lift tickets,
+# merchandise, and add-ons.
+EXTRA_EXCLUDE_TITLES: list = []
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -147,9 +142,10 @@ def main():
             aid = a.get("id")
             if aid is None or aid in seen_ids:
                 continue
-            title_lower = (a.get("name") or "").strip().lower()
-            if any(excl in title_lower for excl in EXCLUDE_TITLES):
-                log.info(f"  excluding non-course product: {a.get('name')!r}")
+            title = (a.get("name") or "").strip()
+            cat_name = cat.get("name") or ""
+            if not is_experience_product(title, cat_name, EXTRA_EXCLUDE_TITLES):
+                log.info(f"  excluding non-experience: {title!r} (cat={cat_name!r})")
                 continue
             seen_ids.add(aid)
             a["_category_name"] = cat.get("name") or ""

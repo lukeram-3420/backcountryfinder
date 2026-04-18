@@ -37,6 +37,7 @@ from scraper_utils import (
 from scraper_zaui_utils import (
     fetch_categories, fetch_activity_list, fetch_unavailability,
     compute_bookable_dates, get_activity_group,
+    is_experience_product,
 )
 
 PROVIDER = {
@@ -54,17 +55,10 @@ LOOKAHEAD_DAYS = 180
 WINDOW_DAYS = 7
 TOTAL_GROUPS = 4
 
-# Filter non-tour products. Zaui category "Rentals" is already excluded by
-# fetch_categories(); this list catches stragglers (gift cards, memberships,
-# subscription products, individual rental SKUs that escaped category exclusion).
-EXCLUDE_TITLES = [
-    "gift card",
-    "gift certificate",
-    "e-bike rental",
-    "ebike rental",
-    "bike rental",
-    "membership",
-]
+# Provider-specific title exclusions to layer on top of the shared Zaui
+# defaults in is_experience_product(). Leave empty unless Banff carries a
+# non-experience product not caught by the shared filter.
+EXTRA_EXCLUDE_TITLES: list = []
 
 # Title-keyword pre-resolution hint. First match wins; result is fed to
 # normalise_location() as the raw input (not as a bypass) so unknown mappings
@@ -166,11 +160,12 @@ def main():
             if aid is None or aid in seen_ids:
                 continue
             title = (a.get("name") or "").strip()
-            if title.lower().strip() in EXCLUDE_TITLES:
-                log.info(f"  excluding non-tour product: {title!r}")
+            cat_name = cat.get("name") or ""
+            if not is_experience_product(title, cat_name, EXTRA_EXCLUDE_TITLES):
+                log.info(f"  excluding non-experience: {title!r} (cat={cat_name!r})")
                 continue
             seen_ids.add(aid)
-            a["_category_name"] = cat.get("name") or ""
+            a["_category_name"] = cat_name
             all_activities.append(a)
     log.info(f"Total unique activities: {len(all_activities)}")
 
