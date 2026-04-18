@@ -25,7 +25,21 @@ from scraper_utils import (
     SUPABASE_URL, SUPABASE_KEY, RESEND_API_KEY, ANTHROPIC_API_KEY,
     GOOGLE_PLACES_API_KEY, UTM, CLAUDE_MODEL, NOTIFY_EMAIL, FROM_EMAIL,
     stable_id_v2,
+    title_hash, activity_key,
+    upsert_activity_control, load_activity_controls,
 )
+
+_CONTROLS: dict = {}
+
+
+def _is_visible(provider_id: str, title: str) -> bool:
+    key = activity_key("title", None, title)
+    upsert_activity_control(
+        provider_id, key, title,
+        title_hash_=title_hash(title), platform="wordpress",
+    )
+    ctrl = _CONTROLS.get(key)
+    return not (ctrl and ctrl.get("visible") is False)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -150,6 +164,9 @@ def scrape_summit(provider):
 
                 title = link.get_text(strip=True)
                 if not title or len(title) < 3:
+                    continue
+                if not _is_visible(provider["id"], title):
+                    log.info(f"Skipping hidden title: {title}")
                     continue
 
                 # Date — extract from occurrence param + date range text from listing
@@ -293,6 +310,10 @@ def main():
     # Load location mappings
     mappings = load_location_mappings()
     log.info(f"Loaded {len(mappings)} location mappings")
+
+    global _CONTROLS
+    _CONTROLS = load_activity_controls(provider["id"])
+    log.info(f"Loaded {len(_CONTROLS)} activity controls")
 
     location_flags = []
 

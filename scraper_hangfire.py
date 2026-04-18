@@ -18,7 +18,24 @@ from typing import Optional
 import requests
 from bs4 import BeautifulSoup
 
-from scraper_utils import normalise_location, log_availability_change, log_price_change, stable_id_v2, generate_summaries_batch
+from scraper_utils import (
+    normalise_location, log_availability_change, log_price_change,
+    stable_id_v2, generate_summaries_batch,
+    title_hash, activity_key,
+    upsert_activity_control, load_activity_controls,
+)
+
+_CONTROLS: dict = {}
+
+
+def _is_visible(provider_id: str, title: str) -> bool:
+    key = activity_key("title", None, title)
+    upsert_activity_control(
+        provider_id, key, title,
+        title_hash_=title_hash(title), platform="rezdy",
+    )
+    ctrl = _CONTROLS.get(key)
+    return not (ctrl and ctrl.get("visible") is False)
 
 # ── CONFIG ──
 SUPABASE_URL          = os.environ["SUPABASE_URL"]
@@ -266,6 +283,9 @@ def scrape_rezdy_page(provider: dict, url: str) -> list:
                 title = title_el.get_text(strip=True) if title_el else None
                 if not title:
                     continue
+                if not _is_visible(provider["id"], title):
+                    print(f"Skipping hidden title: {title}")
+                    continue
 
                 booking_url = None
                 href = title_el.get("href", "") if title_el else ""
@@ -391,6 +411,10 @@ def main():
 
     mappings = load_location_mappings()
     log.info(f"Loaded {len(mappings)} location mappings")
+
+    global _CONTROLS
+    _CONTROLS = load_activity_controls(provider["id"])
+    log.info(f"Loaded {len(_CONTROLS)} activity controls")
 
     raw_courses = scrape_rezdy(provider)
 

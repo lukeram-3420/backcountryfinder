@@ -26,7 +26,21 @@ from scraper_utils import (
     send_scraper_summary,
     SUPABASE_URL, SUPABASE_KEY, RESEND_API_KEY,
     ANTHROPIC_API_KEY, UTM,
+    title_hash, activity_key,
+    upsert_activity_control, load_activity_controls,
 )
+
+_CONTROLS: dict = {}
+
+
+def _is_visible(provider_id: str, title: str) -> bool:
+    key = activity_key("title", None, title)
+    upsert_activity_control(
+        provider_id, key, title,
+        title_hash_=title_hash(title), platform="wordpress",
+    )
+    ctrl = _CONTROLS.get(key)
+    return not (ctrl and ctrl.get("visible") is False)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -99,6 +113,9 @@ def scrape_srg(provider):
                     if title_tag:
                         title = title_tag.get_text(strip=True).split(" - ")[0].strip()
                 if not title:
+                    continue
+                if not _is_visible(PROVIDER["id"], title):
+                    log.info(f"Skipping hidden title: {title}")
                     continue
 
                 # Price — find the last price mentioned (most accurate)
@@ -228,6 +245,10 @@ def main():
 
     # Update provider ratings from Google Places
     update_provider_ratings(PROVIDER["id"])
+
+    global _CONTROLS
+    _CONTROLS = load_activity_controls(PROVIDER["id"])
+    log.info(f"Loaded {len(_CONTROLS)} activity controls")
 
     raw_courses = scrape_srg(PROVIDER)
     processed = []

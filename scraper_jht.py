@@ -14,7 +14,21 @@ from scraper_utils import (
     generate_summaries_batch,
     SUPABASE_URL, SUPABASE_KEY, RESEND_API_KEY, ANTHROPIC_API_KEY,
     GOOGLE_PLACES_API_KEY,
+    title_hash, activity_key,
+    upsert_activity_control, load_activity_controls,
 )
+
+_CONTROLS: dict = {}
+
+
+def _is_visible(provider_id: str, title: str) -> bool:
+    key = activity_key("title", None, title)
+    upsert_activity_control(
+        provider_id, key, title,
+        title_hash_=title_hash(title), platform="squarespace",
+    )
+    ctrl = _CONTROLS.get(key)
+    return not (ctrl and ctrl.get("visible") is False)
 
 # ── Config ────────────────────────────────────────────────────────────────────
 PROVIDER_ID   = "jht"
@@ -236,6 +250,9 @@ def scrape_page(path, default_location):
 
         if len(title) < 8 or title.lower().startswith("this is a") or title.lower() in ("rates:", "how to sign up:", "what's next?"):
             continue
+        if not _is_visible(PROVIDER_ID, title):
+            print(f"  ✗ {title} — hidden via activity_controls")
+            continue
 
         dates = parse_dates_from_text(section_text)
         if not dates and has_no_availability(section_text):
@@ -305,6 +322,10 @@ def send_summary(upserted, skipped, errors):
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     print(f"── {PROVIDER_NAME} scraper starting ──")
+
+    global _CONTROLS
+    _CONTROLS = load_activity_controls(PROVIDER_ID)
+    print(f"  Loaded {len(_CONTROLS)} activity controls")
 
     place_id_jasper, rating, review_count = find_place_details("Jasper, AB")
     place_id_mcbride = find_place_id_jht("McBride, BC")

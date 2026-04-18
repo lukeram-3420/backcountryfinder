@@ -49,6 +49,7 @@ serve(async (req) => {
     if (!rows.length) return json({ error: "No rows supplied" }, 400);
 
     let changed = 0;
+    let coursesAffected = 0;
     const errors: string[] = [];
 
     for (const r of rows) {
@@ -82,8 +83,41 @@ serve(async (req) => {
 
       if (error) {
         errors.push(`${r.activity_key}: ${error.message}`);
-      } else {
-        changed++;
+        continue;
+      }
+      changed++;
+
+      // Cascade visible → courses.active so the frontend hides / re-shows
+      // immediately instead of waiting for the next scraper run. Match by
+      // (provider_id, title) — we read the latest title from activity_controls
+      // because the admin may have flipped visible on a row whose title has
+      // since changed upstream.
+      //   OFF → hide everything for this title.
+      //   ON  → restore everything for this title EXCEPT avail='sold' (mirrors
+      //         the admin-toggle-provider semantics: sold/notify-me rows stay
+      //         hidden even when the provider-level toggle flips back on).
+      if (typeof r.visible === "boolean") {
+        const { data: ctrlRow } = await supabase
+          .from("activity_controls")
+          .select("title")
+          .eq("provider_id", r.provider_id)
+          .eq("activity_key", r.activity_key)
+          .maybeSingle();
+        const title = ctrlRow?.title;
+        if (title) {
+          let q = supabase
+            .from("courses")
+            .update({ active: r.visible })
+            .eq("provider_id", r.provider_id)
+            .eq("title", title);
+          if (r.visible) q = q.neq("avail", "sold");
+          const { data: updated, error: cascadeErr } = await q.select("id");
+          if (cascadeErr) {
+            errors.push(`${r.activity_key}: course cascade failed — ${cascadeErr.message}`);
+          } else {
+            coursesAffected += updated?.length || 0;
+          }
+        }
       }
     }
 
@@ -93,11 +127,12 @@ serve(async (req) => {
       detail: {
         requested: rows.length,
         changed,
+        courses_affected: coursesAffected,
         errors: errors.length ? errors.slice(0, 10) : undefined,
       },
     });
 
-    return json({ success: errors.length === 0, changed, errors });
+    return json({ success: errors.length === 0, changed, courses_affected: coursesAffected, errors });
   } catch (err) {
     console.error(err);
     return json({ error: String(err) }, 500);

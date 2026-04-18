@@ -25,7 +25,25 @@ from scraper_utils import (
     generate_summaries_batch,
     parse_date_sort, is_future, stable_id_v2,
     update_provider_ratings,
+    title_hash, activity_key,
+    upsert_activity_control, load_activity_controls,
 )
+
+# Populated at main() start via load_activity_controls(). Consulted by the
+# deep scrape functions without threading it through every signature.
+_CONTROLS: dict = {}
+
+
+def _is_visible(provider_id: str, title: str) -> bool:
+    """Activity Tracking gate. Upserts the (provider, title) pair so the
+    admin sees it, then returns False if visible=false has been flipped."""
+    key = activity_key("title", None, title)
+    upsert_activity_control(
+        provider_id, key, title,
+        title_hash_=title_hash(title), platform="rezdy",
+    )
+    ctrl = _CONTROLS.get(key)
+    return not (ctrl and ctrl.get("visible") is False)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -122,6 +140,9 @@ def scrape_rezdy_page(provider: dict, url: str) -> list:
                 title_el = item.select_one("h2 a")
                 title = title_el.get_text(strip=True) if title_el else None
                 if not title:
+                    continue
+                if not _is_visible(PROVIDER["id"], title):
+                    log.info(f"Skipping hidden title: {title}")
                     continue
 
                 # Booking URL — relative href on the title link
@@ -315,6 +336,11 @@ def main():
     # Load location mappings
     mappings = load_location_mappings()
     log.info(f"Loaded {len(mappings)} location mappings")
+
+    # Activity tracking — admin-toggled visibility per (provider, title).
+    global _CONTROLS
+    _CONTROLS = load_activity_controls(provider["id"])
+    log.info(f"Loaded {len(_CONTROLS)} activity controls")
 
     location_flags = []
 

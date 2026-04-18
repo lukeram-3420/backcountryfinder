@@ -33,7 +33,21 @@ from scraper_utils import (
     detect_url_drift,
     SUPABASE_URL, SUPABASE_KEY, ANTHROPIC_API_KEY, GOOGLE_PLACES_API_KEY,
     RESEND_API_KEY, UTM,
+    title_hash, activity_key,
+    upsert_activity_control, load_activity_controls,
 )
+
+_CONTROLS: dict = {}
+
+
+def _is_visible(provider_id: str, title: str) -> bool:
+    key = activity_key("title", None, title)
+    upsert_activity_control(
+        provider_id, key, title,
+        title_hash_=title_hash(title), platform="wordpress",
+    )
+    ctrl = _CONTROLS.get(key)
+    return not (ctrl and ctrl.get("visible") is False)
 
 # URL drift detection — homepage scan for course URLs not in PROVIDER["courses"].
 # Catches new programs the provider adds without us noticing. Findings go to
@@ -211,6 +225,12 @@ def get_iframe_src_playwright(browser, course_url: str) -> tuple:
         h1 = soup.find("h1")
         if h1:
             title = h1.get_text(strip=True)
+
+        # Activity Tracking gate — after title is finalized, before any
+        # work. Upsert so admin sees the activity even when we skip it.
+        if not _is_visible(PROVIDER["id"], title):
+            print(f"  Skipping hidden title: {title}")
+            return []
 
         content = soup.find("div", class_=re.compile(r"entry-content|page-content|course-content"))
         if content:
@@ -506,6 +526,10 @@ def main():
     log.info("=== Yamnuska scraper starting ===")
 
     update_provider_ratings(PROVIDER["id"])
+
+    global _CONTROLS
+    _CONTROLS = load_activity_controls(PROVIDER["id"])
+    log.info(f"Loaded {len(_CONTROLS)} activity controls")
 
     loc_mappings = load_location_mappings()
     log.info(f"Loaded {len(loc_mappings)} location mappings")
