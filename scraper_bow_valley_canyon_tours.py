@@ -320,6 +320,7 @@ def main():
             "search_document": "",
             "image_url":       item.get("image_url"),
             "custom_dates":    True,
+            "booking_mode":    "instant",
             "description":     item.get("description") or None,
             "scraped_at":      scraped_at,
         }
