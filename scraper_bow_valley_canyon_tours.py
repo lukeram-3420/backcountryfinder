@@ -339,11 +339,17 @@ def main():
         browser.close()
         log.info("Playwright browser closed")
 
-    # Dedup by title (same item may appear in multiple categories)
+    # Dedup by title (same item may appear in multiple categories). Key on the
+    # same normalisation title_hash uses (strip + lowercase) so titles that
+    # differ only by case can't slip through and collide on the course `id`
+    # (stable_id_v2 uses title_hash under the hood → Postgres rejects the
+    # upsert with "ON CONFLICT DO UPDATE command cannot affect row a second
+    # time").
     seen = {}
     for item in raw_items:
-        if item["title"] not in seen:
-            seen[item["title"]] = item
+        key = (item["title"] or "").strip().lower()
+        if key and key not in seen:
+            seen[key] = item
     unique = list(seen.values())
     log.info(f"Built {len(unique)} unique items from {len(raw_items)} raw")
 
