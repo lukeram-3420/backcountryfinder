@@ -110,8 +110,12 @@ def fetch_items() -> list:
 
 
 def fetch_availability(item_pk: int, start: str, end: str) -> list:
+    # FareHarbor's anonymous widget API requires the /minimal/ segment for
+    # availability — bare /availabilities/... is auth-only (External API)
+    # and 404s on this path. The /minimal/ payload still includes start_at,
+    # end_at, capacity, capacity_remaining, and customer_type_rates.
     try:
-        data = fh_get(f"items/{item_pk}/availabilities/date-range/{start}/{end}/")
+        data = fh_get(f"items/{item_pk}/minimal/availabilities/date-range/{start}/{end}/")
         return data.get("availabilities") or []
     except Exception as e:
         print(f"  availabilities failed for item {item_pk}: {e}")
@@ -179,6 +183,9 @@ def main():
             continue
         if title.lower().strip() in EXCLUDE_TITLES:
             print(f"  excluding non-course product: {title!r}")
+            continue
+        if item.get("is_archived") or item.get("is_unlisted"):
+            print(f"  skipping archived/unlisted: {title!r}")
             continue
         if item.get("is_bookable_online") is False:
             print(f"  skipping non-bookable item: {title!r}")
