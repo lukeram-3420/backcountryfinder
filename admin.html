@@ -359,7 +359,7 @@
 
     <!-- TAB: ACTIVITY TRACKING -->
     <div class="tab-panel hidden" id="panel-activity">
-      <details class="instructions"><summary>How to use this tab</summary><p>The catalog of every activity any scraper has seen. Each row is one <code>(provider, activity)</code> pair. <strong>Visible</strong> controls whether the scraper scans the activity AND whether it appears on the frontend — flipping a row off stops all work (detail fetch, availability walk, card render). <strong>Tracking mode</strong> is Zaui-only: <code>immediate</code> (short lookahead, default 14 days) vs <code>extended</code> (long lookahead, default 180 days). Non-Zaui rows have this column disabled. Edit the two numeric windows at the top to tune the day counts globally; scrapers read them on next run. Rows never disappear when toggled — the table reflects the admin-facing catalog, not "rows still needing attention". Use the provider dropdown and search box to narrow. Bulk actions act on the currently-filtered set; non-Zaui rows silently skip tracking-mode bulk updates. Columns are sortable. After a batch of Show/Hide toggles, click <strong>Sync Algolia</strong> to refresh the frontend search index (~30s). The DB changes instantly via the cascade, but the search grid reads from Algolia and needs a sync to pick up new hides/shows.</p></details>
+      <details class="instructions"><summary>How to use this tab</summary><p>The catalog of every activity any scraper has seen. Each row is one <code>(provider, activity)</code> pair. <strong>Visible</strong> controls whether the scraper scans the activity AND whether it appears on the frontend — flipping a row off stops all work (detail fetch, availability walk, card render). <strong>Tracking mode</strong> is Zaui-only: <code>immediate</code> (short lookahead, default 14 days) vs <code>extended</code> (long lookahead, default 180 days). Non-Zaui rows have this column disabled. Edit the two numeric windows at the top to tune the day counts globally; scrapers read them on next run. Rows never disappear when toggled — the table reflects the admin-facing catalog, not "rows still needing attention". Use the provider dropdown and search box to narrow. Bulk actions act on the currently-filtered set; non-Zaui rows silently skip tracking-mode bulk updates. Columns are sortable. After a batch of Show/Hide toggles, click <strong>Sync Algolia</strong> to refresh the frontend search index (~30s). The DB changes instantly via the cascade, but the search grid reads from Algolia and needs a sync to pick up new hides/shows. Each toggle toast reports how many course rows cascaded — if the count is 0, the activity had no matching live courses (often because the scraper hasn't run yet or the title drifted upstream).</p></details>
 
       <div class="section">
         <h2 style="margin-top:0;">Lookahead windows (days)</h2>
@@ -2869,13 +2869,15 @@ window.syncAlgoliaFromActivity = async (btn) => {
 
 window.toggleActivityVisible = async (provider_id, activity_key, visible) => {
   try {
-    await callEdge('admin-toggle-activity-control', {
+    const res = await callEdge('admin-toggle-activity-control', {
       rows: [{ provider_id, activity_key, visible }],
     });
     // In-place update — rows don't drop out just because the admin toggled them.
     const row = cachedActivity.find(r => r.provider_id === provider_id && r.activity_key === activity_key);
     if (row) row.visible = visible;
-    toast(`${activity_key} ${visible ? 'shown' : 'hidden'}`);
+    const n = res?.courses_affected ?? 0;
+    const verb = visible ? 'shown' : 'hidden';
+    toast(`${activity_key} ${verb} — ${n} course${n === 1 ? '' : 's'} ${verb}`);
   } catch (e) {
     toast('Failed: ' + e.message, true);
     loadActivityTab();
@@ -2924,7 +2926,11 @@ window.bulkActivity = async (action) => {
       if ('tracking_mode' in patch) r.tracking_mode = patch.tracking_mode;
     }
     const skipNote = skipped ? ` (${skipped} non-Zaui skipped)` : '';
-    toast(`Updated ${res.changed || rows.length}${skipNote}`);
+    const n = res?.courses_affected ?? 0;
+    const cascadeNote = (action === 'show' || action === 'hide')
+      ? ` — ${n} course${n === 1 ? '' : 's'} ${action === 'show' ? 'shown' : 'hidden'}`
+      : '';
+    toast(`Updated ${res.changed || rows.length}${skipNote}${cascadeNote}`);
     renderActivityTable();
   } catch (e) {
     toast('Failed: ' + e.message, true);
