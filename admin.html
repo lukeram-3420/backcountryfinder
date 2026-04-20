@@ -359,7 +359,7 @@
 
     <!-- TAB: ACTIVITY TRACKING -->
     <div class="tab-panel hidden" id="panel-activity">
-      <details class="instructions"><summary>How to use this tab</summary><p>The catalog of every activity any scraper has seen. Each row is one <code>(provider, activity)</code> pair. <strong>Visible</strong> controls whether the scraper scans the activity AND whether it appears on the frontend — flipping a row off stops all work (detail fetch, availability walk, card render). <strong>Tracking mode</strong> is Zaui-only: <code>immediate</code> (short lookahead, default 14 days) vs <code>extended</code> (long lookahead, default 180 days). Non-Zaui rows have this column disabled. Edit the two numeric windows at the top to tune the day counts globally; scrapers read them on next run. Rows never disappear when toggled — the table reflects the admin-facing catalog, not "rows still needing attention". Use the provider dropdown and search box to narrow. Bulk actions act on the currently-filtered set; non-Zaui rows silently skip tracking-mode bulk updates. Columns are sortable.</p></details>
+      <details class="instructions"><summary>How to use this tab</summary><p>The catalog of every activity any scraper has seen. Each row is one <code>(provider, activity)</code> pair. <strong>Visible</strong> controls whether the scraper scans the activity AND whether it appears on the frontend — flipping a row off stops all work (detail fetch, availability walk, card render). <strong>Tracking mode</strong> is Zaui-only: <code>immediate</code> (short lookahead, default 14 days) vs <code>extended</code> (long lookahead, default 180 days). Non-Zaui rows have this column disabled. Edit the two numeric windows at the top to tune the day counts globally; scrapers read them on next run. Rows never disappear when toggled — the table reflects the admin-facing catalog, not "rows still needing attention". Use the provider dropdown and search box to narrow. Bulk actions act on the currently-filtered set; non-Zaui rows silently skip tracking-mode bulk updates. Columns are sortable. After a batch of Show/Hide toggles, click <strong>Sync Algolia</strong> to refresh the frontend search index (~30s). The DB changes instantly via the cascade, but the search grid reads from Algolia and needs a sync to pick up new hides/shows.</p></details>
 
       <div class="section">
         <h2 style="margin-top:0;">Lookahead windows (days)</h2>
@@ -385,6 +385,7 @@
               <option value="">All providers</option>
             </select>
             <input type="search" id="activity-search" placeholder="Search title…" oninput="window.renderActivityTable()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;width:220px;">
+            <button class="btn btn-small" onclick="window.syncAlgoliaFromActivity(this)">Sync Algolia</button>
             <button class="btn btn-small" onclick="window.loadActivityTab()">Reload</button>
           </div>
         </div>
@@ -2852,6 +2853,18 @@ window.selectAllActivity = (checked) => {
 window.clearActivitySelection = () => {
   activitySelected.clear();
   renderActivityTable();
+};
+
+window.syncAlgoliaFromActivity = async (btn) => {
+  if (btn) { btn.disabled = true; btn.textContent = 'Syncing…'; }
+  try {
+    await callEdge('admin-trigger-scraper', { workflow_id: 'sync-algolia.yml' });
+    toast('Algolia sync running (~30s)');
+  } catch (e) {
+    toast('Sync dispatch failed: ' + e.message, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Sync Algolia'; }
+  }
 };
 
 window.toggleActivityVisible = async (provider_id, activity_key, visible) => {
