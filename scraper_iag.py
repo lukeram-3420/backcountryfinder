@@ -22,7 +22,21 @@ from scraper_utils import (
     generate_summaries_batch,
     stable_id_v2, spots_to_avail,
     update_provider_ratings, send_scraper_summary,
+    title_hash, activity_key,
+    upsert_activity_control, load_activity_controls,
 )
+
+_CONTROLS: dict = {}
+
+
+def _is_visible(provider_id: str, title: str) -> bool:
+    key = activity_key("title", None, title)
+    upsert_activity_control(
+        provider_id, key, title,
+        title_hash_=title_hash(title), platform="rails",
+    )
+    ctrl = _CONTROLS.get(key)
+    return not (ctrl and ctrl.get("visible") is False)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -139,6 +153,10 @@ def scrape_iag_style(provider):
                 if not h4:
                     continue
                 title = h4.get_text(strip=True)
+                if not title or not _is_visible(provider["id"], title):
+                    if title:
+                        log.info(f"Skipping hidden title: {title}")
+                    continue
 
                 # Description snippet
                 desc_p = item.select_one(".upcoming-trip--text p p")
@@ -284,6 +302,10 @@ def main():
     # Load mappings
     mappings = load_location_mappings()
     log.info(f"Loaded {len(mappings)} location mappings")
+
+    global _CONTROLS
+    _CONTROLS = load_activity_controls(provider["id"])
+    log.info(f"Loaded {len(_CONTROLS)} activity controls")
 
     # Scrape
     raw_courses = scrape_iag_style(provider)

@@ -9,7 +9,8 @@ Flow:
   1. update_provider_ratings + load location mappings.
   2. fetch_categories (excluding Rentals) + fetch_activity_list per category.
   3. Split all activities into 4 interleaved groups; process only --group N.
-  4. Per activity: walk 7-day windows across LOOKAHEAD_DAYS, accumulate
+  4. Per activity: walk 7-day windows across the per-activity lookahead
+     (immediate/extended via activity_controls.tracking_mode), accumulate
      fetchUnavailability blackouts, compute bookable dates from the weekly
      template minus blackouts.
   5. Emit one courses row per (activity, bookable date).
@@ -28,6 +29,8 @@ from scraper_utils import (
     update_provider_ratings,
     load_location_mappings, normalise_location,
     generate_summaries_batch,
+    activity_key, bulk_upsert_activity_controls, load_activity_controls,
+    load_lookahead_windows,
     UTM,
 )
 from scraper_zaui_utils import (
@@ -47,9 +50,11 @@ PROVIDER = {
 
 BOOKING_URL_PATTERN = "https://banffnorquay.zaui.net/booking/web/?{utm}#/default/activity/{id}"
 
-LOOKAHEAD_DAYS = 180
 WINDOW_DAYS    = 7
 TOTAL_GROUPS   = 4
+# Per-activity visibility + tracking-mode lookahead now live in
+# `activity_controls`. Shared structural filters in
+# scraper_zaui_utils.is_experience_product are kept as code.
 
 # Norquay's via ferrata operates on-mountain at Mt. Norquay. Title keyword
 # hints — first match wins; result is fed to normalise_location() so unknown
@@ -63,12 +68,6 @@ LOCATION_MAP = [
 
 # Zaui activity fields that may carry a human-readable location string.
 ZAUI_LOCATION_FIELDS = ("location", "meetingLocation", "address", "venue", "city")
-
-# Provider-specific title exclusions to layer on top of the shared Zaui
-# defaults in is_experience_product(). The shared filter already covers
-# gift cards, deposits, memberships, rentals, season passes, lift tickets,
-# merchandise, and add-ons.
-EXTRA_EXCLUDE_TITLES: list = []
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -117,8 +116,12 @@ def main():
     loc_mappings = load_location_mappings()
     log.info(f"Loaded {len(loc_mappings)} location mappings")
 
+    # Activity tracking — visibility + per-activity lookahead window.
+    controls = load_activity_controls(PROVIDER["id"])
+    windows  = load_lookahead_windows()
+    log.info(f"Loaded {len(controls)} activity controls; windows={windows}")
+
     today      = datetime.date.today()
-    end_date   = today + datetime.timedelta(days=LOOKAHEAD_DAYS)
     scraped_at = datetime.datetime.utcnow().isoformat()
 
     # 1. Categories (Rentals excluded). fetch_categories probes multiple dates
@@ -144,7 +147,7 @@ def main():
                 continue
             title = (a.get("name") or "").strip()
             cat_name = cat.get("name") or ""
-            if not is_experience_product(title, cat_name, EXTRA_EXCLUDE_TITLES):
+            if not is_experience_product(title, cat_name):
                 log.info(f"  excluding non-experience: {title!r} (cat={cat_name!r})")
                 continue
             seen_ids.add(aid)
@@ -152,17 +155,45 @@ def main():
             all_activities.append(a)
     log.info(f"Total unique activities: {len(all_activities)}")
 
+    # Batch-upsert every discovered activity into activity_controls.
+    control_rows = []
+    for a in all_activities:
+        aid = a.get("id")
+        title = (a.get("name") or "").strip()
+        if not aid or not title:
+            continue
+        control_rows.append({
+            "provider_id":  PROVIDER["id"],
+            "activity_key": activity_key("zaui", aid, title),
+            "title":        title,
+            "upstream_id":  aid,
+            "platform":     "zaui",
+        })
+    bulk_upsert_activity_controls(control_rows)
+
     # 3. Pick this run's group
     group_acts = get_activity_group(all_activities, group, TOTAL_GROUPS)
     log.info(f"Group {group}: {len(group_acts)} activities to scrape")
 
     # 4. Per activity: walk 7-day windows → blackouts → bookable dates → rows
     rows = []
+    hidden_count = 0
     for act in group_acts:
         aid   = act.get("id")
         title = (act.get("name") or "").strip()
         if not aid or not title:
             continue
+
+        # Activity Tracking gate + per-activity lookahead pick.
+        akey = activity_key("zaui", aid, title)
+        ctrl = controls.get(akey, {"visible": True, "tracking_mode": "immediate"})
+        if ctrl.get("visible") is False:
+            hidden_count += 1
+            continue
+        tmode = ctrl.get("tracking_mode") or "immediate"
+        end_date = today + datetime.timedelta(
+            days=windows["extended" if tmode == "extended" else "immediate"]
+        )
 
         description = html_to_text(act.get("description") or act.get("shortDescription") or "")
 
@@ -269,7 +300,7 @@ def main():
                 row["location_canonical"] = loc_canonical
             rows.append(row)
 
-    log.info(f"Built {len(rows)} course-date rows")
+    log.info(f"Built {len(rows)} course-date rows ({hidden_count} activities hidden via activity_controls)")
 
     # 5. Summaries — dedup by title
     if rows:

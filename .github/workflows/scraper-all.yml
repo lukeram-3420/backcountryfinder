@@ -124,6 +124,12 @@ jobs:
       - name: Validate Vibe Backcountry
         run: python validate_provider.py vibe-backcountry
         continue-on-error: true
+      - name: Bow Valley Canyon Tours
+        run: python scraper_bow_valley_canyon_tours.py
+        continue-on-error: true
+      - name: Validate Bow Valley Canyon Tours
+        run: python validate_provider.py bow-valley-canyon-tours
+        continue-on-error: true
       - name: Sync Algolia
         run: python algolia_sync.py --skip-settings
         continue-on-error: true

@@ -22,6 +22,8 @@ from scraper_utils import (
     load_location_mappings, normalise_location,
     generate_summaries_batch,
     spots_to_avail, append_utm,
+    title_hash,
+    activity_key, upsert_activity_control, load_activity_controls,
     UTM,
 )
 
@@ -42,16 +44,20 @@ CF_HEADERS = {
     "X-On-Behalf": "Off",
 }
 
-# Non-course product titles to skip. Girth Hitch's catalogue is almost
-# entirely guided activities, but Checkfront accounts frequently also carry
-# gift cards / deposits / memberships as bookable items.
-EXCLUDE_TITLES = [
-    "gift card",
-    "gift certificate",
-    "deposit",
-    "membership",
-    "custom trip",
-]
+# Per-title exclusions live in activity_controls now — hide a title by
+# flipping visible=false in the admin Activity Tracking tab. Seeded from
+# the historical list via seed_activity_controls.py.
+_CONTROLS: dict = {}
+
+
+def _is_visible(provider_id: str, title: str) -> bool:
+    key = activity_key("title", None, title)
+    upsert_activity_control(
+        provider_id, key, title,
+        title_hash_=title_hash(title), platform="checkfront",
+    )
+    ctrl = _CONTROLS.get(key)
+    return not (ctrl and ctrl.get("visible") is False)
 
 # Non-course Checkfront categories. Confirmed from first-run log:
 # Merchandise / Equipment / Samples are retail or internal items, not guided
@@ -143,6 +149,10 @@ def main():
     loc_mappings = load_location_mappings()
     print(f"  Loaded {len(loc_mappings)} location mappings")
 
+    global _CONTROLS
+    _CONTROLS = load_activity_controls(PROVIDER["id"])
+    print(f"  Loaded {len(_CONTROLS)} activity controls")
+
     today      = datetime.date.today()
     end_date   = today + datetime.timedelta(days=LOOKAHEAD_DAYS)
     start_s    = today.strftime("%Y%m%d")
@@ -154,14 +164,14 @@ def main():
     items = fetch_items()
     print(f"  Found {len(items)} items total")
 
-    # 2. Filter: EXCLUDE_TITLES + EXCLUDE_CATEGORIES + optional KEEP_CATEGORIES
+    # 2. Filter: activity_controls visibility + EXCLUDE_CATEGORIES + optional KEEP_CATEGORIES
     course_items = {}
     for iid, item in items.items():
         title = (item.get("name") or "").strip()
         if not title:
             continue
-        if title.lower().strip() in EXCLUDE_TITLES:
-            print(f"  excluding non-course product: {title!r}")
+        if not _is_visible(PROVIDER["id"], title):
+            print(f"  hidden via activity_controls: {title!r}")
             continue
         cat = (item.get("category") or "").lower()
         if cat in EXCLUDE_CATEGORIES:
