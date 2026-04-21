@@ -780,6 +780,9 @@ All live in `supabase/functions/admin-*/index.ts`. Every one verifies the JWT, c
 
 All Supabase queries default to 1000 rows. For queries that need all rows use explicit `Range: 0-49999` headers. Never rely on default pagination for correctness — if a feature shows wrong counts or missing data, check pagination first.
 
+### Algolia location search must target `location_canonical`
+In `algolia_sync.py`, `searchableAttributes` and `attributesForFaceting` must reference `location_canonical`, not `location` or `location_raw`. The canonical field is the clean `"City, Province"` string (e.g. `"Canmore, AB"`, `"Squamish, BC"`) that matches the BC/AB/etc. synonyms. `location_raw` is whatever string the provider's site happens to use — inconsistent format, no guaranteed province code — so searching against it silently drops results. Records push `location_canonical` + `location_raw` as separate fields; never collapse them into a single `location` key and never add `location_raw` to the searchable list. Bug history: an earlier version of the sync script mapped `"location": course.get("location_raw")` and listed `"location"` in `searchableAttributes`, which broke every location-based search.
+
 ## Slash commands
 
 ### /add-scraper
