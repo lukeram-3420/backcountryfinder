@@ -468,6 +468,14 @@
   CREATE POLICY "authenticated can select provider_pipeline"
     ON provider_pipeline FOR SELECT TO authenticated USING (true);
 
+  -- For the Pipeline tab Date added column. Idempotent — no-op if the column
+  -- already exists. NOT NULL DEFAULT now() backfills any existing rows with
+  -- the moment of the migration (real insert dates aren't recoverable for
+  -- pre-migration prospects); new inserts via discover_providers.py and the
+  -- "Add provider" form auto-populate going forward.
+  ALTER TABLE provider_pipeline
+    ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
+
   -- For the Flags tab "Clear all" (admin suppressions — validate_provider.py
   -- consumes this table at start of run and skips flagging matching rows).
   CREATE TABLE IF NOT EXISTS validator_suppressions (
