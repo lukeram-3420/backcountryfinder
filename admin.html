@@ -295,7 +295,7 @@
     <!-- TAB: PIPELINE -->
     <div class="tab-panel hidden" id="panel-pipeline">
       <details class="instructions"><summary>How to use this tab</summary><p><strong>Discovery Cloud</strong> (top) controls the search terms the weekly <code>refresh_discovery_cloud.py</code> + <code>discover_providers.py</code> cron uses to find new providers. Activity terms come from course-title bigrams across 2+ providers; location terms come from provider locations + location mappings. Add a manual term to search for niches not yet in your data. Click <strong>Remove</strong> to block a term — it stays in the table greyed out and the refresh script will not re-add it on its next run. Click <strong>Restore</strong> to un-block. <strong>Quality</strong> shows "X found / Y skipped" — &gt;80% skip rate (with 5+ total) gets a warning.</p>
-      <p><strong>Provider pipeline</strong> (middle): providers already live in the Providers tab are auto-hidden. This list shows candidates still to be onboarded. Click <strong>Add provider</strong> to paste a URL — Claude Haiku fetches the site and pre-fills name, location, platform, complexity, priority, plus Google Places rating. Click the small <strong>Detect</strong> button in the Platform column to re-run signature detection (fetches the homepage, matches against <code>PLATFORM_SIGNATURES</code>) — useful for rows Haiku guessed wrong. Click <strong>Copy prompt ↗</strong> on any row to copy a Claude Code instruction for building the scraper. Column headers for Name, Platform, Status, Priority are clickable to sort. Click Edit to change status/platform/priority/notes inline.</p>
+      <p><strong>Provider pipeline</strong> (middle): providers already live in the Providers tab are auto-hidden. This list shows candidates still to be onboarded. Click <strong>Add provider</strong> to paste a URL — Claude Haiku fetches the site and pre-fills name, location, platform, complexity, priority, plus Google Places rating. Click the small <strong>Detect</strong> button in the Platform column to re-run signature detection (fetches the homepage, matches against <code>PLATFORM_SIGNATURES</code>) — useful for rows Haiku guessed wrong. Click <strong>Copy prompt ↗</strong> on any row to copy a Claude Code instruction for building the scraper. The rightmost <strong>Date added</strong> column shows when the prospect was first inserted into <code>provider_pipeline</code> (ISO date YYYY-MM-DD) — useful for triaging recent finds vs. stale candidates. Column headers for Name, Platform, Status, Priority, and Date added are clickable to sort. Click Edit to change status/platform/priority/notes inline.</p>
       <p><strong>URL drift</strong> (bottom): for scrapers with hardcoded URL lists (currently <code>scraper_yamnuska.py</code> and <code>scraper_cloud_nine_guides.py</code>), each run probes the provider homepage for program URLs not in the hardcoded list and surfaces them here. Click <strong>Add</strong> to copy the URL with paste instructions for the scraper file (mark reviewed=added). Click <strong>Reject</strong> to mark the URL as not-a-program (won't resurface). Auto-discovery scrapers don't appear here — they pick up new URLs automatically.</p></details>
 
       <!-- Discovery Cloud -->
@@ -2250,11 +2250,12 @@ async function loadPipelineTab() {
 
 function pipelineSortValue(r, col) {
   switch (col) {
-    case 'name':     return r.name;
-    case 'platform': return r.platform;
-    case 'status':   return r.status;
-    case 'priority': return Number(r.priority) || null;
-    default:         return null;
+    case 'name':       return r.name;
+    case 'platform':   return r.platform;
+    case 'status':     return r.status;
+    case 'priority':   return Number(r.priority) || null;
+    case 'created_at': return r.created_at || null;
+    default:           return null;
   }
 }
 
@@ -2287,9 +2288,10 @@ function renderPipelineTable() {
   };
 
   document.getElementById('pipeline-table-wrap').innerHTML = `
-    <table><thead><tr>${h('name','Name')}<th>Location</th><th>Rating</th>${h('platform','Platform')}<th>Complexity</th>${h('status','Status')}${h('priority','Priority')}<th>Notes</th><th></th></tr></thead><tbody>${
+    <table><thead><tr>${h('name','Name')}<th>Location</th><th>Rating</th>${h('platform','Platform')}<th>Complexity</th>${h('status','Status')}${h('priority','Priority')}<th>Notes</th><th></th>${h('created_at','Date added')}</tr></thead><tbody>${
       visible.map(r => {
         const idArg = `'${esc(String(r.id)).replace(/'/g, "\\'")}'`;
+        const createdIso = r.created_at ? String(r.created_at).slice(0, 10) : '—';
         if (editingPipelineId === r.id) {
           const statusOpts = PIPELINE_STATUSES.map(s => `<option value="${s}" ${r.status===s?'selected':''}>${s}</option>`).join('');
           const prioOpts = [1,2,3].map(p => `<option value="${p}" ${Number(r.priority)===p?'selected':''}>${p}</option>`).join('');
@@ -2303,8 +2305,9 @@ function renderPipelineTable() {
             <td><select id="pp-priority-${r.id}">${prioOpts}</select></td>
             <td><textarea id="pp-notes-${r.id}">${esc(r.notes || '')}</textarea></td>
             <td></td>
+            <td>${esc(createdIso)}</td>
           </tr>
-          <tr><td colspan="9" style="background:#faf9f5;padding:14px 16px;">
+          <tr><td colspan="10" style="background:#faf9f5;padding:14px 16px;">
             <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
               <div style="flex:2;min-width:240px;">
                 <label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-tertiary);display:block;margin-bottom:4px;">Google Place ID</label>
@@ -2344,6 +2347,7 @@ function renderPipelineTable() {
           <td>${r.priority ?? '—'}</td>
           <td class="detail-snippet" title="${esc(r.notes || '')}">${esc(truncate(r.notes || '', 60))}</td>
           <td class="row-actions"><button class="btn btn-small" onclick="window.editPipelineRow(${idArg})">Edit</button> ${copyBtn}</td>
+          <td>${esc(createdIso)}</td>
         </tr>`;
       }).join('')
     }</tbody></table>`;
