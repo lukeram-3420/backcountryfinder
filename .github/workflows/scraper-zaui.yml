@@ -1,19 +1,15 @@
 name: Zaui Scrapers
 
-# Dedicated cron for Zaui-platform providers. Runs every 6h, but each scraper
-# only covers one quarter of its catalogue per run (selected by --group),
-# so a full refresh of any given provider takes 24h.
-#
-# Group number is derived from the current UTC hour:
-#   $(( $(date -u +%H) / 6 % 4 ))
-#   00–05 UTC → group 0
-#   06–11 UTC → group 1
-#   12–17 UTC → group 2
-#   18–23 UTC → group 3
+# Dedicated cron for Zaui-platform providers. Runs once daily and covers
+# the full catalogue of every provider in a single window by walking
+# groups 0..3 sequentially per scraper, then validating once at the end.
+# Running all groups inside one workflow run keeps `scraper_run_log` rows
+# apples-to-apples (one row per provider per day = full catalog count),
+# which clears the Initiative 7 false-positive count-drop badge.
 
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: '0 0 * * *'
   workflow_dispatch:
 
 jobs:
@@ -34,35 +30,35 @@ jobs:
         run: pip install requests beautifulsoup4 anthropic
 
       - name: Vancouver Mountain Guides
-        run: python scraper_vanmtnguides.py --group $(( $(date -u +%H) / 6 % 4 ))
+        run: for g in 0 1 2 3; do python scraper_vanmtnguides.py --group $g || true; done
         continue-on-error: true
       - name: Validate Vancouver Mountain Guides
         run: python validate_provider.py vanmtnguides
         continue-on-error: true
 
       - name: Banff Adventures
-        run: python scraper_banff_adventures.py --group $(( $(date -u +%H) / 6 % 4 ))
+        run: for g in 0 1 2 3; do python scraper_banff_adventures.py --group $g || true; done
         continue-on-error: true
       - name: Validate Banff Adventures
         run: python validate_provider.py banff-adventures
         continue-on-error: true
 
       - name: Mt. Norquay
-        run: python scraper_mt_norquay.py --group $(( $(date -u +%H) / 6 % 4 ))
+        run: for g in 0 1 2 3; do python scraper_mt_norquay.py --group $g || true; done
         continue-on-error: true
       - name: Validate Mt. Norquay
         run: python validate_provider.py mt-norquay
         continue-on-error: true
 
       - name: Canmore Adventures
-        run: python scraper_canmore_adventures.py --group $(( $(date -u +%H) / 6 % 4 ))
+        run: for g in 0 1 2 3; do python scraper_canmore_adventures.py --group $g || true; done
         continue-on-error: true
       - name: Validate Canmore Adventures
         run: python validate_provider.py canmore-adventures
         continue-on-error: true
 
       - name: Toby Creek Adventures
-        run: python scraper_toby_creek_adventures.py --group $(( $(date -u +%H) / 6 % 4 ))
+        run: for g in 0 1 2 3; do python scraper_toby_creek_adventures.py --group $g || true; done
         continue-on-error: true
       - name: Validate Toby Creek Adventures
         run: python validate_provider.py toby-creek-adventures
@@ -70,7 +66,7 @@ jobs:
 
       # ── Future Zaui providers — uncomment + rename as added ─────────────────
       # - name: Provider Name
-      #   run: python scraper_PROVIDER.py --group $(( $(date -u +%H) / 6 % 4 ))
+      #   run: for g in 0 1 2 3; do python scraper_PROVIDER.py --group $g || true; done
       #   continue-on-error: true
       # - name: Validate Provider Name
       #   run: python validate_provider.py PROVIDER
