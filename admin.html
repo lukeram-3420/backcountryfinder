@@ -670,8 +670,8 @@ function sortIndicator(state, col) {
   return state.dir === 'asc' ? ' ↑' : ' ↓';
 }
 function sortableHeader(state, col, label, onclick) {
-  const active = state.col === col ? 'style="color:var(--green-dark);"' : '';
-  return `<th ${active} style="cursor:pointer;user-select:none;" onclick="${onclick}">${esc(label)}${sortIndicator(state, col)}</th>`;
+  const activeColor = state.col === col ? 'color:var(--green-dark);' : '';
+  return `<th style="cursor:pointer;user-select:none;white-space:nowrap;${activeColor}" onclick="${onclick}">${esc(label)}${sortIndicator(state, col)}</th>`;
 }
 function toggleSortState(state, col) {
   if (state.col === col) state.dir = state.dir === 'asc' ? 'desc' : 'asc';
