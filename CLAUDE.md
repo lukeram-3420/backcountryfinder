@@ -929,6 +929,27 @@ Indexed on `(provider_id)` and `(title_hash)`. Append only when price changes. *
 | unsubscribed_at | timestamptz | |
 | updated_at | timestamptz | |
 
+### provider_pipeline
+| column | type | notes |
+|---|---|---|
+| id | text | primary key — slug derived from provider name |
+| name | text | |
+| website | text | |
+| location | text | `City, Province` |
+| platform | text | `rezdy` / `zaui` / `checkfront` / `fareharbor` / `wordpress` / `unknown` etc. — detected by `admin-detect-platform` or `discover_providers.py` |
+| complexity | text | `low` / `medium` / `high` — Haiku-derived signal for onboarding difficulty |
+| status | text | `candidate` / `scouted` / `scraper_built` / `live` / `skip` |
+| priority | integer | 1 (high) / 2 / 3 (low) |
+| notes | text | free-text triage notes |
+| google_place_id | text | enriched by `admin-analyse-provider` |
+| rating | numeric | Google Places |
+| review_count | integer | Google Places |
+| discovered_by | text | `auto` (script) / `manual` (admin-added). Null counts as manual |
+| discovery_query | text | which discover_providers.py search query found this row (debugging) |
+| created_at | timestamptz | not null, default now() — surfaces as the Pipeline tab's Date added column. Schema migration: run `ALTER TABLE provider_pipeline ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();` once in Supabase SQL editor. Idempotent. The migration backfills existing prospects with the moment the column was added (real historical insert dates aren't recoverable). New inserts via `discover_providers.py` and the admin "Add provider" form auto-populate via the column default. |
+
+Onboarding tracker for provider candidates. Populated by `discover_providers.py` (auto) and the admin Pipeline tab "Add provider" form (manual). Consumed by the Pipeline tab and by `admin-toggle-provider` (which flips matching rows to `status='live'` on provider activation). Live providers are hidden from the tab via a client-side domain/name match against `providers`, so the table accumulates history instead of being mutated on every onboarding event.
+
 ### discovery_cloud
 | column | type | notes |
 |---|---|---|
@@ -1134,6 +1155,11 @@ CREATE TABLE IF NOT EXISTS scraper_run_log (
 
 ALTER TABLE courses ADD COLUMN IF NOT EXISTS auto_flagged boolean default false;
 ALTER TABLE courses ADD COLUMN IF NOT EXISTS flag_reason text;
+
+-- For the Pipeline tab Date added column (idempotent, backfills existing
+-- prospects with the moment of the migration):
+ALTER TABLE provider_pipeline
+  ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
 ```
 
 For Initiative 8 (Activity Tracking), run `activity_controls_schema.sql` —
