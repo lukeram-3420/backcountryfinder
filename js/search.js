@@ -322,6 +322,68 @@ function applyConfigFilters() {
 }
 
 function initSearch() {
+  // SEO landing pages render server-rendered static cards and must not let Algolia
+  // hydrate on page load — doing so causes Cumulative Layout Shift, which directly
+  // harms ranking. See CLAUDE.md → "The Algolia hydration pattern (CLS critical)".
+  if (document.body && document.body.dataset.seoPage === 'true') {
+    initSearchLazy();
+    return;
+  }
+  initSearchEager();
+}
+
+function _composeSeoQuery() {
+  // Body-level filters take precedence in this order:
+  //   data-filter-query   → used verbatim
+  //   data-filter-activity + data-filter-location → joined with a space
+  //   one of activity/location alone → that single value
+  const ds = document.body.dataset;
+  if (ds.filterQuery) return ds.filterQuery;
+  return [ds.filterActivity, ds.filterLocation].filter(Boolean).join(' ');
+}
+
+function initSearchLazy() {
+  const queryInput = document.getElementById('search-query');
+  const dateInput  = document.getElementById('search-date');
+  const loadMore   = document.querySelector('.load-more-btn');
+  const ds = document.body.dataset;
+
+  // Hydrate visible inputs from data-filter-* so the search UI matches the static cards
+  // before Algolia takes over. These values are read by initSearchEager() on activation.
+  const seoQuery = _composeSeoQuery();
+  if (queryInput && seoQuery) queryInput.value = seoQuery;
+  if (dateInput && ds.filterDate) {
+    dateInput.value = ds.filterDate;
+    updateDateChip();
+  }
+  if (ds.filterProvider) currentFilters.provider = ds.filterProvider;
+
+  // The static load-more button (if any) has an inline onclick="loadMore()" carried
+  // over from the legacy V1 markup; loadMore() is undefined under V2, so neutralise it
+  // before any user click can throw a ReferenceError.
+  if (loadMore) loadMore.removeAttribute('onclick');
+
+  let activated = false;
+  const activate = () => {
+    if (activated) return;
+    activated = true;
+    initSearchEager();
+  };
+
+  // Any meaningful interaction with the filter UI flips us into live-search mode.
+  // { once: true } removes the listener after firing so we never double-init Algolia.
+  if (queryInput) {
+    queryInput.addEventListener('focus', activate, { once: true });
+    queryInput.addEventListener('input', activate, { once: true });
+  }
+  if (dateInput) {
+    dateInput.addEventListener('focus',  activate, { once: true });
+    dateInput.addEventListener('change', activate, { once: true });
+  }
+  if (loadMore) loadMore.addEventListener('click', activate, { once: true });
+}
+
+function initSearchEager() {
   // Instantiate Algolia client + connectors now that the body script has defined the constants
   initAlgoliaInsights();
   searchClient = algoliasearch(ALGOLIA_APP_ID, ALGOLIA_SEARCH_KEY);
@@ -341,6 +403,11 @@ function initSearch() {
           clearTimeout(timer);
           timer = setTimeout(() => refine(input.value), 300);
         });
+        // SEO pages pre-populate #search-query via data-filter-query before
+        // initSearchEager() runs. Algolia's connectSearchBox only calls refine()
+        // on input events, so a hydrated value would otherwise sit in the input
+        // without filtering results. Push it into Algolia state on first render.
+        if (input.value) refine(input.value);
       }
     }
   );
@@ -389,11 +456,14 @@ function initSearch() {
     }
   );
 
-  // Set default "from" date to tomorrow
-  const tmrw = new Date();
-  tmrw.setDate(tmrw.getDate() + 1);
+  // Set default "from" date to tomorrow — but don't overwrite a value already
+  // set by initSearchLazy() from data-filter-date on an SEO page.
   const dateInput = document.getElementById('search-date');
-  dateInput.value = tmrw.toISOString().split('T')[0];
+  if (!dateInput.value) {
+    const tmrw = new Date();
+    tmrw.setDate(tmrw.getDate() + 1);
+    dateInput.value = tmrw.toISOString().split('T')[0];
+  }
   updateDateChip();
 
   // Parse provider deep link before starting search
