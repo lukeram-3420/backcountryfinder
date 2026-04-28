@@ -835,6 +835,66 @@ Page structure top-to-bottom:
 
 Content density: 200-300 words is sufficient for low-competition long-tail queries. Top 5-10 pages targeting head terms ("avalanche course Canada," "ski touring courses BC") need 800-1500 words to compete with established outdoor education sites.
 
+### URL structure
+
+Flat hierarchy. No parent/child URL nesting (rejected after consultant review — flat structure with strong internal linking and BreadcrumbList schema delivers the same ranking signal at zero engineering cost and stays cleaner for international expansion).
+
+| Pattern | Example |
+|---|---|
+| Activity + region | `/courses/ast-1-courses-bc` |
+| Activity + location | `/courses/ski-touring-squamish` |
+| Activity hub | `/courses/ski-touring` |
+| Region hub | `/regions/squamish` |
+| Provider | `/providers/altus-mountain-guides` |
+| Informational | `/learn/what-is-ast-1` |
+
+Conventions: hyphens not underscores, lowercase only, trailing slash consistency (pick one, 301 the other). Vercel handles via rewrites in `vercel.json`: `{ "source": "/courses/:slug", "destination": "/seo/:slug/index.html" }`.
+
+International expansion: when US pages launch, pattern becomes `/courses/ski-touring-wa` (Washington) parallel to `/courses/ski-touring-bc`. `hreflang` tags become required at that point, not before. Currency and activity terminology (Americans search "avalanche course" not "AST") will need US-specific variants — page generation script must keep these configurable per region from day one.
+
+### The seasonality solution
+
+Most guide companies leave course pages live year-round even when no dates are published. Scrapers retain these as `notify_me` mode rows with the course tile rendering and a notify-me CTA. When dates go live, users who clicked notify-me get emailed.
+
+This converts the off-season problem into a structural advantage:
+- SEO pages stay populated and content-rich year-round, no seasonal dead zones
+- Off-season visitors convert to email captures → conversions months later
+- Page identity stays stable for Google (always about the same topic, just different mix of available vs notify-me)
+- The notifications table becomes a real-time demand signal no competitor has
+
+Implementation requirement on the data layer: scrapers must persist dateless courses across runs as `notify_me` mode rows rather than dropping them. V2's `{provider_id}-flex-{title_hash}` ID format already handles this — the change is broadening what counts as flex-date to include "currently undated."
+
+### The data moat
+
+Two append-only intelligence tables (`course_availability_log`, `course_price_log`) capture how courses fill up and how prices move over time. This is content nobody else in the market has. Powers unique-content callouts on landing pages: "filling fast," "price dropped 15%," "newly listed by 3 providers this week," "average AST 1 price in Squamish has risen 8% since last winter."
+
+Generic aggregators cannot produce this content. Google rewards uniqueness ("information gain"). This is the strongest differentiation lever the site has.
+
+Activation timeline: needs 4+ weeks minimum of post-purge log data for velocity signals to be statistically meaningful, ideally 8-12 weeks. Logs were purged 2026-04-16. Earliest meaningful activation is roughly mid-May 2026.
+
+### The Algolia hydration pattern (CLS critical)
+
+SEO pages are server-rendered static HTML. The existing `js/search.js` Algolia InstantSearch must NOT auto-initialize on these pages — doing so causes Cumulative Layout Shift as Algolia replaces static cards, which directly harms ranking.
+
+Pattern:
+- SEO page template includes `<body data-seo-page="true" data-filter-activity="..." data-filter-location="...">` 
+- `js/search.js` `initSearch()` checks for `data-seo-page="true"` on body
+- If present: skip auto-search, leave server-rendered cards in place, attach one-time interaction listener to search box, filter dropdowns, date input, and pagination
+- On first user interaction: initialize Algolia with the page's pre-set filters and replace the static cards with the live grid
+- When Algolia activates, first render must visually match the static cards (same design, spacing, image dimensions) to avoid layout shift on activation
+
+Most SEO traffic never interacts with filters (came for a specific query, converts or bounces) — Algolia never loads at all on those visits. Free performance win.
+
+### The cannibalization problem
+
+With 30+ pages targeting overlapping queries, multiple pages can compete for the same query. Google picks one and "omits" the others. Two prevention rules:
+
+1. **Each child page needs substantive location-specific content.** Generic mentions ("Squamish is great for skiing") fail. Real local content — terrain, landmarks, conditions, what's distinctive — passes. This is hand-written by the founder, not Haiku-generated, because hallucinated specifics are worse than no specifics.
+
+2. **Hub pages and child pages serve different intent.** `/courses/ski-touring-bc` (hub) is for "I don't know where to go yet" — comparison content, beginner regions, spring skiing recommendations. `/courses/ski-touring-squamish` (child) is for "tell me about this place." Different content, no overlap.
+
+The temptation to copy-paste structure across child pages and let Haiku swap city names is exactly what gets pages cannibalized. Each child page is written like it's the only page on the site for that region.
+
 ## Database Schema
 
 ### courses
