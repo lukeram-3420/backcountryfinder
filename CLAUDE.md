@@ -943,6 +943,106 @@ Non-negotiable for V1:
 - **OpenGraph tags** for social shares
 - **Core Web Vitals** measured with PageSpeed Insights once V1 ships — static HTML on Vercel scores well by default but verify
 
+### Build architecture
+
+Static generation at scrape time. Fits existing Python + GitHub Actions + static deploy pattern. No new infrastructure, no Next.js migration, no runtime serverless functions.
+
+Components:
+
+- `seo_pages.yml` — config defining each page: slug, page type, title, h1, filters, stable intro path, FAQ items
+- `seo_content/` — directory of hand-written markdown files, one per page (intros, region content, FAQ where hand-written)
+- `templates/seo_page.html` — Jinja2 template with the page architecture above
+- `generate_seo_[pages.py](http://pages.py)` — loads config, queries Supabase, optionally calls Haiku for adaptive content, renders each page, writes to `/seo/{slug}/index.html`, generates `sitemap.xml`
+- `vercel.json` — rewrite rules mapping `/courses/:slug`, `/providers/:slug`, `/regions/:slug`, `/learn/:slug` to `/seo/{slug}/index.html`
+- `scraper-all.yml` — adds final step running `generate_seo_[pages.py](http://pages.py)` after `algolia_[sync.py](http://sync.py)`
+
+Build runs every 6 hours alongside scrapers. Static HTML pushed to repo, Vercel auto-deploys.
+
+### Search Console and feedback loop
+
+Search Console + Bing Webmaster Tools setup is week-1 work, not deferred. Feedback loops to monitor weekly for first 3 months:
+
+| Report | What to watch |
+|---|---|
+| Performance | Long-tail queries the site is accidentally ranking for — these become next page-build targets |
+| Coverage | Pages indexed vs "Crawled - currently not indexed" (quality warning) vs "Duplicate, Google chose different canonical" (cannibalization warning) |
+| Enhancements | Schema implementation errors — Course schema, FAQPage, BreadcrumbList |
+| URL Inspection | Force-crawl high-value pages on launch |
+
+The Performance tab specifically drives the page-expansion roadmap. Build new pages for queries the site is already getting impressions for at positions 11-30 — these are highest-ROI builds because Google has already decided the site is relevant.
+
+### Off-page strategy
+
+Three high-ROI moves for zero-budget niche aggregator:
+
+1. **Provider reciprocity backlinks.** Pitch: "We've featured you on our provider page. Would you mind linking to your listing from your 'As Seen In' or 'Partners' section?" Use exact phrasing. Altus relationship is the test case — 12 providers were notified at launch, retain warm contacts.
+
+2. **Annual "State of Backcountry" report.** Once per year, use logs to publish data report: "Average AST 1 price increased X% in 2026," "Squamish climbing courses fill 40% faster than 2023." Pitch to Mountain Life, Pique News Magazine, Gripped, Powder Canada. One feature is worth months of grinding.
+
+3. **Reddit and community presence.** r/Vancouver, r/CanadaSkiing, r/backcountry, r/climbing. Be a useful person who runs the site, not a person promoting the site. Six months of presence before expecting anything. Founder's firefighter/local angle is credibility asset.
+
+Skip: TikTok, Twitter/X, cold influencer outreach, listicle backlink schemes.
+
+### Realistic timeline
+
+For a low-authority domain in a niche this small, executed well:
+
+- **Months 1-3:** Sandbox period. Pages get indexed but rank in positions 30-50. Focus on technical SEO correctness and content quality. Watch for any impressions in Search Console as early signal.
+- **Months 3-6:** Long-tail climb. Begin ranking for specific queries ("AST 1 Squamish March 2026 available"). 10-50 monthly impressions per page. Notify-me captures begin accumulating.
+- **Months 6-12:** Authority phase. Better long-tail rankings, occasional top-10 for head terms. Compounding internal linking + accumulated backlinks + log-data freshness signals. 20-30% MoM organic growth becomes plausible.
+- **Months 12+:** State of Backcountry report publication unlocks higher-DR backlinks. Real authority accumulates.
+
+Hockey-stick growth curves are real but later than commonly expected. Plan for nothing visible for 60-90 days, then gradual compounding.
+
+### Execution sequence (when SEO build kicks off)
+
+Prerequisites: Initiatives 1 and 2 landed, 4+ weeks of fresh log data, keyword research completed, foundational content hand-written.
+
+Week 1 — technical guardrails:
+- Search Console + Bing Webmaster Tools setup
+- Verify Vercel `Last-Modified` header behavior
+- Implement lazy-Algolia pattern in `js/search.js` for SEO pages
+- Confirm robots.txt and sitemap.xml infrastructure
+
+Week 2 — content + structure foundation:
+- Hand-write 10-15 stable topical intros (the "Power 10")
+- Hand-write 8-10 "About this region" sections for top locations
+- Design and document internal linking architecture (which pages link where, footer structure, breadcrumb pattern)
+
+Week 3 — build pipeline:
+- `generate_seo_[pages.py](http://pages.py)` with hub-and-spoke linking output
+- Course + FAQPage + BreadcrumbList schema implementation
+- Quick Stats box rendering from logs
+- Dynamic H1 logic for empty-availability case
+- Homepage "Browse by" sections + footer sitemap
+
+Week 4 — ship and validate:
+- Deploy V1 pages (5-10 to start)
+- Submit sitemap, request indexing on top 5 via URL Inspection
+- Verify Core Web Vitals
+- Verify schema implementation in GSC Enhancements
+
+Month 2 — backlinks + monitoring:
+- Provider reciprocity outreach
+- Reddit presence ramp
+- Weekly GSC Coverage and Performance checks
+
+Months 3-6 — scale and refine:
+- Layer Haiku-generated adaptive content as logs mature
+- Expand to 30-50 pages based on GSC query signals
+- Begin drafting State of Backcountry report
+
+Month 6+ — compounding:
+- Annual report publication and PR pitch
+- Continue scaling pages based on data signals
+
+### Open questions to resolve before build
+
+- Keyword research output: which specific 15-30 queries to target in V1 (requires 4-6 hour focused research session using Search Console, Keyword Planner, autocomplete, competitor SERPs)
+- Whether to fold informational pages (`/learn/*`) into V1 or defer to V2
+- Whether `/regions/{slug}` hub pages launch in V1 or wait for child pages to mature first
+- Exact cadence and audit process for Haiku-generated FAQ items on lower-priority pages
+
 ## Database Schema
 
 ### courses
