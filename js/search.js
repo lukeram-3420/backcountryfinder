@@ -403,6 +403,11 @@ function initSearchEager() {
           clearTimeout(timer);
           timer = setTimeout(() => refine(input.value), 300);
         });
+        // SEO pages pre-populate #search-query via data-filter-query before
+        // initSearchEager() runs. Algolia's connectSearchBox only calls refine()
+        // on input events, so a hydrated value would otherwise sit in the input
+        // without filtering results. Push it into Algolia state on first render.
+        if (input.value) refine(input.value);
       }
     }
   );
