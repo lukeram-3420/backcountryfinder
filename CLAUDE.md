@@ -803,6 +803,38 @@ git add -A && git commit -m "<describe what changed>" && git push
 ```
 Never wait for manual confirmation to commit.
 
+## SEO landing pages — strategy and architecture
+
+### Status
+
+Not started. Strategy crystallized April 2026. Execution scheduled after Initiatives 1 and 2 (data quality cleanup) land and stabilize, and after 4+ weeks of fresh `course_availability_log` / `course_price_log` data has accumulated to power the data moat.
+
+### Goal
+
+Build a network of server-rendered SEO landing pages (~15-30 in V1, scaling to 50+) targeting transactional and informational queries for outdoor course discovery in BC and Alberta. Zero ad spend strategy — organic traffic is the only growth lever. Pages serve dual intent: convert in-season visitors to bookings, convert off-season visitors to notify-me email captures that convert to bookings months later.
+
+### Why current architecture fails for SEO
+
+The entire live site is one URL (`/`) with client-rendered Algolia content. Google sees an empty shell on first paint. JavaScript rendering happens in a delayed second pass that is slow, unreliable for low-authority sites, and costs Core Web Vitals points. Without server-rendered HTML at unique URLs, the site cannot rank for transactional queries regardless of content quality.
+
+### Page architecture
+
+One long page per topic, no sub-URLs for FAQ or supplementary content. Splitting FAQ to a sub-URL dilutes the parent page, splits link equity, and harms both pages. All content for a topic lives at one URL.
+
+Page structure top-to-bottom:
+
+1. **H1 + subhead** matching the search query exactly. H1 is dynamic — when zero "available now" courses exist, H1 becomes "{Topic} — Join Waitlist" form to manage SERP click intent.
+2. **Course grid above the fold** — server-rendered static HTML cards, split into "Available now" (courses with confirmed dates) and "Notify me when available" (courses without current dates, with notify-me CTAs).
+3. **Quick Stats box** — data-derived facts pulled from logs: average price, availability count, next available date, fill rate. Renders directly from DB queries, no AI involvement.
+4. **Adaptive paragraph** — Haiku-generated, regenerated per scrape. Reflects current course state ("12 courses available starting December 12, prices range $295-$495, 3 providers added new dates this week"). Strictly data-derived statements, no editorial claims.
+5. **Stable topical intro** (`<h2>About {topic}</h2>`) — hand-written, 200-300 words. What the topic is, who needs it, prerequisites, what to expect. The topical authority anchor.
+6. **Region-specific section** (location pages only) — hand-written, 100-200 words. Local terrain, landmarks, conditions, distinctive characteristics. Required for non-cannibalization. Squamish page mentions Diamond Head, Garibaldi, Round Mountain. Whistler page mentions Spearhead Traverse, Singing Pass. Revelstoke page mentions Rogers Pass tenure.
+7. **Featured providers strip** — horizontal row of provider logos with star ratings, linking to provider pages. Internal linking distribution.
+8. **FAQ accordion** — 6-12 items with FAQPage JSON-LD schema. Hand-written for top 5-10 pages, Haiku-generated for lower-priority pages.
+9. **Related pages footer** — 3-5 internal links to related topics. Breadcrumb above (Home → Activity → Location).
+
+Content density: 200-300 words is sufficient for low-competition long-tail queries. Top 5-10 pages targeting head terms ("avalanche course Canada," "ski touring courses BC") need 800-1500 words to compete with established outdoor education sites.
+
 ## Database Schema
 
 ### courses
