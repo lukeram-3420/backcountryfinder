@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SEO lazy-init test</title>
+<meta name="robots" content="noindex, nofollow">
+<style>
+  body { font-family: system-ui, sans-serif; padding: 20px; max-width: 900px; }
+  .card { border: 1px solid #ccc; padding: 12px; margin: 8px 0; border-radius: 4px; }
+  input { padding: 8px; font-size: 14px; margin: 4px; }
+  code { background: #f3f3f3; padding: 1px 4px; border-radius: 2px; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/algoliasearch@4/dist/algoliasearch-lite.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/instantsearch.js@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/search-insights@2"></script>
+<script defer src="/js/cards.js"></script>
+<script defer src="/js/saved.js"></script>
+<script defer src="/js/ui.js"></script>
+<script defer src="/js/search.js"></script>
+</head>
+<body data-seo-page="true" data-filter-provider="altus" data-filter-query="ski touring">
+<h1>SEO lazy-init test page</h1>
+<p><strong>Expected:</strong> no <code>*.algolia.net</code> requests on initial load; the two static cards below stay visible. Click the search box → Algolia activates → cards get replaced with live Altus results filtered by "ski touring".</p>
+
+<input id="search-query" type="text" placeholder="Search">
+<input id="search-date" type="date">
+
+<div id="card-grid" style="margin-top: 20px;">
+  <div class="card"><h3>Static AST 1 (rendered server-side)</h3><p>This is hardcoded HTML. If you see it after page load, the static cards survived.</p></div>
+  <div class="card"><h3>Static Glacier Travel (rendered server-side)</h3><p>Same — hardcoded HTML, no Algolia involved.</p></div>
+</div>
+
+<div id="load-more-wrap" style="margin-top: 20px;"><button class="load-more-btn">show more</button></div>
+<div id="results-count"></div>
+
+<script>
+  const SUPABASE_URL = 'https://owzrztaguehebkatnatc.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_lqIyTGAgCn09Yfh1eacSPg_tcs9SJcB';
+  const ALGOLIA_APP_ID = 'GFJACG4KYQ';
+  const ALGOLIA_SEARCH_KEY = '5a535334c72b08b3ccf5700a388cc8fa';
+  const ALGOLIA_INDEX = 'courses_v2';
+  const FALLBACK_IMG = "https://images.unsplash.com/photo-1607895521752-bb2ddf4ef6e3?w=800&q=80&fit=crop";
+  let currentFilters = { location: '', date: '', provider: '' };
+  let currentCourses = [];
+  let totalCount = 0;
+  document.addEventListener('DOMContentLoaded', () => initSearch());
+</script>
+</body></html>
