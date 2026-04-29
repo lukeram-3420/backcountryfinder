@@ -677,6 +677,36 @@ def spots_to_avail(spots: Optional[int]) -> str:
     return "open"
 
 
+def detect_checkfront_spot_counts(item_cal: dict) -> bool:
+    """Per-item probe of a Checkfront /api/3.0/item/cal response.
+
+    Checkfront's calendar endpoint can return either integer spot counts
+    (e.g. 5 = 5 spots remaining) OR a binary availability flag (1 = available,
+    0 = not), depending on how the tenant has configured each item. Trusting
+    a global probe across all items is wrong: a tenant may have spot tracking
+    enabled for some items and disabled for others, so a value of 1 on a
+    binary-flag item gets misread as "1 spot left" if any other item in the
+    catalog ever returned >=2.
+
+    Pass in a single item's cal dict (one entry per date_key) and this returns
+    True only when at least one of THIS item's values is >1 — at which point
+    integer interpretation is safe for the whole item. False otherwise: the
+    caller should set spots_remaining=None on every date for this item, which
+    spots_to_avail() will translate to 'open'.
+
+    Reference bug: pre-fix, AAA's "Rock Climbing: Beginner" reported "1 spot
+    left" on every date because the global probe flipped to True from a
+    different multi-spot product elsewhere in the catalog.
+    """
+    for v in (item_cal or {}).values():
+        try:
+            if int(v) > 1:
+                return True
+        except (ValueError, TypeError):
+            continue
+    return False
+
+
 # ── Intelligence logging (V2 — sacred append-only tables) ───────────────────
 
 def title_hash(title: str) -> str:
