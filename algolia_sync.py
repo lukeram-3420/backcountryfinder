@@ -37,6 +37,12 @@ ALGOLIA_APP_ID = os.environ.get("ALGOLIA_APP_ID", "")
 ALGOLIA_ADMIN_KEY = os.environ.get("ALGOLIA_ADMIN_KEY", "")
 ALGOLIA_INDEX_NAME = os.environ.get("ALGOLIA_INDEX_NAME", "courses_v2")
 
+# Replica indexes power the price-sort toggle on the search page. Replicas
+# auto-mirror the primary's records — only customRanking differs. Synonyms
+# don't auto-replicate, so configure_index() pushes them to all three.
+REPLICA_PRICE_ASC = f"{ALGOLIA_INDEX_NAME}_price_asc"
+REPLICA_PRICE_DESC = f"{ALGOLIA_INDEX_NAME}_price_desc"
+
 # Far-future timestamp for flex-date courses (2100-01-01) — sorts to end
 FLEX_DATE_TIMESTAMP = 4102444800
 
@@ -221,8 +227,14 @@ def group_courses_for_algolia(courses):
 # ── Index configuration ──────────────────────────────────────────────────────
 
 def configure_index(client):
-    """Set searchable attributes, facets, ranking, and synonyms."""
-    log.info("Configuring index settings...")
+    """Set searchable attributes, facets, ranking, and synonyms.
+
+    Configures the primary index with replicas declared, then sets each
+    replica's customRanking so the price-sort toggle on the search page
+    can swap indexes via search.helper.setIndex(). Synonyms are pushed
+    to every index — Algolia replicas don't auto-mirror synonyms.
+    """
+    log.info("Configuring primary index settings...")
 
     client.set_settings(
         index_name=ALGOLIA_INDEX_NAME,
@@ -243,17 +255,39 @@ def configure_index(client):
             "customRanking": [
                 "asc(next_date_sort)",
             ],
+            "replicas": [REPLICA_PRICE_ASC, REPLICA_PRICE_DESC],
         },
     )
-    log.info("Index settings configured")
 
-    log.info(f"Pushing {len(SYNONYMS)} synonym rules...")
-    client.save_synonyms(
-        index_name=ALGOLIA_INDEX_NAME,
-        synonym_hit=SYNONYMS,
-        replace_existing_synonyms=True,
+    # Replicas inherit searchable attributes + faceting from the primary on
+    # creation. We only override customRanking. price_min is omitted on
+    # priceless records (algolia_sync.py strips None values) — Algolia
+    # deprioritizes records missing a customRanking attribute, so they sort
+    # to the end on asc and to the start on desc after priced records.
+    log.info(f"Configuring replica {REPLICA_PRICE_ASC}...")
+    client.set_settings(
+        index_name=REPLICA_PRICE_ASC,
+        index_settings={
+            "customRanking": ["asc(price_min)", "asc(next_date_sort)"],
+        },
     )
-    log.info("Synonyms configured")
+    log.info(f"Configuring replica {REPLICA_PRICE_DESC}...")
+    client.set_settings(
+        index_name=REPLICA_PRICE_DESC,
+        index_settings={
+            "customRanking": ["desc(price_min)", "asc(next_date_sort)"],
+        },
+    )
+    log.info("Index + replica settings configured")
+
+    for idx in (ALGOLIA_INDEX_NAME, REPLICA_PRICE_ASC, REPLICA_PRICE_DESC):
+        log.info(f"Pushing {len(SYNONYMS)} synonym rules to {idx}...")
+        client.save_synonyms(
+            index_name=idx,
+            synonym_hit=SYNONYMS,
+            replace_existing_synonyms=True,
+        )
+    log.info("Synonyms configured on primary + replicas")
 
 
 # ── Record push ──────────────────────────────────────────────────────────────
