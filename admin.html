@@ -747,18 +747,61 @@ async function fetchRunLog() {
 
 async function loadProvidersTab() {
   try {
-    const [providers, runs, totalCourses, autoHidden, userFlags] = await Promise.all([
-      sbSelect('providers', { select: 'id,name,active,booking_platform,created_at' }),
-      fetchRunLog(),
-      countRows('courses'),
-      countRows('courses', 'auto_flagged=eq.true'),
-      countRows('courses', 'flagged=eq.true'),
-    ]);
+    // Fetch the lightweight per-row dataset we need to compute unique-course
+    // counts client-side. Each Supabase row is a (course, date) tuple — title
+    // hash is the last 8 chars of the V2 stable id `{provider}-{date}-{hash}`
+    // or `{provider}-flex-{hash}`. Deduping by `(provider_id, title_hash)`
+    // gives us the same unique-course count the live frontend sees post-PR-#43
+    // Algolia dedup. Paginated 1000-at-a-time so the table can grow past 50k
+    // without breaking.
+    const courseRows = [];
+    let page = 0;
+    const PAGE_SIZE = 1000;
+    while (true) {
+      const offset = page * PAGE_SIZE;
+      const r = await fetch(
+        `${SUPABASE_URL}/rest/v1/courses?select=id,provider_id,active,flagged,auto_flagged&limit=${PAGE_SIZE}&offset=${offset}&order=id`,
+        { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+      );
+      if (!r.ok) throw new Error(`Supabase ${r.status} fetching courses`);
+      const chunk = await r.json();
+      courseRows.push(...chunk);
+      if (chunk.length < PAGE_SIZE) break;
+      page += 1;
+      if (page > 200) break;  // 200k-row safety stop
+    }
+
+    const providers = await sbSelect('providers', { select: 'id,name,active,booking_platform,created_at' });
+    const runs = await fetchRunLog();
+
+    // Dedup by (provider_id, title_hash). Track sets per provider for the
+    // table, plus global sets for the stat row.
+    const allCourseHashes  = new Set();
+    const autoHiddenHashes = new Set();
+    const userFlagHashes   = new Set();
+    const perProviderHashes = {};  // provider_id → { visible: Set, af: Set, uf: Set }
+    for (const row of courseRows) {
+      if (!row.id || row.id.length < 8) continue;
+      const th = row.id.slice(-8);
+      const pid = row.provider_id || '';
+      const key = `${pid}::${th}`;
+      allCourseHashes.add(key);
+      if (row.auto_flagged) autoHiddenHashes.add(key);
+      if (row.flagged)      userFlagHashes.add(key);
+      if (!perProviderHashes[pid]) {
+        perProviderHashes[pid] = { visible: new Set(), af: new Set(), uf: new Set() };
+      }
+      if (row.active && !row.flagged && !row.auto_flagged) {
+        perProviderHashes[pid].visible.add(th);
+      }
+      if (row.auto_flagged) perProviderHashes[pid].af.add(th);
+      if (row.flagged)      perProviderHashes[pid].uf.add(th);
+    }
 
     document.getElementById('stat-providers').textContent = providers.length;
-    document.getElementById('stat-courses').textContent = totalCourses;
-    document.getElementById('stat-auto-hidden').textContent = autoHidden;
-    document.getElementById('stat-user-flags').textContent = userFlags;
+    document.getElementById('stat-courses').textContent = allCourseHashes.size;
+    document.getElementById('stat-auto-hidden').textContent = autoHiddenHashes.size;
+    document.getElementById('stat-user-flags').textContent = userFlagHashes.size;
 
     // Initiative 7: track the last two runs per provider to compute a
     // client-side count-drop signal. `runs` is ordered by run_at desc so
@@ -770,13 +813,8 @@ async function loadProvidersTab() {
       if (!prevRunByProvider[r.provider_id]) { prevRunByProvider[r.provider_id] = r; }
     }
 
-    const perProvider = await Promise.all(providers.map(async p => {
-      const pFilter = `provider_id=eq.${encodeURIComponent(p.id)}`;
-      const [visible, af, uf] = await Promise.all([
-        countRows('courses', `${pFilter}&active=eq.true&flagged=not.is.true&auto_flagged=not.is.true`),
-        countRows('courses', `${pFilter}&auto_flagged=eq.true`),
-        countRows('courses', `${pFilter}&flagged=eq.true`),
-      ]);
+    const perProvider = providers.map(p => {
+      const buckets = perProviderHashes[p.id] || { visible: new Set(), af: new Set(), uf: new Set() };
       // Three-state scraper classification:
       //   no lastRun                           → '' (no scraper yet)
       //   lastRun + platform in REUSABLE set   → platform name (green)
@@ -792,14 +830,14 @@ async function loadProvidersTab() {
       else scraperKind = 'bespoke';
       return {
         ...p,
-        visible,
-        af,
-        uf,
+        visible: buckets.visible.size,
+        af:      buckets.af.size,
+        uf:      buckets.uf.size,
         lastRun,
         prevRun: prevRunByProvider[p.id] || null,
         scraperKind,
       };
-    }));
+    });
     cachedProviders = perProvider;
     renderProvidersTable();
   } catch (e) {
