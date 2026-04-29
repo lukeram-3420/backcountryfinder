@@ -1,7 +1,25 @@
 // ── SAVED / CAIRN ──
-function getSaved(){try{return JSON.parse(localStorage.getItem('bcf_saved')||'[]');}catch(e){return[];}}
+// Saved items shape: [{ id: string, date_sort: string|null }, ...]
+// Legacy localStorage may contain bare strings; getSaved() migrates on read.
+function getSaved(){
+  try{
+    const raw = JSON.parse(localStorage.getItem('bcf_saved')||'[]');
+    if(!Array.isArray(raw)) return [];
+    return raw.map(item => typeof item === 'string' ? {id: item, date_sort: null} : item)
+              .filter(item => item && item.id);
+  }catch(e){return[];}
+}
 function setSaved(arr){try{localStorage.setItem('bcf_saved',JSON.stringify(arr));}catch(e){}}
-function isSaved(id){return getSaved().includes(id);}
+function savedIds(){return getSaved().map(item=>item.id);}
+function isSaved(id, date_sort){
+  if(date_sort === undefined) date_sort = null;
+  const list = getSaved();
+  if(date_sort === null){
+    // Whole-course check: any saved entry with this id matches
+    return list.some(item => item.id === id);
+  }
+  return list.some(item => item.id === id && item.date_sort === date_sort);
+}
 
 // SHARED COURSES
 function getSharedIds(){const p=new URLSearchParams(window.location.search);const s=p.get('shared');return s?s.split(',').filter(Boolean):[];}
@@ -10,9 +28,11 @@ function dismissSharedBanner(){const b=document.getElementById('shared-banner');
 
 // SHARE
 function buildSharePopoverHTML(courseId,isMultiple){
-  const ids=isMultiple?getSaved().join(','):String(courseId);
+  const idList=isMultiple?savedIds():[String(courseId)];
+  const ids=idList.join(',');
   const shareUrl=`https://backcountryfinder.com/?shared=${ids}`;
-  const courses=isMultiple?currentCourses.filter(c=>getSaved().includes(c.id)):currentCourses.filter(c=>c.id===courseId);
+  const idSet=new Set(idList);
+  const courses=isMultiple?currentCourses.filter(c=>idSet.has(c.id)):currentCourses.filter(c=>c.id===courseId);
   const waMsg=encodeURIComponent(`These courses and dates work for me, take a look — ${shareUrl}`);
   const smsMsg=encodeURIComponent(`These courses and dates work for me, take a look — ${shareUrl}`);
   const canNative=typeof navigator.share==='function';
@@ -67,22 +87,50 @@ function clearMyList(){
   if(currentCourses.length>0) renderCards(currentCourses, false);
 }
 
-function toggleSave(id){
-  const wasUnsaved = !isSaved(id);
-  let s=getSaved();s=s.includes(id)?s.filter(x=>x!==id):[...s,id];setSaved(s);
+function toggleSave(id, date_sort){
+  if(date_sort === undefined) date_sort = null;
+  const wasSaved = isSaved(id, date_sort);
+  let s = getSaved();
+  if(wasSaved){
+    s = s.filter(item => !(item.id === id && item.date_sort === date_sort));
+  } else {
+    s.push({id, date_sort});
+  }
+  setSaved(s);
   renderSaved();
-  const btn = document.querySelector(`[onclick="toggleSave('${id}')"]`);
-  if (btn) {
+  // Re-render the card so save button visuals update. Preserve expanded state.
+  const dsAttr = date_sort == null ? '' : String(date_sort);
+  const btn = document.querySelector(`.save-btn[data-save-id="${id}"][data-save-date="${dsAttr}"]`);
+  if(btn){
     const card = btn.closest('.course-card');
-    if (card) {
-      const course = currentCourses.find(c => c.id === id);
-      if (course) card.outerHTML = buildCard(course);
+    if(card){
+      const expanded = card.dataset.expanded === 'true';
+      const groupKey = card.dataset.groupKey;
+      const synthetic = groupKey ? rebuildSyntheticForKey(groupKey) : null;
+      if(synthetic){
+        const tmp = document.createElement('div');
+        tmp.innerHTML = buildCard(synthetic);
+        const newCard = tmp.firstElementChild;
+        if(expanded && newCard) newCard.dataset.expanded = 'true';
+        card.replaceWith(newCard);
+        // If expanded was true, re-open the session list on the new card
+        if(expanded && newCard){
+          const list = newCard.querySelector('.session-list-expanded');
+          const moreBtn = newCard.querySelector('.more-dates-btn');
+          if(list && moreBtn){
+            list.style.display = 'block';
+            const n = parseInt(list.dataset.count || '0', 10);
+            moreBtn.textContent = 'Hide dates ▴';
+          }
+        }
+        addRemoveReadyListeners();
+      }
     }
   }
-  if(wasUnsaved){
+  if(!wasSaved){
     showMicroToast();
     requestAnimationFrame(()=>{
-      const newBtn=document.querySelector(`[onclick="toggleSave('${id}')"]`);
+      const newBtn=document.querySelector(`.save-btn.saved[data-save-id="${id}"][data-save-date="${dsAttr}"]`);
       if(newBtn){
         newBtn.classList.remove('remove-ready');
         newBtn.addEventListener('mouseleave',function onLeave(){
@@ -105,20 +153,24 @@ async function renderSaved(){
   if(toolbar)toolbar.style.display='block';
   if(count)count.textContent=`${saved.length} saved`;
   try {
-    const ids=saved.map(id=>`id.eq.${id}`).join(',');
+    const uniqueIds = [...new Set(saved.map(item=>item.id))];
+    const orFilter = uniqueIds.map(id=>`id.eq.${id}`).join(',');
     const res=await fetch(
-      `${SUPABASE_URL}/rest/v1/courses?select=*,providers(name,rating,review_count)&or=(${ids})&flagged=not.is.true&auto_flagged=not.is.true`,
+      `${SUPABASE_URL}/rest/v1/courses?select=*,providers(name,rating,review_count)&or=(${orFilter})&flagged=not.is.true&auto_flagged=not.is.true`,
       {headers:{'apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`}}
     );
     const savedCourses=await res.json();
-    const validIds = savedCourses.map(c=>c.id);
-    const cleanedSaved = saved.filter(id=>validIds.includes(id));
-    if(cleanedSaved.length !== saved.length) {
+    const validIds = new Set(savedCourses.map(c=>c.id));
+    const cleanedSaved = saved.filter(item=>validIds.has(item.id));
+    if(cleanedSaved.length !== saved.length){
       setSaved(cleanedSaved);
       if(count) count.textContent=`${cleanedSaved.length} saved`;
       if(cleanedSaved.length===0){empty.style.display='flex';cards.style.display='none';if(toolbar)toolbar.style.display='none';return;}
     }
-    cards.innerHTML=savedCourses.map(c=>buildCard(c)).join('');
+    // Group saved courses by (provider_id, title_hash) so the saved list mirrors
+    // the search grid: one card with multiple saved sessions, not one per session.
+    const groups = groupCoursesForCards(savedCourses.map(mapSupabaseRow));
+    cards.innerHTML = groups.map(g => buildCard(g)).join('');
     addRemoveReadyListeners();
   } catch(e) {
     cards.innerHTML='<p style="padding:20px;color:var(--text-tertiary);font-size:13px;">Could not load saved courses.</p>';
@@ -127,7 +179,10 @@ async function renderSaved(){
 
 function initSharedCourses(){
   const ids=getSharedIds();if(ids.length===0)return;
-  let saved=getSaved();ids.forEach(id=>{if(!saved.includes(id))saved.push(id);});setSaved(saved);
+  let saved=getSaved();
+  const existingIds = new Set(saved.map(item=>item.id));
+  ids.forEach(id=>{if(!existingIds.has(id)) saved.push({id, date_sort: null});});
+  setSaved(saved);
   const banner=document.getElementById('shared-banner');
   const title=document.getElementById('shared-banner-title');
   const sub=document.getElementById('shared-banner-sub');
@@ -138,11 +193,12 @@ function initSharedCourses(){
 async function openEmailListModal(){
   const saved=getSaved();
   if(saved.length===0)return;
-  let courses=currentCourses.filter(c=>saved.includes(c.id));
+  const idSet=new Set(saved.map(item=>item.id));
+  let courses=currentCourses.filter(c=>idSet.has(c.id));
   if(courses.length===0){
     try{
-      const ids=saved.map(id=>`id.eq.${id}`).join(',');
-      const res=await fetch(`${SUPABASE_URL}/rest/v1/courses?select=*,providers(name)&or=(${ids})&flagged=not.is.true&auto_flagged=not.is.true`,{headers:{'apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`}});
+      const orFilter=[...idSet].map(id=>`id.eq.${id}`).join(',');
+      const res=await fetch(`${SUPABASE_URL}/rest/v1/courses?select=*,providers(name)&or=(${orFilter})&flagged=not.is.true&auto_flagged=not.is.true`,{headers:{'apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`}});
       courses=await res.json();
     }catch(e){courses=[];}
   }
@@ -161,11 +217,12 @@ async function submitEmailList(){
   document.getElementById('elm-email').style.borderColor='';
   const btn=document.querySelector('.elm-submit');btn.textContent='sending...';btn.disabled=true;
   const saved=getSaved();
-  let rawCourses=currentCourses.filter(c=>saved.includes(c.id));
+  const idSet=new Set(saved.map(item=>item.id));
+  let rawCourses=currentCourses.filter(c=>idSet.has(c.id));
   if(rawCourses.length===0){
     try{
-      const ids=saved.map(id=>`id.eq.${id}`).join(',');
-      const res=await fetch(`${SUPABASE_URL}/rest/v1/courses?select=*,providers(name,rating)&or=(${ids})&flagged=not.is.true&auto_flagged=not.is.true`,{headers:{'apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`}});
+      const orFilter=[...idSet].map(id=>`id.eq.${id}`).join(',');
+      const res=await fetch(`${SUPABASE_URL}/rest/v1/courses?select=*,providers(name,rating)&or=(${orFilter})&flagged=not.is.true&auto_flagged=not.is.true`,{headers:{'apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`}});
       rawCourses=await res.json();
     }catch(e){rawCourses=[];}
   }

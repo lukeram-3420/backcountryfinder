@@ -1362,8 +1362,54 @@ JS extracted into `/js/` modules. Classic script tags, not ES modules — functi
 - Credentials/URLs (`SUPABASE_URL`, `ALGOLIA_APP_ID` etc.) stay in `index.html`; modules reference them as globals
 - Never drop `defer` from a module tag without migrating any body-script dependencies into `<head>` first — it is the load-order guarantee that keeps this pattern stable
 
-### Card redesign (scheduled post-Phase 4.5)
-New card design discussed and approved. Claude Code to build against `/js/cards.js` only. No other files touched during card redesign.
+### Card redesign (V2 multi-session card — implemented)
+Live. Each course card consolidates all upcoming sessions of the same course title into one card with a primary session row + expandable secondary rows. The flat per-(course,date) Algolia hits are grouped client-side at render time by `(provider_id, title_hash)`.
+
+**Files involved:**
+- [js/cards.js](js/cards.js) — `mapHit()` propagates `title_hash` (parsed from objectID slice(-8) since `algolia_sync.py` doesn't yet emit it as its own field) and `duration_days`. `mapSupabaseRow()` provides the same shape for direct Supabase reads (saved-list path). `groupCoursesForCards()` is the one place that turns per-session entries into synthetic group objects with `sessions[]`. `renderCards()` calls `groupCoursesForCards()` then iterates `buildCard()`. `buildCard()` always receives a synthetic group object — defensive-wraps a per-session object via the same grouping helper if an old caller slips through. `_sessionRow()` renders both primary (date + chip + spots + My List + Book Now) and expanded (icon-only My List + small Book) variants from the same data. `toggleSessionList()` is the inline expand/collapse handler.
+- [js/saved.js](js/saved.js) — saved shape changed from `string[]` to `{id: string, date_sort: string|null}[]`. `getSaved()` migrates legacy bare-string entries on read (returns the migrated array; persists on next `setSaved`). `isSaved(id, date_sort)` matches on both fields; passing `date_sort=null` does a whole-course "is anything from this title saved" check. `toggleSave(id, date_sort)` re-renders the affected card via `rebuildSyntheticForKey()` from cards.js, preserving the expand/collapse state across the re-render. `renderSaved()` groups via `groupCoursesForCards(savedCourses.map(mapSupabaseRow))` so the My List page mirrors the search grid (one card with multiple saved sessions).
+- [js/search.js](js/search.js) — `customInfiniteHits` connector now hands ungrouped hits straight to `renderCards(mapped, false)` instead of inline-mapping `mapped.map(buildCard).join('')`. `renderCards()` owns empty-state markup, `#card-grid` write, `#results-count` text, and `addRemoveReadyListeners()`.
+- [index.html](index.html) — new CSS only (no structure / JS changes). New classes: `.card-rating-tag`, `.card-meta-line`, `.card-price-row` / `.card-price-block` / `.card-price-from` / `.card-price-divider`, `.velocity-widget` (`.filling` / `.almost`), `.card-session-divider`, `.card-sessions`, `.session-row` (`.session-row-primary` / `.session-row-expanded`), `.session-date` / `.session-date-sm`, `.session-spots`, `.save-btn-icon`, `.book-btn-sm`, `.more-dates-btn`, `.session-list-expanded`, `.more-dates-hint`. All inherit existing tokens (`--bg-card`, `--border`, `--green-dark`, etc.) — no new CSS variables.
+
+**Synthetic card shape** (output of `groupCoursesForCards()`):
+
+```js
+{
+  id, provider_id, title, title_hash, _group_key,
+  summary, search_document,
+  location_canonical, location_raw, duration_days, image_url, booking_mode,
+  providers: { name, rating, review_count, logo_url },
+  _queryID, _position,
+  price_has_variations, price_min,
+  sessions: [           // ascending by date_sort
+    { id, date_display, date_sort, price, avail, spots_remaining,
+      booking_url, custom_dates, booking_mode, _queryID, _position }
+  ],
+  has_more_sessions,    // true when sessions.length > SESSION_VISIBLE_CAP (4)
+  velocity_fill_pct: null,         // null until V2 Phase 5
+  velocity_days_to_book: null,
+}
+```
+
+**Layout (top-to-bottom):**
+1. Hero image — `c.image_url` or `FALLBACK_IMG`. Bottom-left: `.card-provider-tag`. Bottom-right: `.card-rating-tag` (only if `providers.rating` present).
+2. Title — `c.title` (existing `.card-title` style).
+3. Summary — `c.summary` (existing `.card-summary` style).
+4. Meta line — `location · N day(s)`, single line, `.card-meta-line`.
+5. Price + velocity row — price block (`FROM` label if `price_has_variations`, otherwise just amount). Centred when no velocity widget; left-aligned with vertical divider when velocity widget visible. Velocity widget itself is `display:none` when `velocity_fill_pct === null` — never a placeholder.
+6. Horizontal divider (`#f0f0f0`, 1px) above the session area.
+7. Primary session row — date (bold) + Book Now & My List buttons on the right; avail chip + spots text below. Wires `logClick()` + `trackAlgoliaConversion()` with the primary session's id / booking_url / `_queryID`. Save writes `{id: session.id, date_sort: session.date_sort}` to localStorage.
+8. `+N more dates ▾` button — full-width secondary, only when `sessions.length > 1`. Toggles label between `+N more dates ▾` and `Hide dates ▴`.
+9. Expanded session list — hidden by default. Renders `sessions[1]` through `sessions[SESSION_VISIBLE_CAP-1]` (max 3 expanded rows so total visible = 4). Each row: date + avail chip + spots, icon-only My List + `Book ↗` button. Same click wiring per session.
+10. More-dates hint row — only when `has_more_sessions === true`: dashed border, calendar icon + "More dates available — adjust the date filter above". Informational.
+11. Existing report strip / panel — unchanged.
+
+**Velocity widget activation:** stays `display:none` until V2 Phase 5 (velocity signals) lands and `groupCoursesForCards()` starts populating `velocity_fill_pct` + `velocity_days_to_book` per group. Two visual states when active: `.filling` (orange bar, "🔥 Filling fast") for `60 ≤ pct < 80`, `.almost` (red bar, "⚡ Almost gone") for `pct ≥ 80`.
+
+**Notes for future maintainers:**
+- The grouping is currently client-side. When `algolia_sync.py` server-side dedup ships, every Algolia hit will already have a `sessions[]` array — `groupCoursesForCards()` becomes a no-op for the search-grid path but `mapSupabaseRow` still feeds it via the saved-list path. The `_groupKey()` helper plus the defensive `if (!c.sessions)` branch in `buildCard()` keep that transition forward-compatible.
+- `SESSION_VISIBLE_CAP` (currently 4) is the hard cap on displayed sessions per card. Beyond that, the hint row directs the user to narrow the date filter. Tunable per design intent.
+- `data-group-key` on the rendered card and `data-save-id` / `data-save-date` on every save button are the contract `toggleSave()` uses to find and re-render the right card after a save state change.
 
 ### V2 phases remaining (not yet implemented)
 - **Phase 5:** Velocity signal calculation (fill rate, price trend — needs 4+ weeks of log data)

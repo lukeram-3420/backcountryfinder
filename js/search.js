@@ -414,32 +414,18 @@ function initSearchEager() {
 
   customInfiniteHits = instantsearch.connectors.connectInfiniteHits(
     ({ hits, showMore, isLastPage, results }, isFirstRender) => {
-      const grid = document.getElementById('card-grid');
       const wrap = document.getElementById('load-more-wrap');
-      const count = document.getElementById('results-count');
 
       const mapped = hits.map(mapHit);
       currentCourses = mapped;
       totalCount = results ? results.nbHits : mapped.length;
       _algoliaShowMore = showMore;
 
-      if (mapped.length === 0) {
-        const noFiltersActive = !document.getElementById('search-query').value
-          && !currentFilters.provider;
-        if (noFiltersActive) {
-          grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="empty-icon" style="font-size:52px;">🏔</div><h3>Updating course listings</h3><p>We're pulling in fresh data. Check back in about 45 minutes.</p><div class="status-pill"><span class="status-dot"></span><span>Scraper running now</span></div></div>`;
-        } else {
-          grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="empty-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none"><ellipse cx="12" cy="20" rx="6" ry="2.5" stroke="#ccc" stroke-width="1.5" fill="none"/><ellipse cx="12" cy="14.5" rx="4.5" ry="2" stroke="#ccc" stroke-width="1.5" fill="none"/><ellipse cx="12" cy="9.5" rx="3" ry="1.8" stroke="#ccc" stroke-width="1.5" fill="none"/></svg></div><h3>no experiences found</h3><p>Try adjusting your filters.</p></div>`;
-        }
-        if (count) count.textContent = '0 results';
-        if (wrap) wrap.style.display = 'none';
-        return;
-      }
-
-      grid.innerHTML = mapped.map(c => buildCard(c)).join('');
-      if (count) count.textContent = `${totalCount} results`;
-      if (wrap) wrap.style.display = isLastPage ? 'none' : 'block';
-      addRemoveReadyListeners();
+      // renderCards() (in js/cards.js) owns the grid render: groups per-session
+      // hits by (provider_id, title_hash) into multi-date cards, writes the
+      // empty-state markup, and updates #results-count + addRemoveReadyListeners.
+      renderCards(mapped, false);
+      if (wrap) wrap.style.display = mapped.length === 0 ? 'none' : (isLastPage ? 'none' : 'block');
     }
   );
 
