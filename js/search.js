@@ -292,11 +292,16 @@ let search;
 let customSearchBox;
 let customInfiniteHits;
 let customConfigure;
+let customSortBy;
 let _algoliaShowMore = null;
 var _configRefine = null;
-// Tracks the currently-active Algolia index (primary vs price replicas) so
-// cyclePriceSort() can swap on toggle. Set in initSearchEager() once
-// ALGOLIA_INDEX is in scope.
+// Refine function exposed by connectSortBy. cyclePriceSort() calls it to
+// swap the active Algolia index between primary and price replicas.
+// connectSortBy is the canonical InstantSearch v4 way to swap indexes —
+// search.helper.setIndex() is overridden on the next render cycle.
+let _sortByRefine = null;
+// Tracks the currently-active Algolia index name so cyclePriceSort() knows
+// what to swap to. Set in initSearchEager() once ALGOLIA_INDEX is in scope.
 let _currentSortIndex = null;
 
 function updateDateChip() {
@@ -358,7 +363,7 @@ async function populateLocationDropdown() {
 // numericFilters keep applying through the swap.
 function cyclePriceSort() {
   const btn = document.getElementById('sort-price');
-  if (!btn || !search || !search.helper) return;
+  if (!btn || !_sortByRefine) return;
   const next = ({ off: 'asc', asc: 'desc', desc: 'off' })[btn.dataset.state || 'off'];
   btn.dataset.state = next;
   if (next === 'off') {
@@ -374,7 +379,7 @@ function cyclePriceSort() {
     btn.classList.add('active');
     _currentSortIndex = `${ALGOLIA_INDEX}_price_desc`;
   }
-  search.helper.setIndex(_currentSortIndex).search();
+  _sortByRefine(_currentSortIndex);
 }
 
 function initSearch() {
@@ -514,6 +519,12 @@ function initSearchEager() {
     }
   );
 
+  customSortBy = instantsearch.connectors.connectSortBy(
+    ({ refine }, isFirstRender) => {
+      _sortByRefine = refine;
+    }
+  );
+
   // Set default "from" date to tomorrow — but don't overwrite a value already
   // set by initSearchLazy() from data-filter-date on an SEO page.
   const dateInput = document.getElementById('search-date');
@@ -542,6 +553,16 @@ function initSearchEager() {
       searchParameters: {
         hitsPerPage: 12,
       },
+    }),
+    customSortBy({
+      // First item must equal the primary index — connectSortBy uses
+      // it as the "default" / off state. Replicas inherit records and
+      // faceting from the primary; only customRanking differs.
+      items: [
+        { value: ALGOLIA_INDEX,                       label: 'Default' },
+        { value: `${ALGOLIA_INDEX}_price_asc`,        label: 'Price ↑' },
+        { value: `${ALGOLIA_INDEX}_price_desc`,       label: 'Price ↓' },
+      ],
     }),
   ]);
   search.start();
