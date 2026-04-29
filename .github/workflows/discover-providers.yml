@@ -1,8 +1,6 @@
 name: Discover Providers
 
 on:
-  schedule:
-    - cron: '0 6 * * 0'    # Every Sunday at 06:00 UTC
   workflow_dispatch:
 
 jobs:

@@ -598,7 +598,7 @@ One file per provider at `.github/workflows/scraper-{id}.yml`. All use `workflow
 - Deploys all edge functions with `--no-verify-jwt`
 
 ### Discovery workflow — discover-providers.yml
-- **Triggers:** `schedule` (cron `0 6 * * 0` — every Sunday 06:00 UTC) + `workflow_dispatch`
+- **Trigger:** `workflow_dispatch` only (manual). The Sunday 06:00 UTC cron was removed 2026-04-29 — the pipeline already had enough candidates queued for triage and the weekly auto-run was generating noise faster than the admin could review.
 - Runs: `refresh_discovery_cloud.py` then `discover_providers.py`
 - Dependencies: `requests` only (no beautifulsoup4/playwright needed)
 - Uses 4 secrets: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `GOOGLE_PLACES_API_KEY`, `ANTHROPIC_API_KEY`
