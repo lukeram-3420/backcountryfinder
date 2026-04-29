@@ -114,37 +114,108 @@ def date_to_timestamp(date_str):
         return FLEX_DATE_TIMESTAMP
 
 
-def map_record(course):
-    """Transform a Supabase course row into an Algolia record."""
-    provider = course.get("providers") or {}
+def _title_hash_from_id(course_id):
+    """V2 stable id format `{provider}-{date_sort}-{title_hash_8}` (or
+    `{provider}-flex-{title_hash_8}`). The title hash is always the last 8
+    chars. Returns None if the id is too short to slice safely."""
+    if not course_id or len(course_id) < 8:
+        return None
+    return course_id[-8:]
 
-    record = {
-        "objectID": course["id"],
-        "title": course.get("title"),
-        "search_document": course.get("search_document"),
-        "summary": course.get("summary"),
-        "location_canonical": course.get("location_canonical"),
-        "location_raw": course.get("location_raw"),
-        "date_sort": date_to_timestamp(course.get("date_sort")),
-        "date_display": course.get("date_display"),
-        "duration_days": course.get("duration_days"),
-        "price": course.get("price"),
-        "price_has_variations": course.get("price_has_variations") or False,
-        "currency": course.get("currency"),
-        "avail": course.get("avail"),
+
+def _group_key(course):
+    """Group identity: (provider_id, title_hash). Falls back to
+    (provider_id, lower-stripped title) when title_hash can't be derived."""
+    pid = course.get("provider_id") or ""
+    th = _title_hash_from_id(course.get("id"))
+    if th:
+        return (pid, th)
+    title = (course.get("title") or "").strip().lower()
+    return (pid, f"title:{title}")
+
+
+def _build_session(course):
+    """Per-date entry for a group's `dates[]` array."""
+    return {
+        "id":              course.get("id"),
+        "date_sort":       date_to_timestamp(course.get("date_sort")),
+        "date_display":    course.get("date_display") or "",
+        "price":           course.get("price"),
+        "avail":           course.get("avail") or "open",
         "spots_remaining": course.get("spots_remaining"),
-        "image_url": course.get("image_url"),
-        "booking_url": course.get("booking_url"),
-        "booking_mode": course.get("booking_mode"),
-        "custom_dates": course.get("custom_dates"),
-        "provider_id": course.get("provider_id"),
-        "provider_name": provider.get("name"),
-        "provider_rating": provider.get("rating"),
-        "provider_logo_url": provider.get("logo_url"),
+        "booking_url":     course.get("booking_url") or "",
     }
 
-    # Omit null values — Algolia handles missing fields gracefully
-    return {k: v for k, v in record.items() if v is not None}
+
+def group_courses_for_algolia(courses):
+    """Group per-(course,date) Supabase rows into one Algolia record per
+    (provider_id, title_hash). Each record carries:
+
+    - card-level fields (title, summary, location, image, provider, etc.)
+      taken from the head row (the next-upcoming-date — i.e. the row with
+      the smallest date_sort after grouping).
+    - `next_date_sort` (scalar) for `customRanking: asc(next_date_sort)` and
+      the frontend's date numericFilter.
+    - `next_date_display` (string) for the primary session row.
+    - `price_min` (smallest positive price across sessions in the group).
+    - `price_has_variations` set true if EITHER any session has it set OR if
+      the sessions show ≥2 distinct positive prices.
+    - `dates[]` array of per-session entries (id, date_sort, date_display,
+      price, avail, spots_remaining, booking_url) sorted ascending by
+      date_sort. Used by the card to render the multi-date affordance.
+
+    `objectID` is `{provider_id}-{title_hash}` — flat, no date segment, so
+    the search grid no longer indexes the same course as N records.
+    """
+    buckets = {}
+    for c in courses:
+        key = _group_key(c)
+        buckets.setdefault(key, []).append(c)
+
+    records = []
+    for (pid, th), items in buckets.items():
+        # Sort by date_sort asc (sessions with no date land at the end via
+        # FLEX_DATE_TIMESTAMP, mirroring the existing single-record behaviour).
+        items.sort(key=lambda c: date_to_timestamp(c.get("date_sort")))
+        head = items[0]
+        provider = head.get("providers") or {}
+
+        sessions = [_build_session(c) for c in items]
+        positive_prices = [c.get("price") for c in items if isinstance(c.get("price"), (int, float)) and c.get("price") > 0]
+        price_min = min(positive_prices) if positive_prices else head.get("price")
+        distinct_prices = {p for p in positive_prices}
+        price_has_variations = (
+            any((c.get("price_has_variations") or False) for c in items)
+            or len(distinct_prices) >= 2
+        )
+
+        record = {
+            "objectID":             f"{pid}-{th}",
+            "id":                   head.get("id"),
+            "title_hash":           th if th and not th.startswith("title:") else None,
+            "title":                head.get("title"),
+            "search_document":      head.get("search_document"),
+            "summary":              head.get("summary"),
+            "location_canonical":   head.get("location_canonical"),
+            "location_raw":         head.get("location_raw"),
+            "duration_days":        head.get("duration_days"),
+            "currency":             head.get("currency"),
+            "image_url":            head.get("image_url"),
+            "booking_mode":         head.get("booking_mode"),
+            "custom_dates":         head.get("custom_dates"),
+            "price_min":            price_min,
+            "price_has_variations": price_has_variations,
+            "next_date_sort":       sessions[0]["date_sort"],
+            "next_date_display":    sessions[0]["date_display"],
+            "dates":                sessions,
+            "provider_id":          head.get("provider_id"),
+            "provider_name":        provider.get("name"),
+            "provider_rating":      provider.get("rating"),
+            "provider_logo_url":    provider.get("logo_url"),
+        }
+        # Omit null/None top-level scalars — Algolia handles missing fields gracefully
+        records.append({k: v for k, v in record.items() if v is not None})
+    return records
 
 
 # ── Index configuration ──────────────────────────────────────────────────────
@@ -170,7 +241,7 @@ def configure_index(client):
                 "filterOnly(avail)",
             ],
             "customRanking": [
-                "asc(date_sort)",
+                "asc(next_date_sort)",
             ],
         },
     )
@@ -195,9 +266,12 @@ def push_records(client, records, dry_run=False):
     if dry_run:
         log.info(f"DRY RUN — would push {len(records)} records (full replace)")
         for r in records[:3]:
+            ds = r.get("dates") or []
             log.info(f"  Sample: {r.get('objectID')} | {r.get('title')} | "
                      f"location={r.get('location_canonical')} | "
-                     f"price={r.get('price')} | search_doc={'yes' if r.get('search_document') else 'no'}")
+                     f"price_min={r.get('price_min')} | sessions={len(ds)} | "
+                     f"next_date={r.get('next_date_display')} | "
+                     f"search_doc={'yes' if r.get('search_document') else 'no'}")
         if len(records) > 3:
             log.info(f"  ... and {len(records) - 3} more")
         return
@@ -222,23 +296,27 @@ def main():
         log.error("ALGOLIA_APP_ID and ALGOLIA_ADMIN_KEY must be set")
         return
 
-    # 1. Fetch courses
+    # 1. Fetch courses (one Supabase row per (course, date))
     courses = fetch_courses()
     if not courses:
         log.warning("No V2 courses found — nothing to sync")
         return
 
-    # 2. Map to Algolia records
-    records = [map_record(c) for c in courses]
-    log.info(f"Mapped {len(records)} Algolia records")
+    # 2. Group courses by (provider_id, title_hash) and build per-group
+    #    Algolia records. Cuts ~5x record count vs. one-record-per-date.
+    records = group_courses_for_algolia(courses)
+    log.info(f"Grouped {len(courses)} per-date Supabase rows → {len(records)} Algolia records")
 
     # Stats
     with_search_doc = sum(1 for r in records if r.get("search_document"))
-    with_price = sum(1 for r in records if r.get("price"))
+    with_price = sum(1 for r in records if r.get("price_min"))
     with_location = sum(1 for r in records if r.get("location_canonical"))
+    total_sessions = sum(len(r.get("dates") or []) for r in records)
+    multi_date = sum(1 for r in records if len(r.get("dates") or []) > 1)
     log.info(f"  search_document: {with_search_doc}/{len(records)}")
-    log.info(f"  price: {with_price}/{len(records)}")
+    log.info(f"  price_min:        {with_price}/{len(records)}")
     log.info(f"  location_canonical: {with_location}/{len(records)}")
+    log.info(f"  multi-date courses: {multi_date}/{len(records)}  (total sessions across all groups: {total_sessions})")
 
     if args.dry_run:
         push_records(None, records, dry_run=True)

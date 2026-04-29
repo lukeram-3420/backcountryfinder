@@ -211,9 +211,9 @@
   .session-row-expanded .session-row-meta { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-tertiary); }
   .session-row-expanded .session-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 
-  .save-btn-icon { width: 32px; height: 32px; padding: 0; border-radius: var(--radius-sm); justify-content: center; min-width: 32px; }
-  .save-btn-icon .save-label { display: none; }
-  .save-btn-icon::after { display: none !important; }
+  /* Save button is now unified across primary + expanded session rows.
+     The mobile breakpoint elsewhere collapses .save-btn to icon-only when
+     screen width is tight. */
 
   .more-dates-btn { width: 100%; background: #f3f3f0; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 9px 14px; font-size: 12px; font-weight: 600; color: var(--text-secondary); font-family: var(--font); cursor: pointer; transition: all 0.15s; margin-top: 4px; }
   .more-dates-btn:hover { border-color: var(--green-dark); color: var(--green-dark); background: #ebebe7; }
