@@ -1144,6 +1144,8 @@ Used by `validate_provider.py` to track course count per provider per run. A >30
 
 Indexed on `(provider_id)` and `(title_hash, date_sort)`. Append only when values change. **Never truncate, delete, or run cleanup operations.** See sacred-data rule below.
 
+**Known historical pollution (pending Phase 5 cleanup):** rows scraped between `2026-04-16` (V2 cutover, when logging started) and `2026-04-29 02:30:00 UTC` (PR #41 merge) for providers `aaa` and `girth-hitch-guiding` may carry fake `spots_remaining=1, avail='critical'` for binary-flag Checkfront products. The pre-PR-41 scrapers ran a global probe across the catalog `/api/3.0/item/cal` response — if any product anywhere in the catalog returned `>1`, every other product's `1` was misread as "1 spot left". The fix landed in PR #41 (per-item `detect_checkfront_spot_counts` in `scraper_utils.py`); going forward, binary-flag products correctly log `spots_remaining=null, avail='open'`. The contaminated historical rows must be filtered out before Phase 5 velocity signals can be computed for these providers — see "Phase 5 prerequisites" below.
+
 ### course_price_log (sacred, append-only)
 | column | type | notes |
 |---|---|---|
@@ -1258,7 +1260,7 @@ V2 is an incremental migration on the live system. V1 and V2 coexist in the same
 | — | Duplicate detection simplification (Initiative 6 of data quality mission) | Complete — duplicate check collapsed to a pure scraper-signal. `validator_whitelist` load + lookup removed from `validate_provider.py`; `admin-diagnose-duplicate` edge function deleted along with its `deploy-functions.yml` step. Flags-tab duplicate rows now render read-only with one `scraper_{provider_id}.py ↗` link per provider_id in the group; `Clear all` remains as a last-resort title-scoped suppression. Priority stack now 2 layers (suppressions → summary exceptions). `validator_whitelist` table orphaned-pending-Phase 7 |
 | — | Course count drop → Providers tab (Initiative 7 of data quality mission) | Complete — `check_course_count()` deleted from `validate_provider.py`. Providers tab now computes the >30% drop client-side from the last two `scraper_run_log` rows per provider on every tab load and renders a yellow `⚠ {pct}% drop ↗` badge linking to the GitHub Actions workflow. No server-side write, no `validator_warnings` row. `validator_warnings` types now narrow to `null_avail` + `all_sold` |
 | — | Activity Tracking dashboard (Initiative 8 of data quality mission) | Complete — new `activity_controls` + `scraper_config` tables, new admin tab, two edge functions (`admin-toggle-activity-control` / `admin-update-scraper-config`), new seed workflow (`seed-activity-controls.yml`). **All 23 active scrapers** upsert `(provider_id, activity_key)` for every activity they see and gate expensive work behind `visible` (only `scraper.py` legacy monolith and `scraper_aaa_details.py` enrichment pass don't participate). Per-scraper `EXCLUDE_TITLES` lists retired: 5 real lists (altus, vibe, girth_hitch, cloud_nine, bow_valley) seeded into `activity_controls(visible=false)` via `seed_activity_controls.py`, then constants and call sites deleted; 4 empty `EXTRA_EXCLUDE_TITLES = []` constants also removed (canmore, banff, mt_norquay, toby_creek). Visible toggle **cascades to `courses.active`** on flip so the frontend hides / re-shows immediately without waiting for the next scraper run — makes Visible a general-purpose "hide this course" control. Zaui scrapers additionally pick per-activity lookahead from `tracking_mode` (`immediate`/14d or `extended`/180d by default) — projected ~90% reduction in `fetch_unavailability` calls on Banff Adventures once most activities default to immediate. Structural Zaui filters (hotels/transfers/categories/substring DEFAULT_EXCLUDE_TITLES) stay as code in `scraper_zaui_utils.py`. Tab degrades gracefully when the schema tables are missing (setup hint instead of JS crash). |
-| 5 | Velocity signals (fill rate, price trend) | Not started — needs 4+ weeks of log data |
+| 5 | Velocity signals (fill rate, price trend) | Not started — needs 4+ weeks of log data + completion of "Phase 5 prerequisites" (see below) |
 | 6 | Validator simplification | Partially done — activity and price checks simplified; date check is active-loop; remaining cleanup pending |
 | 7 | Drop V1 columns + tables post-cutover | Not started |
 
@@ -1413,9 +1415,60 @@ Live. Each course card consolidates all upcoming sessions of the same course tit
 - `data-group-key` on the rendered card and `data-save-id` / `data-save-date` on every save button are the contract `toggleSave()` uses to find and re-render the right card after a save state change.
 
 ### V2 phases remaining (not yet implemented)
-- **Phase 5:** Velocity signal calculation (fill rate, price trend — needs 4+ weeks of log data)
+- **Phase 5:** Velocity signal calculation (fill rate, price trend — needs 4+ weeks of log data + Phase 5 prerequisites below)
 - **Phase 6:** Validator simplification (remaining admin-tab retirements; activity check already removed)
 - **Phase 7:** Drop V1 columns + tables after cutover (includes `activity`, `activity_raw`, `activity_canonical`, `badge`, `badge_canonical` from `courses` and the `activity_mappings`, `pending_mappings`, `activity_labels` tables)
+
+### Phase 5 prerequisites (data-quality cleanup before velocity signals)
+
+Two pieces of historical pollution must be addressed before any velocity computation runs against the intelligence logs. Both follow the `course_price_log.bad_data` pattern from Initiative 4: add a nullable boolean column, backfill the contaminated rows in one pass, then have Phase 5 consumers filter `WHERE NOT bad_data`. Both are deferred work — schedule alongside Phase 5 kickoff.
+
+**Prerequisite A — `course_availability_log.bad_data` for the Checkfront binary-flag bug**
+
+*Window of contamination:* `scraped_at >= '2026-04-16 07:18:43 UTC'` (V2 cutover) `AND scraped_at < '2026-04-29 02:30:00 UTC'` (PR #41 merge)
+*Affected providers:* `aaa`, `girth-hitch-guiding` only (Bow Valley scraper doesn't write per-date avail — uses HTML widget scrape, not `/api/3.0/item/cal`).
+*Contamination shape:* rows with `spots_remaining=1` and `avail='critical'` that were actually binary-flag products (the API was just emitting "available yes/no", value `1`). The pre-PR-41 scraper had a global-vs-per-item probe bug that flipped any catalog-wide `>1` value into a per-item assumption that `1` meant "1 spot remaining".
+
+*Schema migration:*
+```sql
+ALTER TABLE course_availability_log
+  ADD COLUMN IF NOT EXISTS bad_data boolean NOT NULL DEFAULT false;
+```
+
+*Backfill query (run once, after the migration):*
+```sql
+-- Mark contaminated rows: for each (provider_id, title_hash) in the affected
+-- providers + window, if the product NEVER logged spots_remaining > 1 anywhere
+-- in its full history, then it's a binary-flag product and every row in the
+-- contamination window with spots_remaining=1 / avail='critical' is fake.
+UPDATE course_availability_log AS cal
+SET bad_data = true
+WHERE cal.provider_id IN ('aaa', 'girth-hitch-guiding')
+  AND cal.scraped_at >= '2026-04-16 07:18:43+00'
+  AND cal.scraped_at <  '2026-04-29 02:30:00+00'
+  AND cal.spots_remaining = 1
+  AND cal.avail = 'critical'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM course_availability_log cal2
+    WHERE cal2.provider_id = cal.provider_id
+      AND cal2.title_hash  = cal.title_hash
+      AND cal2.spots_remaining IS NOT NULL
+      AND cal2.spots_remaining > 1
+  );
+```
+
+The `NOT EXISTS` clause is the safeguard: if a product **ever** legitimately logged `>1` (i.e. it's a real spot-tracking product), its `spots_remaining=1` rows are real "1 spot left" data and stay untouched. Run **after** at least one post-fix scrape has populated the logs with the new `null/open` values for binary-flag products — otherwise the heuristic can't distinguish.
+
+*Phase 5 consumer contract:* every velocity calculation that joins `course_availability_log` MUST add `AND NOT bad_data` to its WHERE clause, mirroring the existing `course_price_log` filter.
+
+**Prerequisite B — confirm `course_price_log.bad_data` is being honoured**
+
+`course_price_log.bad_data` was added in Initiative 4 with write-time population (`log_price_change` sets `bad_data=true` when `price <= 0`). No backfill was required because the validator's auto-hide on `price<=0` predates the log-population work. Phase 5 must still add `AND NOT bad_data` to every price-trend query — verify this contract is wired before any velocity dashboards ship.
+
+**Inherent limitation (not fixable, must be handled gracefully):**
+
+Binary-flag Checkfront products produce no velocity granularity post-fix — they log `spots_remaining=null, avail='open'` until the date sells out. Phase 5 should detect this case (e.g. "course has zero log rows with `spots_remaining > 1`") and skip velocity computation for those products entirely. The synthetic card object's `velocity_fill_pct` should remain `null`, which the existing card render in `js/cards.js` already handles via `display:none` on the velocity widget.
 
 ### Data quality mission (parallel track)
 See [data_quality_initiatives.md](data_quality_initiatives.md) for the initiative plan.
