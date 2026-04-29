@@ -513,6 +513,10 @@ document.addEventListener('DOMContentLoaded', () => {
         <input type="text" id="search-query" placeholder="Search courses, locations, providers..." autocomplete="off" style="border:none;background:transparent;font-size:14px;font-weight:600;color:var(--text-primary);font-family:var(--font);outline:none;width:100%;">
       </div>
       <div class="search-field" style="flex:1;padding:16px 22px;">
+        <label>Location</label>
+        <select id="search-location"><option value="">Anywhere</option></select>
+      </div>
+      <div class="search-field" style="flex:1;padding:16px 22px;">
         <label>From when</label>
         <input type="date" id="search-date">
       </div>
@@ -524,7 +528,12 @@ document.addEventListener('DOMContentLoaded', () => {
       <span id="provider-filter-label">Viewing: ...</span>
       <button onclick="clearProviderFilter()" title="Show all">×</button>
     </div>
-    <div style="margin-bottom:16px;"><span class="results-count" id="results-count">12 results</span></div>
+    <div class="filter-row" style="justify-content:space-between;margin-bottom:16px;">
+      <span class="results-count" id="results-count">12 results</span>
+      <div class="filter-bar">
+        <button class="sort-btn" id="sort-price" data-state="off" onclick="cyclePriceSort()">Price</button>
+      </div>
+    </div>
     <div class="card-grid" id="card-grid"></div>
     <div class="load-more-wrap" id="load-more-wrap" style="display:none;">
       <button class="load-more-btn" onclick="loadMore()">show more</button>

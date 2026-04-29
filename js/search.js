@@ -294,6 +294,10 @@ let customInfiniteHits;
 let customConfigure;
 let _algoliaShowMore = null;
 var _configRefine = null;
+// Tracks the currently-active Algolia index (primary vs price replicas) so
+// cyclePriceSort() can swap on toggle. Set in initSearchEager() once
+// ALGOLIA_INDEX is in scope.
+let _currentSortIndex = null;
 
 function updateDateChip() {
   const dateInput = document.getElementById('search-date');
@@ -317,11 +321,60 @@ function applyConfigFilters() {
     // on that so a course with any matching session passes the filter.
     config.numericFilters = [`next_date_sort>=${ts}`];
   }
-  // Provider filter
-  if (currentFilters.provider) {
-    config.facetFilters = [`provider_id:${currentFilters.provider}`];
-  }
+  // Facet filters — combine provider deep link + location dropdown
+  const facetFilters = [];
+  if (currentFilters.provider) facetFilters.push(`provider_id:${currentFilters.provider}`);
+  const locEl = document.getElementById('search-location');
+  const locVal = locEl ? locEl.value : '';
+  if (locVal) facetFilters.push(`location_canonical:${locVal}`);
+  if (facetFilters.length) config.facetFilters = facetFilters;
   if (_configRefine) _configRefine(config);
+}
+
+// Populate the Location dropdown with every canonical location currently in
+// the Algolia index, sorted A→Z with course counts. One facet query on init
+// keeps this in sync with what the search grid will return without round-
+// tripping Supabase.
+async function populateLocationDropdown() {
+  const sel = document.getElementById('search-location');
+  if (!sel || !searchClient) return;
+  try {
+    const result = await searchClient.search([{
+      indexName: ALGOLIA_INDEX,
+      params: { facets: ['location_canonical'], hitsPerPage: 0, query: '' },
+    }]);
+    const facets = (result.results && result.results[0] && result.results[0].facets && result.results[0].facets.location_canonical) || {};
+    const sorted = Object.keys(facets).sort();
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">Anywhere</option>' +
+      sorted.map(loc => `<option value="${loc}">${loc} (${facets[loc]})</option>`).join('');
+    if (prev) sel.value = prev;
+  } catch (e) { /* leave the "Anywhere" placeholder in place on failure */ }
+}
+
+// Three-state cycle: off (primary, asc(next_date_sort)) → asc → desc → off.
+// Swaps the active Algolia index via search.helper.setIndex(); replicas
+// inherit records and faceting from the primary so existing facetFilters /
+// numericFilters keep applying through the swap.
+function cyclePriceSort() {
+  const btn = document.getElementById('sort-price');
+  if (!btn || !search || !search.helper) return;
+  const next = ({ off: 'asc', asc: 'desc', desc: 'off' })[btn.dataset.state || 'off'];
+  btn.dataset.state = next;
+  if (next === 'off') {
+    btn.textContent = 'Price';
+    btn.classList.remove('active');
+    _currentSortIndex = ALGOLIA_INDEX;
+  } else if (next === 'asc') {
+    btn.textContent = 'Price ↑';
+    btn.classList.add('active');
+    _currentSortIndex = `${ALGOLIA_INDEX}_price_asc`;
+  } else {
+    btn.textContent = 'Price ↓';
+    btn.classList.add('active');
+    _currentSortIndex = `${ALGOLIA_INDEX}_price_desc`;
+  }
+  search.helper.setIndex(_currentSortIndex).search();
 }
 
 function initSearch() {
@@ -348,6 +401,8 @@ function _composeSeoQuery() {
 function initSearchLazy() {
   const queryInput = document.getElementById('search-query');
   const dateInput  = document.getElementById('search-date');
+  const locInput   = document.getElementById('search-location');
+  const sortPrice  = document.getElementById('sort-price');
   const loadMore   = document.querySelector('.load-more-btn');
   const ds = document.body.dataset;
 
@@ -383,6 +438,11 @@ function initSearchLazy() {
     dateInput.addEventListener('focus',  activate, { once: true });
     dateInput.addEventListener('change', activate, { once: true });
   }
+  if (locInput) {
+    locInput.addEventListener('focus',  activate, { once: true });
+    locInput.addEventListener('change', activate, { once: true });
+  }
+  if (sortPrice) sortPrice.addEventListener('click', activate, { once: true });
   if (loadMore) loadMore.addEventListener('click', activate, { once: true });
 }
 
@@ -390,12 +450,21 @@ function initSearchEager() {
   // Instantiate Algolia client + connectors now that the body script has defined the constants
   initAlgoliaInsights();
   searchClient = algoliasearch(ALGOLIA_APP_ID, ALGOLIA_SEARCH_KEY);
+  _currentSortIndex = ALGOLIA_INDEX;
   search = instantsearch({
     indexName: ALGOLIA_INDEX,
     searchClient,
     routing: false,
     insights: true,  // auto-fires viewedObjectIDsAfterSearch and decorates hits with __queryID / __position
   });
+
+  // Populate the Location dropdown from Algolia's facet counts.
+  // Fire-and-forget — the search grid hydrates independently.
+  populateLocationDropdown();
+  const locInput = document.getElementById('search-location');
+  if (locInput) {
+    locInput.addEventListener('change', applyConfigFilters);
+  }
 
   customSearchBox = instantsearch.connectors.connectSearchBox(
     ({ refine }, isFirstRender) => {
