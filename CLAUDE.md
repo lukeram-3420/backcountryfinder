@@ -350,6 +350,7 @@ Both systems produce identical output (rows upserted to the `courses` table with
 | Function | Signature | Description |
 |----------|-----------|-------------|
 | `spots_to_avail` | `(spots: Optional[int]) -> str` | Convert spots_remaining → `open`/`low`/`critical`/`sold`. |
+| `detect_checkfront_spot_counts` | `(item_cal: dict) -> bool` | **Per-item** probe of a Checkfront `/api/3.0/item/cal` response for one item. Returns `True` only when at least one of THIS item's values is `>1`, meaning integer interpretation is safe. Returns `False` if all values are `0`/`1` — the binary-availability flag — at which point the caller MUST set `spots_remaining=None` so `spots_to_avail()` returns `'open'`. **Do not run a global probe across the whole `cal` dict** — semantics are per item, not per tenant; mixing the two leaks "1 spot left" into binary-flag products. Used by `scraper_aaa.py` and `scraper_girth_hitch_guiding.py`. |
 | `append_utm` | `(url: str) -> str` | Append UTM tracking params if not already present. |
 
 #### Email

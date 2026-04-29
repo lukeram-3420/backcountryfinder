@@ -22,6 +22,7 @@ from scraper_utils import (
     load_location_mappings, normalise_location,
     generate_summaries_batch,
     spots_to_avail, append_utm,
+    detect_checkfront_spot_counts,
     title_hash,
     activity_key, upsert_activity_control, load_activity_controls,
     UTM,
@@ -192,24 +193,9 @@ def main():
     cal = fetch_availability(item_ids, start_s, end_s)
     print(f"  Calendar entries returned: {len(cal)}")
 
-    # Probe the /item/cal response shape: Checkfront may return integer spot
-    # counts per date or a 0/1 boolean bitmap depending on tenant config. If
-    # any value across the response is >1, we trust the integer as a real spot
-    # count. If all values are 0/1, we fall back to spots_remaining=None
-    # (matches AAA's behaviour — safer than reporting "1 = critical" when the
-    # API really meant "available yes/no").
-    raw_values = set()
-    for _ic in cal.values():
-        for v in (_ic or {}).values():
-            try:
-                raw_values.add(int(v))
-            except (ValueError, TypeError):
-                pass
-    api_has_spot_counts = any(v > 1 for v in raw_values)
-    print(
-        f"  Availability value distribution: {sorted(raw_values)[:20]} "
-        f"→ spot tracking {'ENABLED (integer counts)' if api_has_spot_counts else 'disabled (API returns 0/1 only)'}"
-    )
+    # Spot-count semantics are decided per item, not globally — see
+    # scraper_utils.detect_checkfront_spot_counts. The probe runs inside the
+    # per-item loop below.
 
     # 4. Build rows
     rows = []
@@ -248,6 +234,11 @@ def main():
         if duration_days == 0:
             duration_days = None
 
+        # Per-item spot-count probe: only trust integer values when THIS item
+        # has at least one date with >1 spots. Items returning 0/1 only are
+        # using the binary availability flag and must report spots_remaining=None.
+        item_has_spot_counts = detect_checkfront_spot_counts(item_cal)
+
         for date_key, available in item_cal.items():
             if not available:
                 continue
@@ -260,9 +251,9 @@ def main():
             except ValueError:
                 continue
 
-            # Real spot count if the API is integer-valued; else None ("open").
+            # Real spot count if THIS item has integer counts; else None ("open").
             spots_remaining = None
-            if api_has_spot_counts:
+            if item_has_spot_counts:
                 try:
                     spots_remaining = int(available)
                 except (ValueError, TypeError):

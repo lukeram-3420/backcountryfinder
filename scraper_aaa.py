@@ -15,6 +15,7 @@ import requests
 from scraper_utils import (
     sb_upsert, find_place_id, send_email, stable_id_v2,
     log_availability_change, log_price_change, spots_to_avail,
+    detect_checkfront_spot_counts,
     SUPABASE_URL, SUPABASE_KEY, RESEND_API_KEY, UTM,
     title_hash, activity_key,
     upsert_activity_control, load_activity_controls,
@@ -167,21 +168,9 @@ def main():
     cal = fetch_availability(item_ids, start_s, end_s)
     print(f"  Calendar entries returned: {len(cal)}")
 
-    # Probe /item/cal response shape: if any value is >1, the API is returning
-    # integer spot counts per date (validated on girth-hitch-guiding tenant).
-    # If all values are 0/1, fall back to spots_remaining=None ('open').
-    raw_values = set()
-    for _ic in cal.values():
-        for v in (_ic or {}).values():
-            try:
-                raw_values.add(int(v))
-            except (ValueError, TypeError):
-                pass
-    api_has_spot_counts = any(v > 1 for v in raw_values)
-    print(
-        f"  Availability value distribution: {sorted(raw_values)[:20]} "
-        f"→ spot tracking {'ENABLED (integer counts)' if api_has_spot_counts else 'disabled (API returns 0/1 only)'}"
-    )
+    # Spot-count semantics are decided per item, not globally — see
+    # scraper_utils.detect_checkfront_spot_counts. The probe runs inside the
+    # per-item loop below.
 
     # 3. Build rows
     rows = []
@@ -220,6 +209,11 @@ def main():
             skipped += 1
             continue
 
+        # Per-item spot-count probe: only trust integer values when THIS item
+        # has at least one date with >1 spots. Items returning 0/1 only are
+        # using the binary availability flag and must report spots_remaining=None.
+        item_has_spot_counts = detect_checkfront_spot_counts(item_cal)
+
         for date_key, available in item_cal.items():
             if not available:
                 continue
@@ -233,7 +227,7 @@ def main():
                 continue
 
             spots_remaining = None
-            if api_has_spot_counts:
+            if item_has_spot_counts:
                 try:
                     spots_remaining = int(available)
                 except (ValueError, TypeError):
