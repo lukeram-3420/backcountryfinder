@@ -1,24 +1,37 @@
 // ── SAVED / CAIRN ──
 // Saved items shape: [{ id: string, date_sort: string|null }, ...]
 // Legacy localStorage may contain bare strings; getSaved() migrates on read.
+//
+// IMPORTANT: date_sort comes into this module from two places: (1) inline
+// onclick attributes (always strings) and (2) JS calls from buildCard which
+// pass session.date_sort (always a number from the unix timestamp). To avoid
+// strict-equality false-negatives on lookup, we normalize every date_sort to
+// a string-or-null at the boundary via _dsKey() before comparing or storing.
+function _dsKey(v){
+  if(v == null) return null;
+  const s = String(v).trim();
+  return s === '' ? null : s;
+}
 function getSaved(){
   try{
     const raw = JSON.parse(localStorage.getItem('bcf_saved')||'[]');
     if(!Array.isArray(raw)) return [];
-    return raw.map(item => typeof item === 'string' ? {id: item, date_sort: null} : item)
-              .filter(item => item && item.id);
+    return raw
+      .map(item => typeof item === 'string' ? {id: item, date_sort: null} : item)
+      .filter(item => item && item.id)
+      .map(item => ({id: String(item.id), date_sort: _dsKey(item.date_sort)}));
   }catch(e){return[];}
 }
 function setSaved(arr){try{localStorage.setItem('bcf_saved',JSON.stringify(arr));}catch(e){}}
 function savedIds(){return getSaved().map(item=>item.id);}
 function isSaved(id, date_sort){
-  if(date_sort === undefined) date_sort = null;
+  const dsParam = date_sort === undefined ? null : _dsKey(date_sort);
   const list = getSaved();
-  if(date_sort === null){
-    // Whole-course check: any saved entry with this id matches
+  if(dsParam === null){
+    // Whole-course check: any saved entry with this id matches.
     return list.some(item => item.id === id);
   }
-  return list.some(item => item.id === id && item.date_sort === date_sort);
+  return list.some(item => item.id === id && item.date_sort === dsParam);
 }
 
 // SHARED COURSES
@@ -88,18 +101,18 @@ function clearMyList(){
 }
 
 function toggleSave(id, date_sort){
-  if(date_sort === undefined) date_sort = null;
-  const wasSaved = isSaved(id, date_sort);
+  const ds = _dsKey(date_sort);
+  const wasSaved = isSaved(id, ds);
   let s = getSaved();
   if(wasSaved){
-    s = s.filter(item => !(item.id === id && item.date_sort === date_sort));
+    s = s.filter(item => !(item.id === id && item.date_sort === ds));
   } else {
-    s.push({id, date_sort});
+    s.push({id: String(id), date_sort: ds});
   }
   setSaved(s);
   renderSaved();
-  // Re-render the card so save button visuals update. Preserve expanded state.
-  const dsAttr = date_sort == null ? '' : String(date_sort);
+  // Re-render the matching card so save-button visuals update. Preserve expanded state.
+  const dsAttr = ds == null ? '' : ds;
   const btn = document.querySelector(`.save-btn[data-save-id="${id}"][data-save-date="${dsAttr}"]`);
   if(btn){
     const card = btn.closest('.course-card');
@@ -119,10 +132,22 @@ function toggleSave(id, date_sort){
           const moreBtn = newCard.querySelector('.more-dates-btn');
           if(list && moreBtn){
             list.style.display = 'block';
-            const n = parseInt(list.dataset.count || '0', 10);
             moreBtn.textContent = 'Hide dates ▴';
           }
         }
+        addRemoveReadyListeners();
+      } else {
+        // Fallback (My List path): rebuildSyntheticForKey returns null because
+        // currentCourses holds search-page state, not saved-page state. Just
+        // toggle the button class + svg in place — renderSaved() (above) has
+        // already re-rendered the My List grid, so visual sync is preserved.
+        const nowSaved = !wasSaved;
+        if(nowSaved){
+          btn.classList.add('saved', 'remove-ready');
+        } else {
+          btn.classList.remove('saved', 'remove-ready');
+        }
+        btn.innerHTML = `${_saveSvg(nowSaved)}<span class="save-label">my list</span>`;
         addRemoveReadyListeners();
       }
     }
@@ -167,10 +192,22 @@ async function renderSaved(){
       if(count) count.textContent=`${cleanedSaved.length} saved`;
       if(cleanedSaved.length===0){empty.style.display='flex';cards.style.display='none';if(toolbar)toolbar.style.display='none';return;}
     }
-    // Group saved courses by (provider_id, title_hash) so the saved list mirrors
-    // the search grid: one card with multiple saved sessions, not one per session.
-    const groups = groupCoursesForCards(savedCourses.map(mapSupabaseRow));
-    cards.innerHTML = groups.map(g => buildCard(g)).join('');
+    // One card per saved entry — saving feels per-date, so the saved list
+    // shows each saved (id, date_sort) as its own tile in save order.
+    // Iterate `cleanedSaved` (or `saved` if nothing was cleaned) to preserve
+    // the user's save order rather than Supabase's response order.
+    const orderedSaved = (cleanedSaved && cleanedSaved.length === saved.length) ? saved : cleanedSaved;
+    const byId = new Map(savedCourses.map(c => [c.id, c]));
+    const tiles = [];
+    for (const item of orderedSaved) {
+      const row = byId.get(item.id);
+      if (!row) continue;
+      // groupCoursesForCards on a 1-element array yields a single synthetic
+      // card with a single session — exactly what we want per saved entry.
+      const groupedSingle = groupCoursesForCards([mapSupabaseRow(row)]);
+      if (groupedSingle.length > 0) tiles.push(groupedSingle[0]);
+    }
+    cards.innerHTML = tiles.map(t => buildCard(t)).join('');
     addRemoveReadyListeners();
   } catch(e) {
     cards.innerHTML='<p style="padding:20px;color:var(--text-tertiary);font-size:13px;">Could not load saved courses.</p>';

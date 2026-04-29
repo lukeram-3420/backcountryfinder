@@ -312,7 +312,10 @@ function applyConfigFilters() {
   const dateVal = document.getElementById('search-date').value;
   if (dateVal) {
     const ts = Math.floor(new Date(dateVal).getTime() / 1000);
-    config.numericFilters = [`date_sort>=${ts}`];
+    // Algolia records are now grouped per course with a scalar `next_date_sort`
+    // (the smallest upcoming date_sort across all sessions in the group). Filter
+    // on that so a course with any matching session passes the filter.
+    config.numericFilters = [`next_date_sort>=${ts}`];
   }
   // Provider filter
   if (currentFilters.provider) {

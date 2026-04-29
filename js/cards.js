@@ -9,43 +9,80 @@ const SESSION_VISIBLE_CAP = 4;
 const SESSION_EXPANDED_CAP = SESSION_VISIBLE_CAP - 1;
 
 // ── HIT NORMALISATION ──
-// Map an Algolia hit to the per-session shape used internally.
+// Map an Algolia hit to a synthetic card object. Each Algolia record is
+// already grouped by (provider_id, title_hash) at sync time and carries a
+// `dates[]` array — see algolia_sync.py group_courses_for_algolia(). mapHit
+// translates that shape into the synthetic output buildCard() expects.
 function mapHit(hit) {
-  // V2 stable id format is `{provider}-{date_sort}-{title_hash_8}` or
-  // `{provider}-flex-{title_hash_8}`. The hash is always the last 8 chars.
-  // algolia_sync.py doesn't currently emit title_hash as a top-level field,
-  // so we derive it from objectID. Falls back to null on malformed ids.
+  const pid = hit.provider_id || '';
+  const queryID = hit.__queryID || null;
+  const position = hit.__position || null;
+  // Build per-session entries from the pre-grouped dates[] array.
+  const rawDates = Array.isArray(hit.dates) ? hit.dates : [];
+  const sessions = rawDates.map(d => ({
+    id:              d.id,
+    date_display:    d.date_display || '',
+    date_sort:       d.date_sort,
+    price:           d.price,
+    avail:           d.avail || 'open',
+    spots_remaining: d.spots_remaining ?? null,
+    booking_url:     d.booking_url || '#',
+    custom_dates:    hit.custom_dates || false,
+    booking_mode:    hit.booking_mode || 'instant',
+    _queryID:        queryID,
+    _position:       position,
+  }));
+  // Defensive fallback: no dates[] array (legacy/missing record). Synthesize a
+  // one-session synthetic from top-level fields so the card still renders.
+  if (sessions.length === 0) {
+    sessions.push({
+      id:              hit.objectID || '',
+      date_display:    hit.next_date_display || '',
+      date_sort:       hit.next_date_sort,
+      price:           hit.price_min ?? null,
+      avail:           hit.avail || 'open',
+      spots_remaining: hit.spots_remaining ?? null,
+      booking_url:     hit.booking_url || '#',
+      custom_dates:    hit.custom_dates || false,
+      booking_mode:    hit.booking_mode || 'instant',
+      _queryID:        queryID,
+      _position:       position,
+    });
+  }
+  // Title hash: prefer explicit field; fall back to the last 8 chars of the
+  // objectID (V2 ids always end in the title hash).
   const objId = hit.objectID || '';
   const titleHashFromId = objId.length >= 8 ? objId.slice(-8) : null;
+  const titleHash = hit.title_hash || titleHashFromId;
   return {
-    id: objId,
-    title: hit.title || '',
-    title_hash: hit.title_hash || titleHashFromId,
-    summary: hit.summary || '',
-    search_document: hit.search_document || '',
-    date_display: hit.date_display || '',
-    date_sort: hit.date_sort,
-    custom_dates: hit.custom_dates || false,
+    id:                 sessions[0].id || objId,
+    provider_id:        pid,
+    title:              hit.title || '',
+    title_hash:         titleHash,
+    _group_key:         titleHash ? `${pid}::${titleHash}` : `${pid}::title:${(hit.title || '').toLowerCase().trim()}`,
+    summary:            hit.summary || '',
+    search_document:    hit.search_document || '',
     location_canonical: hit.location_canonical || '',
-    location_raw: hit.location_raw || '',
-    image_url: hit.image_url,
-    duration_days: hit.duration_days ?? null,
-    price: hit.price,
+    location_raw:       hit.location_raw || '',
+    duration_days:      hit.duration_days ?? null,
+    image_url:          hit.image_url,
+    booking_mode:       hit.booking_mode || 'instant',
+    custom_dates:       hit.custom_dates || false,
+    currency:           hit.currency || 'CAD',
+    price_min:          hit.price_min ?? sessions[0].price ?? null,
     price_has_variations: hit.price_has_variations || false,
-    currency: hit.currency || 'CAD',
-    avail: hit.avail || 'open',
-    spots_remaining: hit.spots_remaining ?? null,
-    booking_url: hit.booking_url || '#',
-    booking_mode: hit.booking_mode || 'instant',
-    provider_id: hit.provider_id || '',
     providers: {
-      name: hit.provider_name || '',
-      rating: hit.provider_rating || null,
+      name:         hit.provider_name || '',
+      rating:       hit.provider_rating || null,
       review_count: null,
-      logo_url: hit.provider_logo_url || null,
+      logo_url:     hit.provider_logo_url || null,
     },
-    _queryID: hit.__queryID || null,
-    _position: hit.__position || null,
+    _queryID:           queryID,
+    _position:          position,
+    sessions,
+    has_more_sessions:  sessions.length > SESSION_VISIBLE_CAP,
+    velocity_fill_pct:    null,    // until V2 Phase 5
+    velocity_days_to_book: null,
   };
 }
 
@@ -106,6 +143,16 @@ function _groupKey(c) {
 
 function groupCoursesForCards(courses) {
   if (!Array.isArray(courses)) return [];
+  // Pre-grouped synthetics from mapHit() already carry a sessions[] array;
+  // pass them through unchanged. mapSupabaseRow output has no sessions[] and
+  // takes the per-session bucket-and-collapse path below.
+  if (courses.length > 0 && Array.isArray(courses[0].sessions)) {
+    return courses.map(c => ({
+      ...c,
+      _group_key: c._group_key || _groupKey(c),
+      has_more_sessions: c.has_more_sessions ?? (c.sessions.length > SESSION_VISIBLE_CAP),
+    }));
+  }
   // Insertion-ordered map preserves Algolia's relevance ranking from the input.
   const buckets = new Map();
   for (const c of courses) {
@@ -253,12 +300,12 @@ function _sessionRow(c, session, isPrimary) {
     bookingControl = `<a class="book-btn ${isPrimary ? '' : 'book-btn-sm'}" href="${utmUrl(bookingUrl)}" target="_blank" rel="noopener" ${_bookingClickAttrs(courseCtx, session.id, session._queryID, isPrimary)}>${label} ${arrow}</a>`;
   }
 
-  // Save button — primary has icon + text + chip; expanded session is icon-only
+  // Save button — same shape on every session row (primary + expanded). Icon
+  // + "my list" label, with green saved state and red hover-to-remove. Mobile
+  // CSS already collapses .save-btn to icon-only when needed.
   const saveAttrs = `data-save-id="${session.id}" data-save-date="${dsAttr}"`;
   const saveOnclick = `onclick="toggleSave('${session.id}', '${dsAttr}')"`;
-  const saveBtn = isPrimary
-    ? `<button class="save-btn ${saved ? 'saved remove-ready' : ''}" ${saveAttrs} ${saveOnclick}>${_saveSvg(saved)}<span class="save-label">my list</span></button>`
-    : `<button class="save-btn save-btn-icon ${saved ? 'saved remove-ready' : ''}" ${saveAttrs} ${saveOnclick} aria-label="Save to my list">${_saveSvg(saved)}</button>`;
+  const saveBtn = `<button class="save-btn ${saved ? 'saved remove-ready' : ''}" ${saveAttrs} ${saveOnclick}>${_saveSvg(saved)}<span class="save-label">my list</span></button>`;
 
   const dateLabel = session.date_display || (session.custom_dates ? 'Flexible dates' : '');
 
