@@ -388,6 +388,51 @@ def claude_classify(prompt: str, max_tokens: int = 256) -> dict:
         return {}
 
 
+def _load_cached_summaries(provider_ids: list) -> dict:
+    """Bulk-fetch existing course_summaries rows for the given providers.
+
+    Returns {(provider_id, title): {summary, search_document, description_hash}}.
+    Used by generate_summaries_batch to skip Haiku when an existing summary's
+    description_hash still matches the current description.
+    """
+    if not provider_ids or not SUPABASE_URL or not SUPABASE_KEY:
+        return {}
+    pid_list = ",".join(sorted({p for p in provider_ids if p}))
+    if not pid_list:
+        return {}
+    try:
+        r = requests.get(
+            f"{SUPABASE_URL}/rest/v1/course_summaries",
+            headers={
+                **_sb_headers(),
+                "Range": "0-49999",
+                "Range-Unit": "items",
+            },
+            params={
+                "provider_id": f"in.({pid_list})",
+                "select": "provider_id,title,summary,search_document,description_hash",
+            },
+            timeout=30,
+        )
+        r.raise_for_status()
+        rows = r.json()
+    except Exception as e:
+        log.warning(f"Summary cache lookup failed ({e}) — will regenerate all summaries this run")
+        return {}
+    cache = {}
+    for row in rows:
+        pid = row.get("provider_id") or ""
+        title = row.get("title") or ""
+        if not pid or not title:
+            continue
+        cache[(pid, title)] = {
+            "summary": (row.get("summary") or "").strip(),
+            "search_document": row.get("search_document") or "",
+            "description_hash": row.get("description_hash") or "",
+        }
+    return cache
+
+
 def generate_summaries_batch(courses: list, provider_id: str = None) -> dict:
     """
     Batch-generate two-field summaries via Claude Haiku (Phase 1 V2):
@@ -398,14 +443,52 @@ def generate_summaries_batch(courses: list, provider_id: str = None) -> dict:
     provider_id: optional — used for course_summaries upsert. If not provided,
       falls back to each course dict's "provider_id" key.
 
-    Returns {course_id: display_summary_text} — backward-compatible with V1 callers.
+    Returns {course_id: {"summary": str, "search_document": str}}.
     Internally upserts both fields to course_summaries table.
+
+    Caches via course_summaries.description_hash — courses whose (provider_id, title)
+    already has a row with a matching description_hash and a non-empty summary are
+    served from cache without calling Haiku.
     """
     if not ANTHROPIC_API_KEY:
         return {}
     to_summarise = [c for c in courses if c.get("description", "").strip()]
     if not to_summarise:
         return {}
+
+    # ── Preflight cache check: skip Haiku for unchanged descriptions ──
+    cache_provider_ids = list({
+        (c.get("provider_id") or provider_id or "")
+        for c in to_summarise
+    })
+    cache = _load_cached_summaries(cache_provider_ids)
+
+    cached_results = {}        # {course_id: {"display_summary": str, "search_document": str}}
+    cached_id_to_title = {}    # {course_id: title} for bleed detection
+    needs_haiku = []
+    for c in to_summarise:
+        pid = c.get("provider_id") or provider_id or ""
+        title = c.get("title") or ""
+        desc = c.get("description") or ""
+        desc_hash = hashlib.md5(desc.strip().encode()).hexdigest() if desc.strip() else None
+        cached = cache.get((pid, title))
+        if cached and desc_hash and cached["description_hash"] == desc_hash and cached["summary"]:
+            cached_results[c["id"]] = {
+                "display_summary": cached["summary"],
+                "search_document": cached["search_document"],
+            }
+            cached_id_to_title[c["id"]] = title
+        else:
+            needs_haiku.append(c)
+
+    log.info(f"Summary cache: {len(cached_results)} hits, {len(needs_haiku)} need Haiku")
+
+    if not needs_haiku:
+        return {cid: {"summary": fields["display_summary"],
+                      "search_document": fields.get("search_document", "")}
+                for cid, fields in cached_results.items()}
+
+    to_summarise = needs_haiku
 
     # Deduplicate by description — same description gets one summary, reused for all IDs
     desc_to_ids = {}       # normalised_desc → [all ids with this description]
@@ -479,21 +562,32 @@ Respond with valid JSON only — an array of objects:
                     log.warning(f"Batch {batch_num} retry also failed: {e}")
 
     # ── Post-processing: detect and fix duplicate summary bleed ──
+    # Cached entries are added FIRST so they always claim ids[0] in any collision
+    # group — the regen loop only touches ids[1:], so cached summaries are
+    # preserved and only fresh ones get regenerated against them.
     summary_to_ids = {}
+    for cid, fields in cached_results.items():
+        s = fields["display_summary"].strip()
+        if s:
+            summary_to_ids.setdefault(s, []).append(cid)
     for cid, fields in results.items():
         s = fields["display_summary"].strip()
         if s:
             summary_to_ids.setdefault(s, []).append(cid)
 
+    bleed_id_to_title = {cid: c["title"] for cid, c in id_to_course.items()}
+    bleed_id_to_title.update(cached_id_to_title)
+
     for summary_text, ids in summary_to_ids.items():
         if len(ids) <= 1:
             continue
-        titles = set(id_to_course[cid]["title"] for cid in ids if cid in id_to_course)
+        titles = {bleed_id_to_title[cid] for cid in ids if cid in bleed_id_to_title}
         if len(titles) <= 1:
             continue
 
         log.warning(f"Duplicate summary bleed across {len(titles)} titles with different descriptions — regenerating")
         all_summaries = set(f["display_summary"] for f in results.values())
+        all_summaries.update(f["display_summary"] for f in cached_results.values())
         for cid in ids[1:]:
             c = id_to_course.get(cid)
             if not c:
@@ -551,11 +645,17 @@ Respond with valid JSON only — an array of objects:
                     expanded[cid] = results[first_id]
 
     # ── Upsert to course_summaries table (both fields) ──
+    # Only fresh entries are upserted — cached rows are already correct in the table.
     _upsert_course_summaries(expanded, id_to_course, desc_to_ids, desc_to_course, provider_id)
 
-    # Return {course_id: {"summary": str, "search_document": str}}
-    return {cid: {"summary": fields["display_summary"], "search_document": fields.get("search_document", "")}
-            for cid, fields in expanded.items()}
+    # Return {course_id: {"summary": str, "search_document": str}} — fresh + cached merged
+    merged = {cid: {"summary": fields["display_summary"],
+                    "search_document": fields.get("search_document", "")}
+              for cid, fields in expanded.items()}
+    for cid, fields in cached_results.items():
+        merged[cid] = {"summary": fields["display_summary"],
+                       "search_document": fields.get("search_document", "")}
+    return merged
 
 
 def _upsert_course_summaries(expanded: dict, id_to_course: dict,
