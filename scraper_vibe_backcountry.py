@@ -10,17 +10,17 @@ FareHarbor exposes an anonymous item catalogue at
 But availability is NOT listable via public JSON. The widget renders a
 server-side HTML shell at
   /embeds/book/vibebackcountry/items/{pk}/calendar/{YYYY}/{MM}/
-and hydrates the grid via an in-browser Angular app that issues XHRs to
-/availabilities/ endpoints at runtime. No list-availabilities endpoint
-exists on the anonymous surface. We confirmed this by DevTools capture +
-static-HTML key-sniffing: start_at / capacity_remaining / availability_pk
-all have count=0 in the raw HTML body.
+and hydrates the grid via an in-browser app that issues XHRs to
+calendar / availability endpoints at runtime. We use Playwright: load
+the item's lightframe, intercept every JSON response on a FareHarbor
+availability endpoint, advance through N months by navigating to
+calendar/{YYYY}/{MM}/ URLs, then dedup and parse. Availability rows
+are recognised structurally (any dict with ``pk`` + ``start_at``) so
+the scraper is robust to wrapper-shape drift.
 
-So we use Playwright: load the item's lightframe, intercept every
-JSON /availabilities/ response the Angular app fetches, advance through
-N months by navigating to calendar/{YYYY}/{MM}/ URLs, then dedup and
-parse. All availability data comes from the captured XHR responses — we
-don't parse the rendered DOM.
+Endpoint history (don't be surprised when this list grows):
+  legacy: /api/.../availabilities/ (list endpoint)
+  current (2026-05): /api/v1/companies/{shortname}/items/{pk}/calendar/{YYYY}/{MM}/?allow_grouped=yes&...
 
 Vibe Backcountry is an ACMG-certified Vancouver Island guiding operation
 covering backcountry skiing / splitboarding / AST / rock / alpine /
@@ -131,105 +131,79 @@ def months_between(start: datetime.date, end: datetime.date):
             y += 1
 
 
+def _walk_availabilities(node):
+    """Recursively yield every dict inside ``node`` that looks like a
+    FareHarbor availability — has both an integer ``pk`` and a string
+    ``start_at`` field. Robust to wrapper-shape changes — works for the
+    legacy ``{"availabilities": [...]}`` body, the new
+    ``/api/v1/companies/.../calendar/`` body whose exact wrapper shape we
+    haven't fully mapped, and any future shuffle as long as the inner
+    availability dict keeps these two fields.
+    """
+    if isinstance(node, dict):
+        if isinstance(node.get("pk"), int) and isinstance(node.get("start_at"), str):
+            yield node
+        for v in node.values():
+            yield from _walk_availabilities(v)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _walk_availabilities(item)
+
+
 def collect_availabilities(browser, item_pk: int, months: list) -> list:
     """
     Open the item's Lightframe calendar in a headless page. Listen to every
-    response the Angular app fetches and keep those whose URL contains
-    /availabilities/ with a JSON body. Navigate through each month in the
-    lookahead range so every month's XHRs fire. Return a deduped list of
-    availability dicts.
+    response the Angular app fetches and walk JSON bodies for any availability
+    dict (recognised by ``pk`` + ``start_at``). Navigate through each month
+    in the lookahead range so every month's XHRs fire. Return a deduped list
+    of availability dicts.
+
+    URL filter accepts both the legacy ``/availabilities`` endpoint and the
+    new ``/api/v1/companies/.../calendar/{YYYY}/{MM}/`` endpoint that the
+    embed widget switched to in 2026 (confirmed via diagnostic captures in
+    PRs #50/#51). The ``/embeds/book/.../calendar/`` page-shell URL is
+    explicitly excluded so we don't try to JSON-parse the HTML response.
     """
     captured = {}  # availability_pk → dict
+    matched_url_count = 0
+    parse_failures = []     # (url, error_str) — only when matched but failed
+    sample_keys = []        # body top-level keys when matched but no rows extracted
 
-    # ── DIAGNOSTIC v2 (remove after root cause identified) ──
-    # v1 confirmed the page makes 350+ requests but ZERO contain "/availabilities".
-    # FareHarbor renamed/relocated the endpoint. v2 filters out static-asset noise
-    # so the sample_urls reveal the actual API endpoint the Angular app now calls.
-    _STATIC_EXTS = (".css", ".js", ".woff", ".woff2", ".ttf", ".otf",
-                    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico",
-                    ".webp", ".map", ".mp4", ".mp3")
-    _STATIC_PATHS = ("/static/", "/fonts/", "/jstranslation/", "/dist/",
-                     "/assets/", "/cache/")
-
-    def _is_interesting(url: str) -> bool:
-        """Heuristic: drop obvious static assets and third-party tracking,
-        keep anything that could plausibly be the new availability endpoint."""
-        u = url.split("?", 1)[0].lower()
-        if u.endswith(_STATIC_EXTS):
+    def _matches_avail_endpoint(url: str) -> bool:
+        if "/embeds/" in url:
             return False
-        if any(p in u for p in _STATIC_PATHS):
-            return False
-        if any(tld in u for tld in (
-            "googletagmanager.com", "google-analytics.com",
-            "doubleclick.net", "stripe.com", "translate.google.com",
-            "featureassets.org", "cloudfront.net",
-        )):
-            return False
-        return True
-
-    diag = {
-        "total_responses":  0,
-        "interesting":      0,   # responses passing _is_interesting
-        "matched_url":      0,
-        "skipped_ctype":    0,
-        "skipped_parse":    0,
-        "skipped_shape":    0,
-        "parsed_rows":      0,
-        "networkidle_timeout": 0,
-        "sample_urls":      [],  # interesting URLs (up to 30)
-        "sample_ctypes":    [],
-        "sample_keys":      [],
-        "sample_errors":    [],
-    }
+        if "/availabilities" in url:
+            return True
+        return "/api/" in url and "/calendar/" in url
 
     def on_response(response):
-        diag["total_responses"] += 1
+        nonlocal matched_url_count
         try:
             url = response.url
         except Exception:
             return
-        if _is_interesting(url):
-            diag["interesting"] += 1
-            if len(diag["sample_urls"]) < 30:
-                diag["sample_urls"].append(url[:200])
-        if "/availabilities" not in url:
+        if not _matches_avail_endpoint(url):
             return
-        diag["matched_url"] += 1
+        matched_url_count += 1
         ctype = response.headers.get("content-type", "") if hasattr(response, "headers") else ""
-        if len(diag["sample_ctypes"]) < 4:
-            diag["sample_ctypes"].append(ctype[:60])
         if "json" not in ctype:
-            diag["skipped_ctype"] += 1
             return
         try:
             body = response.json()
         except Exception as e:
-            diag["skipped_parse"] += 1
-            if len(diag["sample_errors"]) < 4:
-                diag["sample_errors"].append(f"parse: {e}")
+            if len(parse_failures) < 3:
+                parse_failures.append((url[:120], f"json parse: {e}"))
             return
-        if not isinstance(body, dict):
-            diag["skipped_shape"] += 1
-            if len(diag["sample_errors"]) < 4:
-                diag["sample_errors"].append(f"not-dict: {type(body).__name__}")
-            return
-        if len(diag["sample_keys"]) < 4:
-            diag["sample_keys"].append(list(body.keys())[:6])
-        # Collect both shapes: {"availability": {...}} and {"availabilities": [...]}.
-        one = body.get("availability")
-        if isinstance(one, dict):
-            pk = one.get("pk")
+        rows_before = len(captured)
+        for a in _walk_availabilities(body):
+            pk = a.get("pk")
             if pk is not None:
-                captured[pk] = one
-                diag["parsed_rows"] += 1
-        many = body.get("availabilities")
-        if isinstance(many, list):
-            for a in many:
-                if isinstance(a, dict):
-                    pk = a.get("pk")
-                    if pk is not None:
-                        captured[pk] = a
-                        diag["parsed_rows"] += 1
+                captured[pk] = a
+        rows_added = len(captured) - rows_before
+        # If we matched a URL but extracted nothing, log the top-level keys
+        # so a future drift in the wrapper shape is visible.
+        if rows_added == 0 and isinstance(body, dict) and len(sample_keys) < 4:
+            sample_keys.append((url[:120], list(body.keys())[:8]))
 
     page = browser.new_page()
     page.on("response", on_response)
@@ -252,7 +226,7 @@ def collect_availabilities(browser, item_pk: int, months: list) -> list:
             try:
                 page.wait_for_load_state("networkidle", timeout=8000)
             except PlaywrightTimeout:
-                diag["networkidle_timeout"] += 1
+                pass
             page.wait_for_timeout(500)
     finally:
         try:
@@ -260,28 +234,16 @@ def collect_availabilities(browser, item_pk: int, months: list) -> list:
         except Exception:
             pass
 
-    # ── DIAGNOSTIC summary line — one per item ──
-    print(
-        f"    [diag {item_pk}] "
-        f"resp={diag['total_responses']} "
-        f"interesting={diag['interesting']} "
-        f"matched={diag['matched_url']} "
-        f"parsed={diag['parsed_rows']} "
-        f"unique={len(captured)} "
-        f"netidle_timeouts={diag['networkidle_timeout']}/{len(months)} "
-        f"skipped(ctype/parse/shape)={diag['skipped_ctype']}/{diag['skipped_parse']}/{diag['skipped_shape']}"
-    )
-    if diag["matched_url"] == 0 and diag["interesting"] > 0:
-        # Print one URL per line so they're readable in CI logs.
-        print(f"    [diag {item_pk}] interesting URLs (up to 30):")
-        for u in diag["sample_urls"]:
-            print(f"      {u}")
-    if diag["matched_url"] > 0 and diag["parsed_rows"] == 0:
-        print(f"    [diag {item_pk}] sample_ctypes: {diag['sample_ctypes']}")
-        print(f"    [diag {item_pk}] sample_keys:   {diag['sample_keys']}")
-        print(f"    [diag {item_pk}] sample_errors: {diag['sample_errors']}")
-    if diag["total_responses"] == 0:
-        print(f"    [diag {item_pk}] NO responses captured at all — page never made any requests")
+    # One summary line per item — keeps regression visibility without
+    # the full diagnostic firehose.
+    print(f"    [item {item_pk}] matched={matched_url_count} availabilities={len(captured)}")
+    if matched_url_count > 0 and len(captured) == 0:
+        # Rare: URLs matched but nothing extracted. Surface body shape so
+        # the next FareHarbor migration is debuggable without a re-diag run.
+        for url, keys in sample_keys:
+            print(f"      [shape] {url} keys={keys}")
+        for url, err in parse_failures:
+            print(f"      [parse-err] {url}: {err}")
 
     return list(captured.values())
 
