@@ -141,28 +141,60 @@ def collect_availabilities(browser, item_pk: int, months: list) -> list:
     """
     captured = {}  # availability_pk → dict
 
+    # ── DIAGNOSTIC (remove after root cause identified) ──
+    # Per-item counters to expose which silent filter is dropping responses.
+    diag = {
+        "total_responses":  0,   # every response that hit the listener
+        "matched_url":      0,   # responses whose URL contained /availabilities
+        "skipped_ctype":    0,   # /availabilities responses dropped by content-type filter
+        "skipped_parse":    0,   # /availabilities responses dropped by json parse
+        "skipped_shape":    0,   # /availabilities responses dropped by body shape
+        "parsed_rows":      0,   # availability dicts pushed into captured
+        "networkidle_timeout": 0,
+        "sample_urls":      [],  # first few URLs hit, for debugging
+        "sample_ctypes":    [],  # first few content-types on /availabilities URLs
+        "sample_keys":      [],  # first few top-level body key sets
+        "sample_errors":    [],  # first few parse errors
+    }
+
     def on_response(response):
+        diag["total_responses"] += 1
         try:
             url = response.url
         except Exception:
             return
+        if len(diag["sample_urls"]) < 8:
+            diag["sample_urls"].append(url[:120])
         if "/availabilities" not in url:
             return
+        diag["matched_url"] += 1
         ctype = response.headers.get("content-type", "") if hasattr(response, "headers") else ""
+        if len(diag["sample_ctypes"]) < 4:
+            diag["sample_ctypes"].append(ctype[:60])
         if "json" not in ctype:
+            diag["skipped_ctype"] += 1
             return
         try:
             body = response.json()
-        except Exception:
+        except Exception as e:
+            diag["skipped_parse"] += 1
+            if len(diag["sample_errors"]) < 4:
+                diag["sample_errors"].append(f"parse: {e}")
             return
         if not isinstance(body, dict):
+            diag["skipped_shape"] += 1
+            if len(diag["sample_errors"]) < 4:
+                diag["sample_errors"].append(f"not-dict: {type(body).__name__}")
             return
+        if len(diag["sample_keys"]) < 4:
+            diag["sample_keys"].append(list(body.keys())[:6])
         # Collect both shapes: {"availability": {...}} and {"availabilities": [...]}.
         one = body.get("availability")
         if isinstance(one, dict):
             pk = one.get("pk")
             if pk is not None:
                 captured[pk] = one
+                diag["parsed_rows"] += 1
         many = body.get("availabilities")
         if isinstance(many, list):
             for a in many:
@@ -170,6 +202,7 @@ def collect_availabilities(browser, item_pk: int, months: list) -> list:
                     pk = a.get("pk")
                     if pk is not None:
                         captured[pk] = a
+                        diag["parsed_rows"] += 1
 
     page = browser.new_page()
     page.on("response", on_response)
@@ -192,13 +225,32 @@ def collect_availabilities(browser, item_pk: int, months: list) -> list:
             try:
                 page.wait_for_load_state("networkidle", timeout=8000)
             except PlaywrightTimeout:
-                pass
+                diag["networkidle_timeout"] += 1
             page.wait_for_timeout(500)
     finally:
         try:
             page.close()
         except Exception:
             pass
+
+    # ── DIAGNOSTIC summary line — one per item ──
+    print(
+        f"    [diag {item_pk}] "
+        f"resp={diag['total_responses']} "
+        f"matched={diag['matched_url']} "
+        f"parsed={diag['parsed_rows']} "
+        f"unique={len(captured)} "
+        f"netidle_timeouts={diag['networkidle_timeout']}/{len(months)} "
+        f"skipped(ctype/parse/shape)={diag['skipped_ctype']}/{diag['skipped_parse']}/{diag['skipped_shape']}"
+    )
+    if diag["matched_url"] == 0 and diag["total_responses"] > 0:
+        print(f"    [diag {item_pk}] sample_urls: {diag['sample_urls']}")
+    if diag["matched_url"] > 0 and diag["parsed_rows"] == 0:
+        print(f"    [diag {item_pk}] sample_ctypes: {diag['sample_ctypes']}")
+        print(f"    [diag {item_pk}] sample_keys:   {diag['sample_keys']}")
+        print(f"    [diag {item_pk}] sample_errors: {diag['sample_errors']}")
+    if diag["total_responses"] == 0:
+        print(f"    [diag {item_pk}] NO responses captured at all — page never made any requests")
 
     return list(captured.values())
 
