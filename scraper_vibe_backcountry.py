@@ -141,20 +141,45 @@ def collect_availabilities(browser, item_pk: int, months: list) -> list:
     """
     captured = {}  # availability_pk → dict
 
-    # ── DIAGNOSTIC (remove after root cause identified) ──
-    # Per-item counters to expose which silent filter is dropping responses.
+    # ── DIAGNOSTIC v2 (remove after root cause identified) ──
+    # v1 confirmed the page makes 350+ requests but ZERO contain "/availabilities".
+    # FareHarbor renamed/relocated the endpoint. v2 filters out static-asset noise
+    # so the sample_urls reveal the actual API endpoint the Angular app now calls.
+    _STATIC_EXTS = (".css", ".js", ".woff", ".woff2", ".ttf", ".otf",
+                    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico",
+                    ".webp", ".map", ".mp4", ".mp3")
+    _STATIC_PATHS = ("/static/", "/fonts/", "/jstranslation/", "/dist/",
+                     "/assets/", "/cache/")
+
+    def _is_interesting(url: str) -> bool:
+        """Heuristic: drop obvious static assets and third-party tracking,
+        keep anything that could plausibly be the new availability endpoint."""
+        u = url.split("?", 1)[0].lower()
+        if u.endswith(_STATIC_EXTS):
+            return False
+        if any(p in u for p in _STATIC_PATHS):
+            return False
+        if any(tld in u for tld in (
+            "googletagmanager.com", "google-analytics.com",
+            "doubleclick.net", "stripe.com", "translate.google.com",
+            "featureassets.org", "cloudfront.net",
+        )):
+            return False
+        return True
+
     diag = {
-        "total_responses":  0,   # every response that hit the listener
-        "matched_url":      0,   # responses whose URL contained /availabilities
-        "skipped_ctype":    0,   # /availabilities responses dropped by content-type filter
-        "skipped_parse":    0,   # /availabilities responses dropped by json parse
-        "skipped_shape":    0,   # /availabilities responses dropped by body shape
-        "parsed_rows":      0,   # availability dicts pushed into captured
+        "total_responses":  0,
+        "interesting":      0,   # responses passing _is_interesting
+        "matched_url":      0,
+        "skipped_ctype":    0,
+        "skipped_parse":    0,
+        "skipped_shape":    0,
+        "parsed_rows":      0,
         "networkidle_timeout": 0,
-        "sample_urls":      [],  # first few URLs hit, for debugging
-        "sample_ctypes":    [],  # first few content-types on /availabilities URLs
-        "sample_keys":      [],  # first few top-level body key sets
-        "sample_errors":    [],  # first few parse errors
+        "sample_urls":      [],  # interesting URLs (up to 30)
+        "sample_ctypes":    [],
+        "sample_keys":      [],
+        "sample_errors":    [],
     }
 
     def on_response(response):
@@ -163,8 +188,10 @@ def collect_availabilities(browser, item_pk: int, months: list) -> list:
             url = response.url
         except Exception:
             return
-        if len(diag["sample_urls"]) < 8:
-            diag["sample_urls"].append(url[:120])
+        if _is_interesting(url):
+            diag["interesting"] += 1
+            if len(diag["sample_urls"]) < 30:
+                diag["sample_urls"].append(url[:200])
         if "/availabilities" not in url:
             return
         diag["matched_url"] += 1
@@ -237,14 +264,18 @@ def collect_availabilities(browser, item_pk: int, months: list) -> list:
     print(
         f"    [diag {item_pk}] "
         f"resp={diag['total_responses']} "
+        f"interesting={diag['interesting']} "
         f"matched={diag['matched_url']} "
         f"parsed={diag['parsed_rows']} "
         f"unique={len(captured)} "
         f"netidle_timeouts={diag['networkidle_timeout']}/{len(months)} "
         f"skipped(ctype/parse/shape)={diag['skipped_ctype']}/{diag['skipped_parse']}/{diag['skipped_shape']}"
     )
-    if diag["matched_url"] == 0 and diag["total_responses"] > 0:
-        print(f"    [diag {item_pk}] sample_urls: {diag['sample_urls']}")
+    if diag["matched_url"] == 0 and diag["interesting"] > 0:
+        # Print one URL per line so they're readable in CI logs.
+        print(f"    [diag {item_pk}] interesting URLs (up to 30):")
+        for u in diag["sample_urls"]:
+            print(f"      {u}")
     if diag["matched_url"] > 0 and diag["parsed_rows"] == 0:
         print(f"    [diag {item_pk}] sample_ctypes: {diag['sample_ctypes']}")
         print(f"    [diag {item_pk}] sample_keys:   {diag['sample_keys']}")
