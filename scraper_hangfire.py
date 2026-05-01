@@ -491,7 +491,7 @@ def main():
             for c in processed if c.get("description")
         ]
         if summary_inputs:
-            summaries = generate_summaries_batch(summary_inputs)
+            summaries = generate_summaries_batch(summary_inputs, provider_id=PROVIDER["id"])
             for c in processed:
                 if c["id"] in summaries:
                     result = summaries.get(c["id"], {})

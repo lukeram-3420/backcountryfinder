@@ -382,7 +382,7 @@ def main():
             }
             for c in dated_processed
         ]
-        summaries = generate_summaries_batch(summary_inputs)
+        summaries = generate_summaries_batch(summary_inputs, provider_id=PROVIDER["id"])
         for c in dated_processed:
             if c["id"] in summaries:
                 result = summaries.get(c["id"], {})

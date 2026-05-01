@@ -590,7 +590,7 @@ def main():
                     "provider":    PROVIDER["name"],
                 })
         if unique_inputs:
-            summaries        = generate_summaries_batch(unique_inputs)
+            summaries        = generate_summaries_batch(unique_inputs, provider_id=PROVIDER["id"])
             title_to_summary = {}
             for c in unique_inputs:
                 result = summaries.get(c["id"], {})

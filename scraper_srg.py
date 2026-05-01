@@ -288,7 +288,7 @@ def main():
                 if s["title"] not in seen_titles:
                     seen_titles[s["title"]] = s["id"]
                     unique_inputs.append(s)
-            summaries = generate_summaries_batch(unique_inputs)
+            summaries = generate_summaries_batch(unique_inputs, provider_id=PROVIDER["id"])
             # Apply summary to all cards with same title
             title_to_summary = {}
             for s in unique_inputs:
