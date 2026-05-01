@@ -472,7 +472,7 @@ def main():
             })
 
         try:
-            summaries = generate_summaries_batch(inputs)
+            summaries = generate_summaries_batch(inputs, provider_id=PROVIDER_ID)
             print(f"    Generated {len(summaries)} summaries")
         except Exception as e:
             print(f"    ⚠ generate_summaries_batch failed: {e}")

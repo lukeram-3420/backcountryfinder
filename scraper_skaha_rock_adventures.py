@@ -261,7 +261,7 @@ def main():
                 seen_titles[c["title"]] = c["id"]
                 unique_inputs.append({"id": c["id"], "title": c["title"], "description": c.get("description", ""), "provider": SKAHA_PROVIDER["name"]})
         if unique_inputs:
-            summaries = generate_summaries_batch(unique_inputs)
+            summaries = generate_summaries_batch(unique_inputs, provider_id=SKAHA_PROVIDER["id"])
             title_to_summary = {}
             for c in unique_inputs:
                 result = summaries.get(c["id"], {})

@@ -686,6 +686,9 @@ def _upsert_course_summaries(expanded: dict, id_to_course: dict,
 
         pid = c.get("provider_id", "") or fallback_provider_id or ""
         title = c.get("title", "")
+        if not pid or not title:
+            log.warning(f"Skipping course_summaries upsert with empty provider_id or title (id={c.get('id', '?')})")
+            continue
         key = (pid, title)
         if key in seen:
             continue
