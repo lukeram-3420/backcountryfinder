@@ -452,7 +452,27 @@ def main():
     for r in rows:
         r.pop("description", None)
 
-    # 5. Upsert in batches of 50
+    # 5. Dedup by V2 stable id — FareHarbor sometimes exposes multiple
+    # availability records per (date, product) (e.g. morning/afternoon
+    # slots) with distinct pks. They collapse to the same V2 id
+    # ({provider_id}-{date_sort}-{title_hash}) which Postgres rejects in
+    # one UPSERT batch with code 21000 ("ON CONFLICT DO UPDATE command
+    # cannot affect row a second time"). Same pattern as
+    # scraper_altus.py:1054. Keep the first occurrence.
+    seen_ids = set()
+    deduped_rows = []
+    for r in rows:
+        rid = r.get("id")
+        if rid and rid in seen_ids:
+            continue
+        if rid:
+            seen_ids.add(rid)
+        deduped_rows.append(r)
+    if len(deduped_rows) < len(rows):
+        print(f"  Deduplicated {len(rows) - len(deduped_rows)} duplicate stable IDs")
+    rows = deduped_rows
+
+    # 6. Upsert in batches of 50
     for i in range(0, len(rows), 50):
         sb_upsert("courses", rows[i:i + 50])
 
