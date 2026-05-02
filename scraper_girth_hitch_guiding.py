@@ -153,10 +153,17 @@ def fetch_items() -> dict:
 
 
 def fetch_availability(item_ids: list, start: str, end: str) -> dict:
-    # Batch size 5 — Checkfront 500s on large item_id[] lists. Was 20,
-    # dropped to 5 after Checkfront tightened the threshold (every batch
-    # of 20 from this tenant returned a sustained 500 even after 3 retries).
+    """Fetch availability with batch-then-per-item fallback.
+
+    Default path: batch 5 items per /item/cal request (Checkfront 500s
+    on larger lists from this tenant). When a batch fails after the
+    retry-on-5xx logic in cf_get, fall back to per-item queries for
+    that batch — one or more specific item_ids is poisoning the batch,
+    and we don't want one bad item to take out the whole run.
+    Individual failures are logged and skipped.
+    """
     result = {}
+    failed_items: list = []
     for i in range(0, len(item_ids), 5):
         batch = item_ids[i:i + 5]
         params = {
@@ -164,8 +171,26 @@ def fetch_availability(item_ids: list, start: str, end: str) -> dict:
             "start_date": start,
             "end_date":   end,
         }
-        data = cf_get("item/cal", params=params)
-        result.update(data.get("items", {}))
+        try:
+            data = cf_get("item/cal", params=params)
+            result.update(data.get("items", {}))
+            continue
+        except requests.HTTPError as e:
+            print(f"  Batch {batch} failed ({e.response.status_code if e.response is not None else '?'}); falling back to per-item")
+        # Per-item fallback — at least the healthy items in this batch get through.
+        for iid in batch:
+            try:
+                data = cf_get("item/cal", params={
+                    "item_id[]": [iid],
+                    "start_date": start,
+                    "end_date":   end,
+                })
+                result.update(data.get("items", {}))
+            except Exception as e:
+                failed_items.append(iid)
+                print(f"    item {iid}: {e}")
+    if failed_items:
+        print(f"  Skipped {len(failed_items)} item(s) that 500'd individually: {failed_items}")
     return result
 
 
