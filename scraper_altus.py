@@ -22,6 +22,7 @@ from scraper_utils import (
     normalise_location, log_availability_change, log_price_change,
     stable_id_v2, generate_summaries_batch, title_hash,
     activity_key, upsert_activity_control, load_activity_controls,
+    sb_upsert,
 )
 
 
@@ -113,23 +114,6 @@ def sb_get(table: str, params: dict = {}) -> list:
     r = requests.get(url, headers=headers, params=params)
     r.raise_for_status()
     return r.json()
-
-
-def sb_upsert(table: str, data: list) -> None:
-    if not data:
-        return
-    url = f"{SUPABASE_URL}/rest/v1/{table}"
-    headers = {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates",
-    }
-    r = requests.post(url, headers=headers, json=data)
-    if not r.ok:
-        log.error(f"Supabase upsert error {r.status_code}: {r.text}")
-    else:
-        log.info(f"Upserted {len(data)} rows to {table}")
 
 
 def sb_insert(table: str, data: dict) -> None:
