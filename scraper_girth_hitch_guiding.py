@@ -246,7 +246,13 @@ def main():
 
     # 3. Fetch availability calendar
     print(f"  Fetching availability {start_s} → {end_s}...")
-    item_ids = list(course_items.keys())
+    # Hardcoded skip list — these item_ids cause Checkfront's /item/cal to
+    # 500 with no recovery (verified via PRs #55-#57). Most likely
+    # archived/misconfigured products on Girth Hitch's tenant. Skip
+    # entirely so the scraper doesn't waste API calls on the per-item
+    # fallback. Re-evaluate when Girth Hitch confirms a fix on their side.
+    BROKEN_ITEM_IDS = {8, 14, 20, 134, 143}
+    item_ids = [i for i in course_items.keys() if int(i) not in BROKEN_ITEM_IDS]
     cal = fetch_availability(item_ids, start_s, end_s)
     print(f"  Calendar entries returned: {len(cal)}")
 
