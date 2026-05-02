@@ -714,7 +714,7 @@ def _upsert_course_summaries(expanded: dict, id_to_course: dict,
 
     try:
         r = requests.post(
-            f"{SUPABASE_URL}/rest/v1/course_summaries",
+            f"{SUPABASE_URL}/rest/v1/course_summaries?on_conflict=provider_id,title",
             headers={
                 "apikey": SUPABASE_KEY,
                 "Authorization": f"Bearer {SUPABASE_KEY}",
