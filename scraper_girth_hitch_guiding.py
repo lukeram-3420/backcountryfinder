@@ -12,6 +12,7 @@ Bow Valley, Bugaboos, Jasper, Yoho, and Squamish.
 """
 
 import re
+import time
 import datetime
 import requests
 
@@ -104,14 +105,43 @@ def resolve_location_raw(title: str) -> str:
 
 # ── Checkfront API ────────────────────────────────────────────────────────────
 def cf_get(endpoint, params=None):
-    r = requests.get(
-        f"{CF_BASE}/{endpoint}",
-        params=params,
-        headers=CF_HEADERS,
-        timeout=15,
-    )
-    r.raise_for_status()
-    return r.json()
+    """GET a Checkfront endpoint with retry-on-5xx.
+
+    Checkfront /item/cal occasionally returns 500 on otherwise valid
+    requests — usually transient. Three attempts with exponential
+    backoff (2s, 4s, 8s) before giving up. 4xx responses still raise
+    immediately (no point retrying a bad request).
+    """
+    last_err = None
+    for attempt in range(3):
+        try:
+            r = requests.get(
+                f"{CF_BASE}/{endpoint}",
+                params=params,
+                headers=CF_HEADERS,
+                timeout=15,
+            )
+            if 500 <= r.status_code < 600:
+                last_err = requests.HTTPError(
+                    f"{r.status_code} {r.reason} for {r.url}", response=r
+                )
+                if attempt < 2:
+                    backoff = 2 ** (attempt + 1)
+                    print(f"  Checkfront {r.status_code} on {endpoint} — retry {attempt + 1}/2 in {backoff}s")
+                    time.sleep(backoff)
+                    continue
+                raise last_err
+            r.raise_for_status()
+            return r.json()
+        except requests.RequestException as e:
+            last_err = e
+            if attempt < 2:
+                backoff = 2 ** (attempt + 1)
+                print(f"  Checkfront request error on {endpoint} ({e}) — retry {attempt + 1}/2 in {backoff}s")
+                time.sleep(backoff)
+                continue
+            raise
+    raise last_err  # unreachable, but keeps the contract explicit
 
 
 def fetch_items() -> dict:
