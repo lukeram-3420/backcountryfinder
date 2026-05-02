@@ -153,10 +153,12 @@ def fetch_items() -> dict:
 
 
 def fetch_availability(item_ids: list, start: str, end: str) -> dict:
-    # Batch into groups of 20 — Checkfront 500s on large item_id[] lists.
+    # Batch size 5 — Checkfront 500s on large item_id[] lists. Was 20,
+    # dropped to 5 after Checkfront tightened the threshold (every batch
+    # of 20 from this tenant returned a sustained 500 even after 3 retries).
     result = {}
-    for i in range(0, len(item_ids), 20):
-        batch = item_ids[i:i + 20]
+    for i in range(0, len(item_ids), 5):
+        batch = item_ids[i:i + 5]
         params = {
             "item_id[]": batch,
             "start_date": start,
