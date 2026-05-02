@@ -353,28 +353,47 @@ def main():
                 skipped += 1
                 continue
             print(f"           captured {len(avails)} availabilities")
-            # ── DIAGNOSTIC (remove after price extraction fixed) ──
-            # All courses produced rows but with price=None — the new /calendar
-            # response is lightweight and customer_type_rates is missing. Dump
-            # the first availability + catalog item shape so we can see where
-            # the price actually lives on the new API.
+            # ── DIAGNOSTIC v2 (remove after price extraction fixed) ──
+            # v1 confirmed customer_type_rates and customer_prototypes are
+            # both NULL on the new API. The truncated key list stopped at 'e'.
+            # v2 dumps ALL keys (no truncation) plus every key-name that
+            # smells like price/rate/amount/total/cost, plus their value types
+            # — so the actual price field surfaces no matter what name FH
+            # gave it.
             if not _PRICE_DIAG["dumped"]:
                 _PRICE_DIAG["dumped"] = True
                 first_avail = avails[0]
-                print(f"           [price-diag] avail keys: {sorted(first_avail.keys())[:30]}")
-                ctr = first_avail.get("customer_type_rates")
-                print(f"           [price-diag] avail.customer_type_rates: type={type(ctr).__name__} len={len(ctr) if isinstance(ctr,list) else 'n/a'}")
-                if isinstance(ctr, list) and ctr:
-                    print(f"           [price-diag] avail.customer_type_rates[0] keys: {sorted(ctr[0].keys())[:20]}")
-                print(f"           [price-diag] item keys: {sorted(item.keys())[:30]}")
-                cp = item.get("customer_prototypes")
-                print(f"           [price-diag] item.customer_prototypes: type={type(cp).__name__} len={len(cp) if isinstance(cp,list) else 'n/a'}")
-                if isinstance(cp, list) and cp:
-                    print(f"           [price-diag] item.customer_prototypes[0] keys: {sorted(cp[0].keys())[:20]}")
-                    # Dump up to 2 sample numeric-looking values to help find the price field
-                    p0 = cp[0]
-                    samples = {k: v for k, v in p0.items() if isinstance(v, (int, float))}
-                    print(f"           [price-diag] item.customer_prototypes[0] numeric fields: {samples}")
+                print(f"           [price-diag] ALL avail keys ({len(first_avail)}):")
+                for k in sorted(first_avail.keys()):
+                    v = first_avail[k]
+                    vtype = type(v).__name__
+                    summary = f"{vtype}"
+                    if isinstance(v, (int, float, str, bool)) and not isinstance(v, bool):
+                        summary = f"{vtype}={v!r}"[:80]
+                    elif isinstance(v, list):
+                        summary = f"list[{len(v)}]"
+                        if v and isinstance(v[0], dict):
+                            summary += f" dict-keys={sorted(v[0].keys())[:10]}"
+                    elif isinstance(v, dict):
+                        summary = f"dict keys={sorted(v.keys())[:10]}"
+                    print(f"             {k}: {summary}")
+
+                price_hint_re = re.compile(r"price|rate|amount|total|cost|fee|tier|prototype|customer", re.I)
+                print(f"           [price-diag] ALL item keys ({len(item)}):")
+                for k in sorted(item.keys()):
+                    v = item[k]
+                    vtype = type(v).__name__
+                    summary = f"{vtype}"
+                    if isinstance(v, (int, float, str, bool)) and not isinstance(v, bool):
+                        summary = f"{vtype}={v!r}"[:80]
+                    elif isinstance(v, list):
+                        summary = f"list[{len(v)}]"
+                        if v and isinstance(v[0], dict):
+                            summary += f" dict-keys={sorted(v[0].keys())[:10]}"
+                    elif isinstance(v, dict):
+                        summary = f"dict keys={sorted(v.keys())[:10]}"
+                    flag = " ★" if price_hint_re.search(k) else ""
+                    print(f"             {k}{flag}: {summary}")
 
             for a in avails:
                 start_at = a.get("start_at")
