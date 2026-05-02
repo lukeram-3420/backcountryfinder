@@ -69,6 +69,9 @@ FH_HEADERS = {
 # the historical list via seed_activity_controls.py.
 _CONTROLS: dict = {}
 
+# Diagnostic flag — fires once per scraper run to dump availability + item shape
+_PRICE_DIAG: dict = {"dumped": False}
+
 
 def _is_visible(provider_id: str, title: str) -> bool:
     """Activity Tracking gate. Upserts the (provider, title) pair so the
@@ -350,6 +353,28 @@ def main():
                 skipped += 1
                 continue
             print(f"           captured {len(avails)} availabilities")
+            # ── DIAGNOSTIC (remove after price extraction fixed) ──
+            # All courses produced rows but with price=None — the new /calendar
+            # response is lightweight and customer_type_rates is missing. Dump
+            # the first availability + catalog item shape so we can see where
+            # the price actually lives on the new API.
+            if not _PRICE_DIAG["dumped"]:
+                _PRICE_DIAG["dumped"] = True
+                first_avail = avails[0]
+                print(f"           [price-diag] avail keys: {sorted(first_avail.keys())[:30]}")
+                ctr = first_avail.get("customer_type_rates")
+                print(f"           [price-diag] avail.customer_type_rates: type={type(ctr).__name__} len={len(ctr) if isinstance(ctr,list) else 'n/a'}")
+                if isinstance(ctr, list) and ctr:
+                    print(f"           [price-diag] avail.customer_type_rates[0] keys: {sorted(ctr[0].keys())[:20]}")
+                print(f"           [price-diag] item keys: {sorted(item.keys())[:30]}")
+                cp = item.get("customer_prototypes")
+                print(f"           [price-diag] item.customer_prototypes: type={type(cp).__name__} len={len(cp) if isinstance(cp,list) else 'n/a'}")
+                if isinstance(cp, list) and cp:
+                    print(f"           [price-diag] item.customer_prototypes[0] keys: {sorted(cp[0].keys())[:20]}")
+                    # Dump up to 2 sample numeric-looking values to help find the price field
+                    p0 = cp[0]
+                    samples = {k: v for k, v in p0.items() if isinstance(v, (int, float))}
+                    print(f"           [price-diag] item.customer_prototypes[0] numeric fields: {samples}")
 
             for a in avails:
                 start_at = a.get("start_at")
