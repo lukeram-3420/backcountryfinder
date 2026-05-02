@@ -69,9 +69,6 @@ FH_HEADERS = {
 # the historical list via seed_activity_controls.py.
 _CONTROLS: dict = {}
 
-# Diagnostic flag — fires once per scraper run to dump availability + item shape
-_PRICE_DIAG: dict = {"dumped": False}
-
 
 def _is_visible(provider_id: str, title: str) -> bool:
     """Activity Tracking gate. Upserts the (provider, title) pair so the
@@ -121,6 +118,28 @@ def fh_get(path, params=None):
 def fetch_items() -> list:
     data = fh_get("items/")
     return data.get("items") or []
+
+
+# Per-item details cache (pk → full item dict). FareHarbor stripped pricing
+# from the lightweight /items/ (plural) listing in their 2026 API rework, but
+# the per-item /items/{pk}/ endpoint retains customer_prototypes — the catalog
+# default rates per customer type. Cached per run so multiple availabilities
+# sharing the same item only hit the API once.
+_ITEM_DETAILS_CACHE: dict = {}
+
+
+def fetch_item_details(pk: int) -> dict:
+    if pk in _ITEM_DETAILS_CACHE:
+        return _ITEM_DETAILS_CACHE[pk]
+    try:
+        data = fh_get(f"items/{pk}/")
+    except Exception as e:
+        print(f"  per-item details fetch failed for {pk}: {e}")
+        _ITEM_DETAILS_CACHE[pk] = {}
+        return {}
+    detail = data.get("item") or data
+    _ITEM_DETAILS_CACHE[pk] = detail
+    return detail
 
 
 # ── FareHarbor availability (Playwright XHR capture) ──────────────────────────
@@ -353,47 +372,12 @@ def main():
                 skipped += 1
                 continue
             print(f"           captured {len(avails)} availabilities")
-            # ── DIAGNOSTIC v2 (remove after price extraction fixed) ──
-            # v1 confirmed customer_type_rates and customer_prototypes are
-            # both NULL on the new API. The truncated key list stopped at 'e'.
-            # v2 dumps ALL keys (no truncation) plus every key-name that
-            # smells like price/rate/amount/total/cost, plus their value types
-            # — so the actual price field surfaces no matter what name FH
-            # gave it.
-            if not _PRICE_DIAG["dumped"]:
-                _PRICE_DIAG["dumped"] = True
-                first_avail = avails[0]
-                print(f"           [price-diag] ALL avail keys ({len(first_avail)}):")
-                for k in sorted(first_avail.keys()):
-                    v = first_avail[k]
-                    vtype = type(v).__name__
-                    summary = f"{vtype}"
-                    if isinstance(v, (int, float, str, bool)) and not isinstance(v, bool):
-                        summary = f"{vtype}={v!r}"[:80]
-                    elif isinstance(v, list):
-                        summary = f"list[{len(v)}]"
-                        if v and isinstance(v[0], dict):
-                            summary += f" dict-keys={sorted(v[0].keys())[:10]}"
-                    elif isinstance(v, dict):
-                        summary = f"dict keys={sorted(v.keys())[:10]}"
-                    print(f"             {k}: {summary}")
 
-                price_hint_re = re.compile(r"price|rate|amount|total|cost|fee|tier|prototype|customer", re.I)
-                print(f"           [price-diag] ALL item keys ({len(item)}):")
-                for k in sorted(item.keys()):
-                    v = item[k]
-                    vtype = type(v).__name__
-                    summary = f"{vtype}"
-                    if isinstance(v, (int, float, str, bool)) and not isinstance(v, bool):
-                        summary = f"{vtype}={v!r}"[:80]
-                    elif isinstance(v, list):
-                        summary = f"list[{len(v)}]"
-                        if v and isinstance(v[0], dict):
-                            summary += f" dict-keys={sorted(v[0].keys())[:10]}"
-                    elif isinstance(v, dict):
-                        summary = f"dict keys={sorted(v.keys())[:10]}"
-                    flag = " ★" if price_hint_re.search(k) else ""
-                    print(f"             {k}{flag}: {summary}")
+            # FareHarbor stripped pricing from the catalog /items/ listing in
+            # their 2026 API rework. Fetch the deeper /items/{pk}/ endpoint —
+            # which retains customer_prototypes — and use that as the price
+            # source. Cached per run.
+            detail_item = fetch_item_details(pk) or item
 
             for a in avails:
                 start_at = a.get("start_at")
@@ -425,7 +409,7 @@ def main():
                     spots_remaining = None
 
                 avail = spots_to_avail(spots_remaining)
-                price = cheapest_price_cad(a, item)
+                price = cheapest_price_cad(a, detail_item)
 
                 date_sort    = d_start.isoformat()
                 date_display = d_start.strftime("%b %-d, %Y")
