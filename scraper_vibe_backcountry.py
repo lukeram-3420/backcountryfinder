@@ -334,12 +334,16 @@ def _coerce_amount(v) -> "float | None":
 def _walk_for_amount(node) -> "float | None":
     """Recursively find the smallest positive amount-like value inside ``node``.
     Looks for keys named ``amount``, ``total``, ``total_amount``, ``cents``,
-    ``price``, ``min_price``, ``from_price``. Values may be int/float OR
-    strings with currency formatting (``"$250.00"``, ``"CA$1,234.56"``).
-    Returns the smallest match anywhere in the tree, or None.
+    ``price``, ``min_price``, ``from_price``, ``low``, ``high``. Values may
+    be int/float OR strings with currency formatting (``"$250.00"``,
+    ``"CA$1,234.56"``). Returns the smallest match anywhere in the tree,
+    or None.
+
+    ``low`` is the FH price-range "from" field — confirmed via PR #72's
+    diagnostic showing ``prices[0].price = {'low': 18550}`` (cents).
     """
     AMOUNT_KEYS = ("amount", "total", "total_amount", "cents",
-                   "price", "min_price", "from_price")
+                   "price", "min_price", "from_price", "low", "high")
     best = None
     if isinstance(node, dict):
         for k in AMOUNT_KEYS:
@@ -390,9 +394,10 @@ def cheapest_price_cad(price_preview: "dict | None",
     non-empty price-preview body but failed to extract a price — so a
     future FH shape drift surfaces without another diagnostic-only PR.
     """
-    # 1 + 2: walk price_preview.prices. The price-preview endpoint mirrors
-    # FH's own widget rendering, which displays whole-dollar amounts directly
-    # (no cents conversion). Treat values as already-CAD-int.
+    # 1 + 2: walk price_preview.prices. The price-preview endpoint stores
+    # amounts as integer cents (verified via PR #72 diagnostic — e.g.
+    # ``{'date': '2026-05-16', 'price': {'low': 18550}}`` is $185.50).
+    # Divide by 100 to get whole-CAD ints for storage.
     if isinstance(price_preview, dict):
         prices = price_preview.get("prices")
         if isinstance(prices, list) and prices:
@@ -402,11 +407,11 @@ def cheapest_price_cad(price_preview: "dict | None",
                     if isinstance(entry, dict) and _date_from_price_entry(entry) == date_sort:
                         amt = _walk_for_amount(entry)
                         if amt is not None:
-                            return int(amt)
+                            return int(amt / 100)
             # Pass 2 — minimum across all entries
             min_amt = _walk_for_amount(prices)
             if min_amt is not None:
-                return int(min_amt)
+                return int(min_amt / 100)
             # Matched a non-empty prices list but failed to extract — log once
             # with full first-entry contents so future drift is debuggable
             # without another diagnostic-only PR.
