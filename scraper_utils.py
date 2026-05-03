@@ -1257,22 +1257,39 @@ def fetch_rezdy_calendar_products(
         log.warning(f"Rezdy calendar fetch failed @ {url}: {e}")
         return []
 
-    # The calendar response embeds session links as
-    # `<a href='/chooseQuantity?productId={id}&preferredDate=...&catalogId=...'>`
-    # — that's the only place product IDs appear. Extract them, build a
-    # canonical product URL `https://{host}/{id}` (Rezdy 302's to the
-    # /id/slug canonical), and dedup. Slug-less URLs work fine because
-    # scrape_rezdy_product_page() renders via Playwright which follows the
-    # redirect transparently.
+    # The calendar response embeds session links as JSON-escaped HTML:
+    #   <a href='/chooseQuantity?productId={id}&...'>
+    #     <strong>{time}</strong> {Title}<\/a>
+    # The bare /{id} URL 404's on Rezdy — it requires the slug to render the
+    # canonical product page. So we extract (productId, title) pairs from the
+    # calendar markup and slugify the title to construct /{id}/{slug} URLs
+    # that the existing scrape_rezdy_product_page() can render.
     from urllib.parse import urlparse
     storefront_host = urlparse(storefront).netloc
-    product_id_re = re.compile(r"productId=(\d+)", re.I)
+
+    # Match productId then advance to the </strong> after the time prefix and
+    # capture the visible title. Tolerates JSON-escaped close tags (<\/strong>,
+    # <\/a>) the calendar response uses inside JS string literals.
+    session_re = re.compile(
+        r"productId=(\d+).*?<\\?/strong>\s*([^<\\]+?)\s*(?:<|\\)",
+        re.I | re.S,
+    )
+
+    def _slugify(s: str) -> str:
+        s = s.lower().replace("&", "and")
+        s = re.sub(r"[^\w\s-]", "", s)
+        s = re.sub(r"\s+", "-", s.strip())
+        return re.sub(r"-+", "-", s)
 
     seen: set = set()
     urls: list = []
-    for m in product_id_re.finditer(html):
+    for m in session_re.finditer(html):
         pid = m.group(1)
-        full_url = f"https://{storefront_host}/{pid}"
+        title = m.group(2).strip()
+        slug = _slugify(title)
+        if not slug:
+            continue
+        full_url = f"https://{storefront_host}/{pid}/{slug}"
         if full_url in seen:
             continue
         seen.add(full_url)
