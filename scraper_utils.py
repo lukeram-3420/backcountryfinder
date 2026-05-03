@@ -1257,62 +1257,22 @@ def fetch_rezdy_calendar_products(
         log.warning(f"Rezdy calendar fetch failed @ {url}: {e}")
         return []
 
-    # Diagnostic: log response shape so we can see what to extract from.
-    # Drop after the parser is dialled in.
-    pattern_counts = {
-        "data-productid":   len(re.findall(r"data-productid", html, re.I)),
-        "data-product-id":  len(re.findall(r"data-product-id", html, re.I)),
-        "data-product":     len(re.findall(r'data-product=', html, re.I)),
-        "data-id":          len(re.findall(r'data-id=', html, re.I)),
-        "productCode":      len(re.findall(r"productCode", html)),
-        '"productId"':      len(re.findall(r'"productId"', html)),
-        '"product"':        len(re.findall(r'"product"', html)),
-        "rezdy.com/":       len(re.findall(r"rezdy\.com/\d+", html)),
-        "/{id}/{slug}":     len(re.findall(r"\b/\d{4,7}/[a-z0-9\-]{4,}", html, re.I)),
-        "data-session":     len(re.findall(r"data-session", html, re.I)),
-        "ms-product":       len(re.findall(r"ms-product", html, re.I)),
-    }
-    keyword_counts = {
-        kw: html.lower().count(kw.lower())
-        for kw in ("Trad", "Rescue", "Climbing", "Mountaineering", "AST", "Avalanche")
-    }
-    log.info(f"Rezdy calendar response: {len(html)} bytes, "
-             f"content-type={r.headers.get('Content-Type', '?')}, "
-             f"patterns={pattern_counts}, keywords={keyword_counts}")
-    log.info(f"Rezdy calendar first 1500 chars: {html[:1500]!r}")
-    # If any course-name keyword appears, dump 800 chars of surrounding context
-    # so we can see exactly how the product is referenced in the markup.
-    for kw in ("Trad Lead", "Trad Progression", "Rock Rescue", "Multi-Pitch"):
-        i = html.lower().find(kw.lower())
-        if i >= 0:
-            start = max(0, i - 200)
-            end = min(len(html), i + 600)
-            log.info(f"Rezdy calendar context around '{kw}' (idx={i}): {html[start:end]!r}")
-            break  # one sample is enough
-
-    # Resolve the storefront host so relative `/{id}/{slug}` paths can be
-    # promoted to absolute URLs.
+    # The calendar response embeds session links as
+    # `<a href='/chooseQuantity?productId={id}&preferredDate=...&catalogId=...'>`
+    # — that's the only place product IDs appear. Extract them, build a
+    # canonical product URL `https://{host}/{id}` (Rezdy 302's to the
+    # /id/slug canonical), and dedup. Slug-less URLs work fine because
+    # scrape_rezdy_product_page() renders via Playwright which follows the
+    # redirect transparently.
     from urllib.parse import urlparse
     storefront_host = urlparse(storefront).netloc
-
-    # Match both relative `/{id}/{slug}` and absolute `https://host/{id}/{slug}`,
-    # but NOT /catalog/{id}/{slug} (those are handled by discover_rezdy_catalogs).
-    rel_re = re.compile(r'(?:href|src)=["\'](/(?!catalog/)(\d+)/([a-z0-9\-]+))', re.I)
-    abs_re = re.compile(
-        rf"https?://{re.escape(storefront_host)}/(?!catalog/)(\d+)/([a-z0-9\-]+)",
-        re.I,
-    )
+    product_id_re = re.compile(r"productId=(\d+)", re.I)
 
     seen: set = set()
     urls: list = []
-    for m in rel_re.finditer(html):
-        full_url = f"https://{storefront_host}/{m.group(2)}/{m.group(3).lower()}"
-        if full_url in seen:
-            continue
-        seen.add(full_url)
-        urls.append(full_url)
-    for m in abs_re.finditer(html):
-        full_url = f"https://{storefront_host}/{m.group(1)}/{m.group(2).lower()}"
+    for m in product_id_re.finditer(html):
+        pid = m.group(1)
+        full_url = f"https://{storefront_host}/{pid}"
         if full_url in seen:
             continue
         seen.add(full_url)
