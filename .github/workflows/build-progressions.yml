@@ -6,6 +6,14 @@ on:
     - cron: '0 */6 * * *'
   repository_dispatch:
     types: [progression_updated]
+  pull_request:
+    branches: [main]
+    paths:
+      - 'generate_progression_pages.py'
+      - 'templates/progression.html.j2'
+      - 'css/progression.css'
+      - 'progressions_schema.sql'
+      - '.github/workflows/build-progressions.yml'
 
 jobs:
   build:
