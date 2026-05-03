@@ -1257,6 +1257,23 @@ def fetch_rezdy_calendar_products(
         log.warning(f"Rezdy calendar fetch failed @ {url}: {e}")
         return []
 
+    # Diagnostic: log response shape so we can see what to extract from.
+    # Drop after the parser is dialled in.
+    pattern_counts = {
+        "data-productid":   len(re.findall(r"data-productid", html, re.I)),
+        "data-product-id":  len(re.findall(r"data-product-id", html, re.I)),
+        "productCode":      len(re.findall(r"productCode", html)),
+        '"productId"':      len(re.findall(r'"productId"', html)),
+        '"product"':        len(re.findall(r'"product"', html)),
+        "rezdy.com/":       len(re.findall(r"rezdy\.com/\d+", html)),
+        "/{id}/{slug}":     len(re.findall(r"\b/\d{4,7}/[a-z0-9\-]{4,}", html, re.I)),
+        "data-session":     len(re.findall(r"data-session", html, re.I)),
+    }
+    log.info(f"Rezdy calendar response: {len(html)} bytes, "
+             f"content-type={r.headers.get('Content-Type', '?')}, "
+             f"patterns={pattern_counts}")
+    log.info(f"Rezdy calendar first 1500 chars: {html[:1500]!r}")
+
     # Resolve the storefront host so relative `/{id}/{slug}` paths can be
     # promoted to absolute URLs.
     from urllib.parse import urlparse
