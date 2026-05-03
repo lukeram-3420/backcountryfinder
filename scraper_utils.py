@@ -1210,6 +1210,85 @@ def discover_rezdy_products(
     return urls
 
 
+def fetch_rezdy_calendar_products(
+    storefront_url: str,
+    category_id: int,
+    referer: str = None,
+    user_agent: str = None,
+) -> list:
+    """Fetch a Rezdy productsMonthlyCalendar page for a category and
+    extract direct product URLs from the embedded session HTML.
+
+    Endpoint: {storefront_url}/productsMonthlyCalendar/{category_id}
+
+    Returns unique full Rezdy product URLs like
+    'https://msaa.rezdy.com/21189/ski-mountaineering-course'. Used to
+    capture orphan products that aren't shelved in any storefront catalog.
+
+    The endpoint is gated by Rezdy's referer/origin allowlist on some
+    tenants — pass the marketing-site `referer` so Rezdy treats the
+    request as coming from an authorised embed. Returns [] on any failure.
+    """
+    storefront = storefront_url.rstrip("/")
+    url = f"{storefront}/productsMonthlyCalendar/{category_id}"
+
+    # Rezdy's widget endpoint enforces a referer allowlist on many tenants.
+    # Browser-shaped fetch headers + a referer matching the marketing site
+    # is the same shape the calendar widget uses.
+    headers = dict(_REZDY_BROWSER_HEADERS)
+    if user_agent:
+        headers["User-Agent"] = user_agent
+    if referer:
+        headers["Referer"] = referer
+        # Origin is the scheme+host of the referer.
+        try:
+            from urllib.parse import urlparse
+            p = urlparse(referer)
+            if p.scheme and p.netloc:
+                headers["Origin"] = f"{p.scheme}://{p.netloc}"
+        except Exception:
+            pass
+
+    try:
+        r = requests.get(url, headers=headers, timeout=20)
+        r.raise_for_status()
+        html = r.text
+    except Exception as e:
+        log.warning(f"Rezdy calendar fetch failed @ {url}: {e}")
+        return []
+
+    # Resolve the storefront host so relative `/{id}/{slug}` paths can be
+    # promoted to absolute URLs.
+    from urllib.parse import urlparse
+    storefront_host = urlparse(storefront).netloc
+
+    # Match both relative `/{id}/{slug}` and absolute `https://host/{id}/{slug}`,
+    # but NOT /catalog/{id}/{slug} (those are handled by discover_rezdy_catalogs).
+    rel_re = re.compile(r'(?:href|src)=["\'](/(?!catalog/)(\d+)/([a-z0-9\-]+))', re.I)
+    abs_re = re.compile(
+        rf"https?://{re.escape(storefront_host)}/(?!catalog/)(\d+)/([a-z0-9\-]+)",
+        re.I,
+    )
+
+    seen: set = set()
+    urls: list = []
+    for m in rel_re.finditer(html):
+        full_url = f"https://{storefront_host}/{m.group(2)}/{m.group(3).lower()}"
+        if full_url in seen:
+            continue
+        seen.add(full_url)
+        urls.append(full_url)
+    for m in abs_re.finditer(html):
+        full_url = f"https://{storefront_host}/{m.group(1)}/{m.group(2).lower()}"
+        if full_url in seen:
+            continue
+        seen.add(full_url)
+        urls.append(full_url)
+
+    log.info(f"Rezdy calendar @ category {category_id}: {len(urls)} product URL(s)")
+    return urls
+
+
 # ── Two-pass scraping helper ─────────────────────────────────────────────────
 
 def fetch_detail_pages(
