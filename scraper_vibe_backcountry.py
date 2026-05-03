@@ -69,6 +69,10 @@ FH_HEADERS = {
 # the historical list via seed_activity_controls.py.
 _CONTROLS: dict = {}
 
+# Diagnostic v3 flag — fires once per run to dump per-item endpoint shape
+# AND price-preview XHR shape, so we can locate where pricing actually lives.
+_PRICE_DIAG_V3: dict = {"per_item_dumped": False, "price_preview_dumped": False}
+
 
 def _is_visible(provider_id: str, title: str) -> bool:
     """Activity Tracking gate. Upserts the (provider, title) pair so the
@@ -138,6 +142,31 @@ def fetch_item_details(pk: int) -> dict:
         _ITEM_DETAILS_CACHE[pk] = {}
         return {}
     detail = data.get("item") or data
+    # ── DIAGNOSTIC v3 (remove after pricing field located) ──
+    # Per-item endpoint returned customer_prototypes=None (verified).
+    # Dump ALL keys of the deeper item dict on first fetch so we can find
+    # whatever pricing field FH is actually using here.
+    if not _PRICE_DIAG_V3["per_item_dumped"]:
+        _PRICE_DIAG_V3["per_item_dumped"] = True
+        print(f"  [price-diag-v3] per-item /items/{pk}/ ALL keys ({len(detail)}):")
+        price_hint_re = re.compile(r"price|rate|amount|total|cost|fee|tier|prototype|customer", re.I)
+        for k in sorted(detail.keys()):
+            v = detail[k]
+            vtype = type(v).__name__
+            summary = vtype
+            if isinstance(v, (int, float, str)) and not isinstance(v, bool):
+                summary = f"{vtype}={v!r}"[:80]
+            elif isinstance(v, list):
+                summary = f"list[{len(v)}]"
+                if v and isinstance(v[0], dict):
+                    summary += f" inner-keys={sorted(v[0].keys())[:10]}"
+            elif isinstance(v, dict) and v:
+                summary = f"dict keys={sorted(v.keys())[:10]}"
+            flag = " ★" if price_hint_re.search(k) else ""
+            print(f"    {k}{flag}: {summary}")
+        # Also dump the top-level wrapper if it has any extra keys
+        if isinstance(data, dict) and set(data.keys()) - {"item"}:
+            print(f"  [price-diag-v3] /items/{pk}/ top-level wrapper keys: {sorted(data.keys())}")
     _ITEM_DETAILS_CACHE[pk] = detail
     return detail
 
@@ -204,6 +233,37 @@ def collect_availabilities(browser, item_pk: int, months: list) -> list:
             url = response.url
         except Exception:
             return
+        # ── DIAGNOSTIC v3 — capture price-preview XHR ──
+        if "/price-preview/" in url and not _PRICE_DIAG_V3["price_preview_dumped"]:
+            _PRICE_DIAG_V3["price_preview_dumped"] = True
+            try:
+                pp_body = response.json()
+                print(f"  [price-diag-v3] price-preview URL: {url[:200]}")
+                print(f"  [price-diag-v3] price-preview type: {type(pp_body).__name__}")
+                if isinstance(pp_body, dict):
+                    print(f"  [price-diag-v3] price-preview top-level keys: {sorted(pp_body.keys())}")
+                    # Drill into first nested layer to expose the shape
+                    for k in sorted(pp_body.keys())[:5]:
+                        v = pp_body[k]
+                        vtype = type(v).__name__
+                        if isinstance(v, list):
+                            preview = f"list[{len(v)}]"
+                            if v and isinstance(v[0], dict):
+                                preview += f" inner-keys={sorted(v[0].keys())[:10]}"
+                                # Sample first item's primitive values
+                                primitives = {ik: iv for ik, iv in v[0].items() if isinstance(iv, (int, float, str)) and not isinstance(iv, bool)}
+                                preview += f" sample={list(primitives.items())[:5]}"
+                            print(f"    {k}: {preview}")
+                        elif isinstance(v, dict) and v:
+                            print(f"    {k}: dict keys={sorted(v.keys())[:10]}")
+                        else:
+                            print(f"    {k}: {vtype}={v!r}"[:120])
+                elif isinstance(pp_body, list):
+                    print(f"  [price-diag-v3] price-preview list[{len(pp_body)}]")
+                    if pp_body and isinstance(pp_body[0], dict):
+                        print(f"  [price-diag-v3] price-preview[0] keys: {sorted(pp_body[0].keys())}")
+            except Exception as e:
+                print(f"  [price-diag-v3] price-preview parse failed: {e}")
         if not _matches_avail_endpoint(url):
             return
         matched_url_count += 1
