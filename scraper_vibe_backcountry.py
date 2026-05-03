@@ -306,23 +306,46 @@ def parse_iso_date(ts: str) -> datetime.date:
     return datetime.datetime.fromisoformat(ts).date()
 
 
-def _walk_for_amount(node) -> "int | None":
-    """Recursively find the smallest positive integer/float amount-like value
-    inside ``node``. Looks for keys named ``amount``, ``total``,
-    ``total_amount``, ``cents``, ``price``, ``min_price``, ``from_price``.
-    Returns the smallest such value found anywhere in the tree, or None.
-    Used as a last-ditch shape-flexible extractor in case FareHarbor renames
-    fields again.
+_PRICE_STRING_RE = re.compile(r"-?\d+(?:[.,]\d+)?")
+
+
+def _coerce_amount(v) -> "float | None":
+    """Coerce v into a positive float, or return None.
+
+    Handles ints/floats directly, plus strings like ``"250"``, ``"250.00"``,
+    ``"$250.00"``, ``"CA$1,234.56"``. Returns the first numeric run extracted
+    from the string. Bool excluded (isinstance(True, int) == True).
+    """
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, (int, float)):
+        return float(v) if v > 0 else None
+    if isinstance(v, str):
+        m = _PRICE_STRING_RE.search(v.replace(",", ""))
+        if m:
+            try:
+                f = float(m.group(0))
+                return f if f > 0 else None
+            except ValueError:
+                return None
+    return None
+
+
+def _walk_for_amount(node) -> "float | None":
+    """Recursively find the smallest positive amount-like value inside ``node``.
+    Looks for keys named ``amount``, ``total``, ``total_amount``, ``cents``,
+    ``price``, ``min_price``, ``from_price``. Values may be int/float OR
+    strings with currency formatting (``"$250.00"``, ``"CA$1,234.56"``).
+    Returns the smallest match anywhere in the tree, or None.
     """
     AMOUNT_KEYS = ("amount", "total", "total_amount", "cents",
                    "price", "min_price", "from_price")
     best = None
     if isinstance(node, dict):
         for k in AMOUNT_KEYS:
-            v = node.get(k)
-            if isinstance(v, (int, float)) and v > 0 and not isinstance(v, bool):
-                if best is None or v < best:
-                    best = v
+            v = _coerce_amount(node.get(k))
+            if v is not None and (best is None or v < best):
+                best = v
         for v in node.values():
             sub = _walk_for_amount(v)
             if sub is not None and (best is None or sub < best):
@@ -367,7 +390,9 @@ def cheapest_price_cad(price_preview: "dict | None",
     non-empty price-preview body but failed to extract a price — so a
     future FH shape drift surfaces without another diagnostic-only PR.
     """
-    # 1 + 2: walk price_preview.prices
+    # 1 + 2: walk price_preview.prices. The price-preview endpoint mirrors
+    # FH's own widget rendering, which displays whole-dollar amounts directly
+    # (no cents conversion). Treat values as already-CAD-int.
     if isinstance(price_preview, dict):
         prices = price_preview.get("prices")
         if isinstance(prices, list) and prices:
@@ -377,18 +402,18 @@ def cheapest_price_cad(price_preview: "dict | None",
                     if isinstance(entry, dict) and _date_from_price_entry(entry) == date_sort:
                         amt = _walk_for_amount(entry)
                         if amt is not None:
-                            # Heuristic: amounts > 1000 are almost certainly cents.
-                            # Amounts <= 1000 may already be CAD int (defensive).
-                            return int(amt / 100) if amt > 1000 else int(amt)
+                            return int(amt)
             # Pass 2 — minimum across all entries
             min_amt = _walk_for_amount(prices)
             if min_amt is not None:
-                return int(min_amt / 100) if min_amt > 1000 else int(min_amt)
-            # Matched a non-empty prices list but failed to extract — log once.
+                return int(min_amt)
+            # Matched a non-empty prices list but failed to extract — log once
+            # with full first-entry contents so future drift is debuggable
+            # without another diagnostic-only PR.
             if not _PRICE_SHAPE_LOGGED["value"]:
                 _PRICE_SHAPE_LOGGED["value"] = True
-                first = prices[0] if isinstance(prices[0], dict) else {}
-                print(f"  [price-shape] price-preview prices[0] keys={sorted(first.keys())[:12]}")
+                first = prices[0]
+                print(f"  [price-shape] price-preview prices[0] = {first!r}"[:300])
 
     # 3 + 4: legacy fallbacks
     for src in (avail.get("customer_type_rates") or [], item.get("customer_prototypes") or []):
