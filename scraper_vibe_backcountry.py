@@ -29,6 +29,8 @@ mountaineering / sea kayaking out of Nanaimo, BC.
 
 import re
 import datetime
+from typing import Optional
+
 import requests
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
@@ -69,9 +71,10 @@ FH_HEADERS = {
 # the historical list via seed_activity_controls.py.
 _CONTROLS: dict = {}
 
-# Diagnostic v3 flag — fires once per run to dump per-item endpoint shape
-# AND price-preview XHR shape, so we can locate where pricing actually lives.
-_PRICE_DIAG_V3: dict = {"per_item_dumped": False, "price_preview_dumped": False}
+# One-shot self-debug: log the first non-empty price_preview body shape
+# we fail to parse, so future FareHarbor pricing-shape drift is visible
+# without another diagnostic-only PR cycle.
+_PRICE_SHAPE_LOGGED: dict = {"value": False}
 
 
 def _is_visible(provider_id: str, title: str) -> bool:
@@ -142,31 +145,6 @@ def fetch_item_details(pk: int) -> dict:
         _ITEM_DETAILS_CACHE[pk] = {}
         return {}
     detail = data.get("item") or data
-    # ── DIAGNOSTIC v3 (remove after pricing field located) ──
-    # Per-item endpoint returned customer_prototypes=None (verified).
-    # Dump ALL keys of the deeper item dict on first fetch so we can find
-    # whatever pricing field FH is actually using here.
-    if not _PRICE_DIAG_V3["per_item_dumped"]:
-        _PRICE_DIAG_V3["per_item_dumped"] = True
-        print(f"  [price-diag-v3] per-item /items/{pk}/ ALL keys ({len(detail)}):")
-        price_hint_re = re.compile(r"price|rate|amount|total|cost|fee|tier|prototype|customer", re.I)
-        for k in sorted(detail.keys()):
-            v = detail[k]
-            vtype = type(v).__name__
-            summary = vtype
-            if isinstance(v, (int, float, str)) and not isinstance(v, bool):
-                summary = f"{vtype}={v!r}"[:80]
-            elif isinstance(v, list):
-                summary = f"list[{len(v)}]"
-                if v and isinstance(v[0], dict):
-                    summary += f" inner-keys={sorted(v[0].keys())[:10]}"
-            elif isinstance(v, dict) and v:
-                summary = f"dict keys={sorted(v.keys())[:10]}"
-            flag = " ★" if price_hint_re.search(k) else ""
-            print(f"    {k}{flag}: {summary}")
-        # Also dump the top-level wrapper if it has any extra keys
-        if isinstance(data, dict) and set(data.keys()) - {"item"}:
-            print(f"  [price-diag-v3] /items/{pk}/ top-level wrapper keys: {sorted(data.keys())}")
     _ITEM_DETAILS_CACHE[pk] = detail
     return detail
 
@@ -201,13 +179,21 @@ def _walk_availabilities(node):
             yield from _walk_availabilities(item)
 
 
-def collect_availabilities(browser, item_pk: int, months: list) -> list:
+def collect_availabilities(browser, item_pk: int, months: list) -> tuple:
     """
     Open the item's Lightframe calendar in a headless page. Listen to every
-    response the Angular app fetches and walk JSON bodies for any availability
-    dict (recognised by ``pk`` + ``start_at``). Navigate through each month
-    in the lookahead range so every month's XHRs fire. Return a deduped list
-    of availability dicts.
+    response the Angular app fetches and:
+      1. Walk JSON bodies for availability dicts (recognised by ``pk`` +
+         ``start_at``) → collected into ``captured``.
+      2. Capture price-preview XHRs at
+         /api/embed/.../price-preview/per-day/v2/ — pricing was stripped from
+         the /api/v1/companies/.../items/... namespace in FH's 2026 rework
+         and now lives only on the embed-side price-preview endpoint.
+
+    Navigate through each month in the lookahead range so every month's XHRs
+    fire. Return ``(availability_list, price_preview_body)`` where
+    ``price_preview_body`` may be None if the page never issued a price-preview
+    XHR (off-season items with no bookable dates).
 
     URL filter accepts both the legacy ``/availabilities`` endpoint and the
     new ``/api/v1/companies/.../calendar/{YYYY}/{MM}/`` endpoint that the
@@ -216,6 +202,7 @@ def collect_availabilities(browser, item_pk: int, months: list) -> list:
     explicitly excluded so we don't try to JSON-parse the HTML response.
     """
     captured = {}  # availability_pk → dict
+    price_preview = {"body": None}  # latest non-empty price-preview body
     matched_url_count = 0
     parse_failures = []     # (url, error_str) — only when matched but failed
     sample_keys = []        # body top-level keys when matched but no rows extracted
@@ -233,37 +220,21 @@ def collect_availabilities(browser, item_pk: int, months: list) -> list:
             url = response.url
         except Exception:
             return
-        # ── DIAGNOSTIC v3 — capture price-preview XHR ──
-        if "/price-preview/" in url and not _PRICE_DIAG_V3["price_preview_dumped"]:
-            _PRICE_DIAG_V3["price_preview_dumped"] = True
+        # Capture price-preview body. The page may issue this XHR multiple
+        # times; prefer the most recent non-empty body (one with prices).
+        if "/price-preview/" in url:
             try:
                 pp_body = response.json()
-                print(f"  [price-diag-v3] price-preview URL: {url[:200]}")
-                print(f"  [price-diag-v3] price-preview type: {type(pp_body).__name__}")
-                if isinstance(pp_body, dict):
-                    print(f"  [price-diag-v3] price-preview top-level keys: {sorted(pp_body.keys())}")
-                    # Drill into first nested layer to expose the shape
-                    for k in sorted(pp_body.keys())[:5]:
-                        v = pp_body[k]
-                        vtype = type(v).__name__
-                        if isinstance(v, list):
-                            preview = f"list[{len(v)}]"
-                            if v and isinstance(v[0], dict):
-                                preview += f" inner-keys={sorted(v[0].keys())[:10]}"
-                                # Sample first item's primitive values
-                                primitives = {ik: iv for ik, iv in v[0].items() if isinstance(iv, (int, float, str)) and not isinstance(iv, bool)}
-                                preview += f" sample={list(primitives.items())[:5]}"
-                            print(f"    {k}: {preview}")
-                        elif isinstance(v, dict) and v:
-                            print(f"    {k}: dict keys={sorted(v.keys())[:10]}")
-                        else:
-                            print(f"    {k}: {vtype}={v!r}"[:120])
-                elif isinstance(pp_body, list):
-                    print(f"  [price-diag-v3] price-preview list[{len(pp_body)}]")
-                    if pp_body and isinstance(pp_body[0], dict):
-                        print(f"  [price-diag-v3] price-preview[0] keys: {sorted(pp_body[0].keys())}")
-            except Exception as e:
-                print(f"  [price-diag-v3] price-preview parse failed: {e}")
+            except Exception:
+                pp_body = None
+            if isinstance(pp_body, dict):
+                prices = pp_body.get("prices")
+                if isinstance(prices, list) and prices:
+                    price_preview["body"] = pp_body
+                elif price_preview["body"] is None:
+                    # Empty-prices fallback — still useful for `details.currency`
+                    # if the item simply has no bookable dates.
+                    price_preview["body"] = pp_body
         if not _matches_avail_endpoint(url):
             return
         matched_url_count += 1
@@ -327,7 +298,7 @@ def collect_availabilities(browser, item_pk: int, months: list) -> list:
         for url, err in parse_failures:
             print(f"      [parse-err] {url}: {err}")
 
-    return list(captured.values())
+    return list(captured.values()), price_preview["body"]
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -335,12 +306,91 @@ def parse_iso_date(ts: str) -> datetime.date:
     return datetime.datetime.fromisoformat(ts).date()
 
 
-def cheapest_price_cad(avail: dict, item: dict) -> "int | None":
+def _walk_for_amount(node) -> "int | None":
+    """Recursively find the smallest positive integer/float amount-like value
+    inside ``node``. Looks for keys named ``amount``, ``total``,
+    ``total_amount``, ``cents``, ``price``, ``min_price``, ``from_price``.
+    Returns the smallest such value found anywhere in the tree, or None.
+    Used as a last-ditch shape-flexible extractor in case FareHarbor renames
+    fields again.
     """
-    Prefer the availability's own customer_type_rates (live per-date price).
-    Fall back to the item's customer_prototypes (catalogue default).
-    FareHarbor amounts are in cents — convert to CAD int.
+    AMOUNT_KEYS = ("amount", "total", "total_amount", "cents",
+                   "price", "min_price", "from_price")
+    best = None
+    if isinstance(node, dict):
+        for k in AMOUNT_KEYS:
+            v = node.get(k)
+            if isinstance(v, (int, float)) and v > 0 and not isinstance(v, bool):
+                if best is None or v < best:
+                    best = v
+        for v in node.values():
+            sub = _walk_for_amount(v)
+            if sub is not None and (best is None or sub < best):
+                best = sub
+    elif isinstance(node, list):
+        for item in node:
+            sub = _walk_for_amount(item)
+            if sub is not None and (best is None or sub < best):
+                best = sub
+    return best
+
+
+def _date_from_price_entry(entry: dict) -> Optional[str]:
+    """Pick the most plausible date string from a price-preview entry.
+    FareHarbor uses ``date`` or ``day`` historically; future-proofed with
+    a small set of alternates."""
+    for k in ("date", "day", "start_at", "start_date"):
+        v = entry.get(k)
+        if isinstance(v, str) and v:
+            return v[:10]  # YYYY-MM-DD prefix is enough
+    return None
+
+
+def cheapest_price_cad(price_preview: "dict | None",
+                       avail: dict,
+                       item: dict,
+                       date_sort: Optional[str] = None) -> "int | None":
+    """Resolve the cheapest CAD-int price for one availability.
+
+    Resolution order (first non-None wins):
+      1. price_preview.prices entry whose date matches ``date_sort`` —
+         pull the smallest amount-like value from inside it.
+      2. price_preview.prices min across all entries (any date).
+      3. Legacy: avail.customer_type_rates min total (kept in case FH ever
+         puts pricing back on the availability dict).
+      4. Legacy: item.customer_prototypes min total (catalog default).
+
+    FareHarbor amounts are stored in cents — the function divides by 100
+    before returning. Returns None if no source produced a positive number.
+
+    Logs the price-preview top-level shape ONCE per run if we matched a
+    non-empty price-preview body but failed to extract a price — so a
+    future FH shape drift surfaces without another diagnostic-only PR.
     """
+    # 1 + 2: walk price_preview.prices
+    if isinstance(price_preview, dict):
+        prices = price_preview.get("prices")
+        if isinstance(prices, list) and prices:
+            # Pass 1 — date-matched entry
+            if date_sort:
+                for entry in prices:
+                    if isinstance(entry, dict) and _date_from_price_entry(entry) == date_sort:
+                        amt = _walk_for_amount(entry)
+                        if amt is not None:
+                            # Heuristic: amounts > 1000 are almost certainly cents.
+                            # Amounts <= 1000 may already be CAD int (defensive).
+                            return int(amt / 100) if amt > 1000 else int(amt)
+            # Pass 2 — minimum across all entries
+            min_amt = _walk_for_amount(prices)
+            if min_amt is not None:
+                return int(min_amt / 100) if min_amt > 1000 else int(min_amt)
+            # Matched a non-empty prices list but failed to extract — log once.
+            if not _PRICE_SHAPE_LOGGED["value"]:
+                _PRICE_SHAPE_LOGGED["value"] = True
+                first = prices[0] if isinstance(prices[0], dict) else {}
+                print(f"  [price-shape] price-preview prices[0] keys={sorted(first.keys())[:12]}")
+
+    # 3 + 4: legacy fallbacks
     for src in (avail.get("customer_type_rates") or [], item.get("customer_prototypes") or []):
         totals = []
         for r in src:
@@ -427,16 +477,18 @@ def main():
             loc_canonical = normalise_location(loc_raw, loc_mappings)
 
             print(f"  [{idx:>2}/{len(course_items)}] item {pk} · {title!r}")
-            avails = collect_availabilities(browser, pk, months)
+            avails, price_preview = collect_availabilities(browser, pk, months)
             if not avails:
                 skipped += 1
                 continue
             print(f"           captured {len(avails)} availabilities")
 
-            # FareHarbor stripped pricing from the catalog /items/ listing in
-            # their 2026 API rework. Fetch the deeper /items/{pk}/ endpoint —
-            # which retains customer_prototypes — and use that as the price
-            # source. Cached per run.
+            # FareHarbor stripped pricing from /items/ entirely in their 2026
+            # API rework — both the lightweight /items/ listing AND the deeper
+            # /items/{pk}/ endpoint return None for customer_prototypes. The
+            # only surviving price source is the price-preview XHR captured
+            # alongside the availability data. Keep the per-item fetch as a
+            # legacy fallback in case FH puts pricing back on items/ later.
             detail_item = fetch_item_details(pk) or item
 
             for a in avails:
@@ -469,10 +521,9 @@ def main():
                     spots_remaining = None
 
                 avail = spots_to_avail(spots_remaining)
-                price = cheapest_price_cad(a, detail_item)
-
                 date_sort    = d_start.isoformat()
                 date_display = d_start.strftime("%b %-d, %Y")
+                price = cheapest_price_cad(price_preview, a, detail_item, date_sort)
                 course_id    = stable_id_v2(PROVIDER["id"], date_sort, title)
                 booking_url  = append_utm(
                     f"{BOOKING_URL}/{pk}/?full-items=yes&flow=no&g4=yes"
