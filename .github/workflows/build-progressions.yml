@@ -1,0 +1,45 @@
+name: Build Progression Pages
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 */6 * * *'
+  repository_dispatch:
+    types: [progression_updated]
+  pull_request:
+    branches: [main]
+    paths:
+      - 'generate_progression_pages.py'
+      - 'templates/progression.html.j2'
+      - 'css/progression.css'
+      - 'progressions_schema.sql'
+      - '.github/workflows/build-progressions.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install requests jinja2
+      - name: Build progression pages
+        run: python generate_progression_pages.py
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      - name: Commit generated artifacts
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Rebuild progression pages"
+            git push
+          fi
