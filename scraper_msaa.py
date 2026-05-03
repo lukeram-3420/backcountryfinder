@@ -27,7 +27,7 @@ from scraper_utils import (
     update_provider_ratings,
     title_hash, activity_key,
     upsert_activity_control, load_activity_controls,
-    discover_rezdy_catalogs, discover_rezdy_products,
+    discover_rezdy_catalogs, fetch_rezdy_calendar_products,
 )
 
 # Populated at main() start via load_activity_controls(). Consulted by the
@@ -58,22 +58,19 @@ HEADERS = {
 }
 
 REZDY_DOMAIN = "mountainskillsacademy.rezdy.com"
+MARKETING_SITE_BASE = "https://www.mountainskillsacademy.com"
 
-# Marketing-site pages crawled to discover orphan Rezdy products that aren't
-# shelved in any storefront catalog. See plan: capture-orphan-rezdy-products.
-# Drift-detection on this list is filed as a follow-up issue.
-MARKETING_PAGES = [
-    "https://www.mountainskillsacademy.com/rock-climbing-courses/",
-    "https://www.mountainskillsacademy.com/mountaineering-courses/",
-    "https://www.mountainskillsacademy.com/avalanche-skills-training/",
-    "https://www.mountainskillsacademy.com/courses-guide-service/",
-    "https://www.mountainskillsacademy.com/learn/",
-    "https://www.mountainskillsacademy.com/course-progression-calendar/",
-    "https://www.mountainskillsacademy.com/rock-climbing-courses/intro-to-trad-progression/",
-    "https://www.mountainskillsacademy.com/rock-climbing-courses/intro-to-trad-climbing/",
-    "https://www.mountainskillsacademy.com/rock-climbing-courses/trad-progression/",
-    "https://www.mountainskillsacademy.com/rock-climbing-courses/womens-intro-to-trad-leading/",
-    "https://www.mountainskillsacademy.com/courses/intro-to-outdoor-rock-and-leading/",
+# Rezdy category IDs that drive the marketing-site monthly calendar widgets.
+# Each ID maps to one marketing-site listing page (Rock Climbing Courses,
+# Mountaineering Courses, AST, etc.) and surfaces every product including
+# orphans not shelved in any storefront catalog.
+#
+# To find an ID: open the marketing listing page in a browser, F12, Network
+# tab → filter "rezdy", click VIEW CALENDAR, copy the URL like
+# `productsMonthlyCalendar/{id}`. Append the numeric {id} below.
+MSAA_CALENDAR_CATEGORY_IDS = [
+    (508377, f"{MARKETING_SITE_BASE}/rock-climbing-courses/"),  # Rock Climbing
+    # TODO once captured from DevTools: Mountaineering, AST, Hiking, Skiing
 ]
 
 LOCATION_RE = re.compile(
@@ -124,11 +121,11 @@ def scrape_rezdy(provider: dict) -> list:
     """Scrape a Rezdy storefront using confirmed HTML structure."""
     log.info(f"Scraping {provider['name']} — {provider['storefront']}")
 
-    # Live-discover catalogs from the storefront homepage AND marketing-site
-    # pages (catches catalogs embedded as iframes on mountainskillsacademy.com).
-    # Union with the hardcoded fallback so a fetch failure can't drop coverage
-    # below the previous baseline.
-    crawl_pages = [provider["storefront"] + "/index"] + MARKETING_PAGES
+    # Live-discover catalogs from the storefront homepage and /index. The
+    # marketing site is unreachable from GitHub Actions (Cloudflare blocks
+    # datacenter IPs) so it's not crawled here; orphan products are covered
+    # by Pass 2 via the productsMonthlyCalendar Rezdy endpoint instead.
+    crawl_pages = [provider["storefront"] + "/index"]
     discovered = discover_rezdy_catalogs(provider["storefront"], extra_pages=crawl_pages)
     fallback = provider.get("catalogs", []) or []
     seen_slugs = set()
@@ -519,14 +516,31 @@ def main():
         browser = p.chromium.launch(headless=True)
         log.info("Playwright browser launched")
 
-        # Pass 2 — discover orphan Rezdy products linked from the marketing
-        # site (not shelved in any catalog) and render each into a full
-        # course dict. Pass 1 wins on duplicates via booking-URL dedup.
-        crawl_pages = [provider["storefront"] + "/index"] + MARKETING_PAGES
-        discovered_products = discover_rezdy_products(crawl_pages, REZDY_DOMAIN)
+        # Pass 2 — calendar-endpoint discovery on the Rezdy domain.
+        # MSAA's marketing site embeds productsMonthlyCalendar widgets; one
+        # category ID per listing page covers products outside the
+        # storefront catalogs (e.g. Trad Lead & Progression, Rock Rescue).
+        # Endpoint is on rezdy.com so it's reachable from GitHub Actions —
+        # the marketing site itself is Cloudflare-blocked. Returns empty if
+        # Rezdy's referer/origin allowlist rejects the request.
+        discovered_products: list = []
+        for cat_id, cat_referer in MSAA_CALENDAR_CATEGORY_IDS:
+            urls = fetch_rezdy_calendar_products(
+                provider["storefront"], cat_id, referer=cat_referer,
+            )
+            discovered_products.extend(urls)
+
         pass1_bases = {(c.get("booking_url") or "").split("?")[0] for c in raw_courses}
-        orphan_urls = [u for u in discovered_products if u not in pass1_bases]
-        log.info(f"Pass 2: {len(discovered_products)} product URL(s) found, "
+        seen_orphans: set = set()
+        orphan_urls: list = []
+        for u in discovered_products:
+            if u in seen_orphans or u in pass1_bases:
+                continue
+            seen_orphans.add(u)
+            orphan_urls.append(u)
+
+        log.info(f"Pass 2: {len(discovered_products)} URL(s) found across "
+                 f"{len(MSAA_CALENDAR_CATEGORY_IDS)} categor(ies), "
                  f"{len(orphan_urls)} not already in Pass 1")
         pass2_count = 0
         for url in orphan_urls:
