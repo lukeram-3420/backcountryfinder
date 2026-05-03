@@ -1098,13 +1098,42 @@ def _normalise_url(url: str) -> str:
 
 # ── Rezdy storefront helpers ─────────────────────────────────────────────────
 
-def discover_rezdy_catalogs(storefront_url: str, user_agent: str = None) -> list:
-    """Fetch a Rezdy storefront homepage and return every catalog slug
-    found in `<a href>` links, in document order with duplicates removed.
+_REZDY_BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "en-CA,en;q=0.9",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
 
-    Returns slugs like 'catalog/315469/luxury-experiences' (no leading
-    slash, no scheme, no query). Empty list on fetch failure — caller
-    should fall back to its hardcoded list when this returns nothing.
+
+def _fetch_html(url: str, user_agent: str = None) -> Optional[str]:
+    """Best-effort HTML fetch with browser-shaped headers. Returns None on failure."""
+    headers = dict(_REZDY_BROWSER_HEADERS)
+    if user_agent:
+        headers["User-Agent"] = user_agent
+    try:
+        r = requests.get(url, headers=headers, timeout=20)
+        r.raise_for_status()
+        return r.text
+    except Exception as e:
+        log.warning(f"Fetch failed @ {url}: {e}")
+        return None
+
+
+def discover_rezdy_catalogs(
+    storefront_url: str,
+    extra_pages: list = None,
+    user_agent: str = None,
+) -> list:
+    """Fetch a Rezdy storefront homepage (and optional extra pages) and
+    return every catalog slug discovered, deduped, in first-seen order.
+
+    Catalog matches are extracted from <a href>, <iframe src>, and the raw
+    HTML body — covers data attributes, inline scripts, and iframe-embedded
+    catalogs on provider marketing sites. Returns slugs like
+    'catalog/315469/luxury-experiences'. Empty list on total fetch failure.
     """
     try:
         from bs4 import BeautifulSoup
@@ -1112,37 +1141,73 @@ def discover_rezdy_catalogs(storefront_url: str, user_agent: str = None) -> list
         log.warning("BeautifulSoup not installed — cannot discover Rezdy catalogs")
         return []
 
-    headers = {
-        "User-Agent": user_agent or (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        ),
-        "Accept-Language": "en-CA,en;q=0.9",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    }
+    pages = [storefront_url] + list(extra_pages or [])
+    catalog_re = re.compile(r"/catalog/(\d+)/([a-z0-9\-]+)", re.I)
+    seen: set = set()
+    slugs: list = []
 
-    try:
-        r = requests.get(storefront_url, headers=headers, timeout=20)
-        r.raise_for_status()
-    except Exception as e:
-        log.warning(f"Rezdy catalog discovery failed @ {storefront_url}: {e}")
+    for page_url in pages:
+        html = _fetch_html(page_url, user_agent=user_agent)
+        if not html:
+            continue
+        soup = BeautifulSoup(html, "html.parser")
+        candidates: list = []
+        for a in soup.find_all("a", href=True):
+            candidates.append(a["href"])
+        for f in soup.find_all("iframe", src=True):
+            candidates.append(f["src"])
+        # Also scan raw HTML for catalog URLs inside scripts / data attrs.
+        candidates.append(html)
+        for c in candidates:
+            for m in catalog_re.finditer(c):
+                slug = f"catalog/{m.group(1)}/{m.group(2).lower()}"
+                if slug in seen:
+                    continue
+                seen.add(slug)
+                slugs.append(slug)
+
+    log.info(f"Rezdy catalog discovery: {len(slugs)} catalog(s) across {len(pages)} page(s)")
+    return slugs
+
+
+def discover_rezdy_products(
+    pages: list,
+    rezdy_domain: str,
+    user_agent: str = None,
+) -> list:
+    """Fetch each page and extract direct Rezdy product URLs (not catalogs)
+    that match the given rezdy_domain. Returns full URLs like
+    'https://msaa.rezdy.com/21189/ski-mountaineering-course', deduped, in
+    first-seen order.
+
+    Used to capture orphan Rezdy products that are linked from a provider's
+    marketing site but not shelved in any catalog. Excludes /catalog/ paths
+    — those are handled by discover_rezdy_catalogs.
+    """
+    if not pages or not rezdy_domain:
         return []
 
-    soup = BeautifulSoup(r.text, "html.parser")
-    catalog_re = re.compile(r"/catalog/(\d+)/([a-z0-9\-]+)", re.I)
-    seen = set()
-    slugs = []
-    for a in soup.find_all("a", href=True):
-        m = catalog_re.search(a["href"])
-        if not m:
+    # Match host/{numeric_id}/{slug} but NOT /catalog/{id}/{slug}.
+    product_re = re.compile(
+        rf"https?://{re.escape(rezdy_domain)}/(?!catalog/)(\d+)/([a-z0-9\-]+)",
+        re.I,
+    )
+    seen: set = set()
+    urls: list = []
+
+    for page_url in pages:
+        html = _fetch_html(page_url, user_agent=user_agent)
+        if not html:
             continue
-        slug = f"catalog/{m.group(1)}/{m.group(2).lower()}"
-        if slug in seen:
-            continue
-        seen.add(slug)
-        slugs.append(slug)
-    log.info(f"Rezdy catalog discovery @ {storefront_url}: {len(slugs)} catalog(s)")
-    return slugs
+        for m in product_re.finditer(html):
+            full_url = f"https://{rezdy_domain}/{m.group(1)}/{m.group(2).lower()}"
+            if full_url in seen:
+                continue
+            seen.add(full_url)
+            urls.append(full_url)
+
+    log.info(f"Rezdy product discovery: {len(urls)} product URL(s) across {len(pages)} page(s)")
+    return urls
 
 
 # ── Two-pass scraping helper ─────────────────────────────────────────────────

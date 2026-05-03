@@ -27,7 +27,7 @@ from scraper_utils import (
     update_provider_ratings,
     title_hash, activity_key,
     upsert_activity_control, load_activity_controls,
-    discover_rezdy_catalogs,
+    discover_rezdy_catalogs, discover_rezdy_products,
 )
 
 # Populated at main() start via load_activity_controls(). Consulted by the
@@ -56,6 +56,31 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.5",
 }
+
+REZDY_DOMAIN = "mountainskillsacademy.rezdy.com"
+
+# Marketing-site pages crawled to discover orphan Rezdy products that aren't
+# shelved in any storefront catalog. See plan: capture-orphan-rezdy-products.
+# Drift-detection on this list is filed as a follow-up issue.
+MARKETING_PAGES = [
+    "https://www.mountainskillsacademy.com/rock-climbing-courses/",
+    "https://www.mountainskillsacademy.com/mountaineering-courses/",
+    "https://www.mountainskillsacademy.com/avalanche-skills-training/",
+    "https://www.mountainskillsacademy.com/courses-guide-service/",
+    "https://www.mountainskillsacademy.com/learn/",
+    "https://www.mountainskillsacademy.com/course-progression-calendar/",
+    "https://www.mountainskillsacademy.com/rock-climbing-courses/intro-to-trad-progression/",
+    "https://www.mountainskillsacademy.com/rock-climbing-courses/intro-to-trad-climbing/",
+    "https://www.mountainskillsacademy.com/rock-climbing-courses/trad-progression/",
+    "https://www.mountainskillsacademy.com/rock-climbing-courses/womens-intro-to-trad-leading/",
+    "https://www.mountainskillsacademy.com/courses/intro-to-outdoor-rock-and-leading/",
+]
+
+LOCATION_RE = re.compile(
+    r"(Whistler|Squamish|Seymour|Garibaldi|Pemberton|Tantalus|Vancouver|North Shore|Golden|Revelstoke|Banff|Canmore)",
+    re.I,
+)
+
 
 PROVIDER = {
     "id":       "msaa",
@@ -99,10 +124,12 @@ def scrape_rezdy(provider: dict) -> list:
     """Scrape a Rezdy storefront using confirmed HTML structure."""
     log.info(f"Scraping {provider['name']} — {provider['storefront']}")
 
-    # Live-discover catalogs from the storefront homepage. Union with the
-    # hardcoded fallback so a Rezdy block / fetch failure can't drop coverage
+    # Live-discover catalogs from the storefront homepage AND marketing-site
+    # pages (catches catalogs embedded as iframes on mountainskillsacademy.com).
+    # Union with the hardcoded fallback so a fetch failure can't drop coverage
     # below the previous baseline.
-    discovered = discover_rezdy_catalogs(provider["storefront"])
+    crawl_pages = [provider["storefront"] + "/index"] + MARKETING_PAGES
+    discovered = discover_rezdy_catalogs(provider["storefront"], extra_pages=crawl_pages)
     fallback = provider.get("catalogs", []) or []
     seen_slugs = set()
     catalogs: list = []
@@ -342,6 +369,126 @@ def check_course_page_playwright(browser, booking_url: str) -> dict:
     return result
 
 
+def scrape_rezdy_product_page(browser, product_url: str, utm: str) -> Optional[dict]:
+    """Render an individual Rezdy product page via Playwright and synthesize
+    a full course dict. Used by the Pass 2 orphan-product path — products
+    that aren't in any catalog but are linked from MSAA's marketing site.
+
+    Returns None if the page can't be loaded or has no recognizable title.
+    The dict carries `_pass2_rendered=True` so the main loop skips a second
+    render of the same page.
+    """
+    page = None
+    try:
+        page = browser.new_page()
+        page.set_extra_http_headers({"Accept-Language": "en-CA,en;q=0.9"})
+        page.goto(product_url, wait_until="networkidle", timeout=30000)
+        page.wait_for_timeout(2000)
+        html = page.content()
+        soup = BeautifulSoup(html, "html.parser")
+        page_text = soup.get_text()
+        text_lower = page_text.lower()
+
+        h1 = soup.find("h1")
+        title = h1.get_text(strip=True) if h1 else None
+        if not title:
+            page.close()
+            return None
+
+        image_url = None
+        og = soup.find("meta", attrs={"property": "og:image"})
+        if og and og.get("content"):
+            image_url = og["content"]
+        else:
+            img = soup.find("img")
+            if img and img.get("src"):
+                image_url = img["src"]
+                if image_url.startswith("//"):
+                    image_url = "https:" + image_url
+
+        price = None
+        price_match = re.search(r"(?:CAD\s*)?\$\s?([\d,]+(?:\.\d{2})?)", page_text)
+        if price_match:
+            try:
+                val = int(float(price_match.group(1).replace(",", "")))
+                if val >= 10:
+                    price = val
+            except ValueError:
+                pass
+
+        duration_days = None
+        dur_match = re.search(r"(\d+(?:\.\d+)?)\s*day", title, re.I)
+        if dur_match:
+            duration_days = float(dur_match.group(1))
+
+        location_raw = None
+        loc_match = LOCATION_RE.search(title + " " + page_text[:1000])
+        if loc_match:
+            location_raw = loc_match.group(0).title()
+
+        desc_el = (
+            soup.find("div", class_=re.compile(r"product-description|description|overview", re.I)) or
+            soup.find("div", {"itemprop": "description"}) or
+            soup.find("div", class_="products-list-item-overview")
+        )
+        description = desc_el.get_text(separator=" ", strip=True)[:800] if desc_el else ""
+        if not description:
+            paras = []
+            for p in soup.find_all("p"):
+                t = p.get_text(strip=True)
+                if len(t) > 60 and len(paras) < 3:
+                    paras.append(t)
+            if paras:
+                description = " ".join(paras)[:800]
+
+        custom_dates = True
+        date_display = "Flexible dates"
+        date_sort = None
+        unavailable = any(s in text_lower for s in NO_AVAILABILITY_SIGNALS)
+        if not unavailable:
+            found_dates: list = []
+            for pattern in STATIC_DATE_PATTERNS:
+                found_dates.extend(re.findall(pattern, page_text))
+            if found_dates:
+                seen_d: set = set()
+                ordered = [d for d in found_dates if not (d in seen_d or seen_d.add(d))]
+                date_display = ordered[0]
+                date_sort = parse_date_sort(date_display)
+                custom_dates = False
+
+        page.close()
+        booking_url = f"{product_url.rstrip('/')}?{utm}"
+
+        return {
+            "title":            title,
+            "provider_id":      PROVIDER["id"],
+            "location_raw":     location_raw,
+            "date_display":     date_display,
+            "date_sort":        date_sort,
+            "duration_days":    duration_days,
+            "price":            price,
+            "spots_remaining":  None,
+            "avail":            "open",
+            "image_url":        image_url,
+            "booking_url":      booking_url,
+            "description":      description,
+            "custom_dates":     custom_dates,
+            "scraped_at":       datetime.utcnow().isoformat(),
+            "_pass2_rendered":  True,
+        }
+    except PlaywrightTimeout:
+        log.warning(f"Timeout loading orphan product {product_url}")
+    except Exception as e:
+        log.warning(f"Could not scrape orphan product {product_url}: {e}")
+    finally:
+        if page is not None:
+            try:
+                page.close()
+            except Exception:
+                pass
+    return None
+
+
 # ── MAIN ──
 
 def main():
@@ -372,6 +519,29 @@ def main():
         browser = p.chromium.launch(headless=True)
         log.info("Playwright browser launched")
 
+        # Pass 2 — discover orphan Rezdy products linked from the marketing
+        # site (not shelved in any catalog) and render each into a full
+        # course dict. Pass 1 wins on duplicates via booking-URL dedup.
+        crawl_pages = [provider["storefront"] + "/index"] + MARKETING_PAGES
+        discovered_products = discover_rezdy_products(crawl_pages, REZDY_DOMAIN)
+        pass1_bases = {(c.get("booking_url") or "").split("?")[0] for c in raw_courses}
+        orphan_urls = [u for u in discovered_products if u not in pass1_bases]
+        log.info(f"Pass 2: {len(discovered_products)} product URL(s) found, "
+                 f"{len(orphan_urls)} not already in Pass 1")
+        pass2_count = 0
+        for url in orphan_urls:
+            log.info(f"  Pass 2 render: {url}")
+            course = scrape_rezdy_product_page(browser, url, provider["utm"])
+            if not course:
+                continue
+            if not _is_visible(provider["id"], course["title"]):
+                log.info(f"  Skipping hidden title: {course['title']}")
+                continue
+            raw_courses.append(course)
+            pass2_count += 1
+            time.sleep(1)
+        log.info(f"Pass 2: {pass2_count} orphan product(s) added to scrape queue")
+
         for c in raw_courses:
             # Skip past courses
             if not is_future(c.get("date_sort")):
@@ -387,16 +557,24 @@ def main():
                     log.warning(f"Unmatched location: '{loc_raw}' for '{c['title']}'")
                     location_flags.append({"location_raw": loc_raw, "provider_id": provider["id"], "course_title": c["title"]})
 
-            # Render product page with Playwright for description + dates
+            # Render product page with Playwright for description + dates.
+            # Pass 2 rows are already fully rendered — skip the second fetch.
             booking_url = c.get("booking_url")
-            active = True
-            custom_dates = False
-            date_display = c.get("date_display")
-            date_sort = c.get("date_sort")
-
-            page_description = ""
-            page_price = c.get("price")
-            if booking_url:
+            if c.get("_pass2_rendered"):
+                active = True
+                custom_dates = c.get("custom_dates", False)
+                date_display = c.get("date_display")
+                date_sort = c.get("date_sort")
+                page_description = c.get("description", "")
+                page_price = c.get("price")
+            else:
+                active = True
+                custom_dates = False
+                date_display = c.get("date_display")
+                date_sort = c.get("date_sort")
+                page_description = ""
+                page_price = c.get("price")
+            if booking_url and not c.get("_pass2_rendered"):
                 log.info(f"  Rendering: {c['title']}")
                 page_check = check_course_page_playwright(browser, booking_url)
                 page_description = page_check.get("description", "")
