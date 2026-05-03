@@ -1262,17 +1262,33 @@ def fetch_rezdy_calendar_products(
     pattern_counts = {
         "data-productid":   len(re.findall(r"data-productid", html, re.I)),
         "data-product-id":  len(re.findall(r"data-product-id", html, re.I)),
+        "data-product":     len(re.findall(r'data-product=', html, re.I)),
+        "data-id":          len(re.findall(r'data-id=', html, re.I)),
         "productCode":      len(re.findall(r"productCode", html)),
         '"productId"':      len(re.findall(r'"productId"', html)),
         '"product"':        len(re.findall(r'"product"', html)),
         "rezdy.com/":       len(re.findall(r"rezdy\.com/\d+", html)),
         "/{id}/{slug}":     len(re.findall(r"\b/\d{4,7}/[a-z0-9\-]{4,}", html, re.I)),
         "data-session":     len(re.findall(r"data-session", html, re.I)),
+        "ms-product":       len(re.findall(r"ms-product", html, re.I)),
+    }
+    keyword_counts = {
+        kw: html.lower().count(kw.lower())
+        for kw in ("Trad", "Rescue", "Climbing", "Mountaineering", "AST", "Avalanche")
     }
     log.info(f"Rezdy calendar response: {len(html)} bytes, "
              f"content-type={r.headers.get('Content-Type', '?')}, "
-             f"patterns={pattern_counts}")
+             f"patterns={pattern_counts}, keywords={keyword_counts}")
     log.info(f"Rezdy calendar first 1500 chars: {html[:1500]!r}")
+    # If any course-name keyword appears, dump 800 chars of surrounding context
+    # so we can see exactly how the product is referenced in the markup.
+    for kw in ("Trad Lead", "Trad Progression", "Rock Rescue", "Multi-Pitch"):
+        i = html.lower().find(kw.lower())
+        if i >= 0:
+            start = max(0, i - 200)
+            end = min(len(html), i + 600)
+            log.info(f"Rezdy calendar context around '{kw}' (idx={i}): {html[start:end]!r}")
+            break  # one sample is enough
 
     # Resolve the storefront host so relative `/{id}/{slug}` paths can be
     # promoted to absolute URLs.
