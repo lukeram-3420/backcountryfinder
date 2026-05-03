@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FAQ section — populated state ground truth</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,700&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --green-dark: #1a2e1a;
+    --green-mid: #2d4a2d;
+    --green-accent: #4ade80;
+    --green-light: #eaf3de;
+    --amber-light: #faeeda;
+    --amber-dark: #854f0b;
+    --text-primary: #1a1a1a;
+    --text-secondary: #555;
+    --text-tertiary: #888;
+    --border: rgba(0,0,0,0.08);
+    --border-mid: rgba(0,0,0,0.13);
+    --bg: #f8faf8;
+    --bg-card: #ffffff;
+    --bg-secondary: #f2f4f2;
+    --radius: 12px;
+    --radius-sm: 8px;
+    --radius-pill: 24px;
+    --font: 'Plus Jakarta Sans', sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text-primary);
+    -webkit-font-smoothing: antialiased;
+    padding: 24px;
+  }
+  .container {
+    max-width: 860px;
+    margin: 0 auto;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 28px 24px;
+  }
+  .label { font-size: 11px; color: var(--text-tertiary); letter-spacing: 0.5px; text-transform: uppercase; font-weight: 700; margin-bottom: 8px; }
+</style>
+<link rel="stylesheet" href="./progression.css">
+</head>
+<body>
+
+<!--
+  ─────────────────────────────────────────────────────────────────────────────
+  FAQ SECTION — POPULATED GROUND TRUTH
+  ─────────────────────────────────────────────────────────────────────────────
+  This is the FAQ as it should look once Phase 3b populates questions from
+  `progression_questions WHERE status='published'`.
+
+  Three patterns shown:
+    1. Editorial answer (Q1)         → no MSAA badge, written by Luke
+    2. Collapsed question (Q2-Q3)    → only the question line visible
+    3. MSAA-answered (Q4)            → green ✓ badge + reviewed date
+
+  In Phase 1 this content is HIDDEN — the FAQ section renders the empty-state
+  card instead. This file exists so the styling and JSON-LD shape are
+  pre-locked when Phase 3b ships.
+
+  IMPORTANT: All Q&As live in the rendered HTML at page load — Claude Code
+  must NOT lazy-load answers via JS-on-click. Crawlers and LLMs need the
+  text immediately. Collapsed = visually hidden via display:none, not absent.
+
+  SCHEMA.ORG: Each Q&A becomes a <Question>/<Answer> entity in the FAQPage
+  JSON-LD block. MSAA-answered questions get an `author` property pointing
+  to the provider's Organization for E-E-A-T signal.
+-->
+
+<div class="container">
+
+<p class="label">FAQ — Phase 3b populated state</p>
+
+<div class="prog-faq">
+  <div class="prog-faq-header">
+    <div class="prog-faq-header-text">
+      <p class="prog-eyebrow">Common questions</p>
+      <h2 class="prog-faq-title">Before you commit</h2>
+      <p class="prog-faq-intro">Answers to the questions most people ask. Ask MSAA directly at the bottom if something's not covered.</p>
+    </div>
+    <button class="prog-faq-collapse-all" data-faq-collapse-all>Collapse all ▴</button>
+  </div>
+
+  <div class="prog-faq-list">
+
+    <!-- Q1 — editorial, expanded by default (most common pattern: first question opens to give crawlers immediate visible content) -->
+    <div class="prog-faq-item" data-expanded="true" data-source="editorial">
+      <div class="prog-faq-q" data-faq-toggle>
+        <p class="prog-faq-q-text">How long does it take to go from gym climber to alpine climber?</p>
+        <span class="prog-faq-q-icon">−</span>
+      </div>
+      <div class="prog-faq-a">
+        <p>Most people complete this progression over 12 to 18 months, depending on how often they get outside between courses and how quickly they accumulate mileage. The five courses themselves only take 13 days of instruction — the real work happens in the practice gaps between them, where you build the muscle memory and judgement that the next course assumes.</p>
+        <p>Compressed timelines are possible but not ideal. MSAA recommends spending at least 2 to 3 months top-roping outdoors before jumping into anchor building, and 6 to 12 months of trad multipitch experience before the Bugaboos capstone.</p>
+      </div>
+      <!-- No prog-faq-meta block → no MSAA badge → editorial answer (no author) -->
+    </div>
+
+    <!-- Q2 — collapsed -->
+    <div class="prog-faq-item" data-expanded="false" data-source="editorial">
+      <div class="prog-faq-q" data-faq-toggle>
+        <p class="prog-faq-q-text">Do I need to take all five courses with MSAA?</p>
+        <span class="prog-faq-q-icon">+</span>
+      </div>
+      <div class="prog-faq-a">
+        <p>No, but there are real benefits to staying with one provider. MSAA's progression is designed so each course assumes the skills and language taught in the previous one — guides build on what the last guide covered, instead of re-teaching baseline material.</p>
+        <p>If you do mix providers, expect some overlap on the first day of each course as a new guide assesses your skills. That's not a bad thing — it's just less efficient than a continuous progression.</p>
+      </div>
+    </div>
+
+    <!-- Q3 — collapsed -->
+    <div class="prog-faq-item" data-expanded="false" data-source="editorial">
+      <div class="prog-faq-q" data-faq-toggle>
+        <p class="prog-faq-q-text">What's the difference between sport lead and trad climbing?</p>
+        <span class="prog-faq-q-icon">+</span>
+      </div>
+      <div class="prog-faq-a">
+        <p>Sport lead climbing uses pre-placed bolts in the rock that you clip your rope to as you climb. The protection is fixed; you focus on movement, clipping technique, and managing falls.</p>
+        <p>Trad climbing means placing your own removable protection (cams, nuts, slings) into cracks and features as you go. It's a bigger skill set — gear placement, anchor building, route reading — and most outdoor climbing in the BC alpine is trad.</p>
+      </div>
+    </div>
+
+    <!-- Q4 — Answered by MSAA, expanded for ground-truth visibility -->
+    <div class="prog-faq-item" data-expanded="true" data-source="msaa">
+      <div class="prog-faq-q" data-faq-toggle>
+        <p class="prog-faq-q-text">What climbing fitness do I need for the Bugaboos capstone?</p>
+        <span class="prog-faq-q-icon">−</span>
+      </div>
+      <div class="prog-faq-a">
+        <p>You'll want to comfortably top-rope 5.8 trad cracks outside while wearing a small pack, and be able to sustain 6 to 8 hours of moving over alpine terrain on consecutive days. The Bugaboos involve glacier approaches, scrambling on talus and moraine, and multi-pitch granite — none of it is technically extreme, but the cumulative load is real.</p>
+        <p>If you can finish a 25km mountain hike with 1,500m of elevation gain and still have something left in the tank, you're in the right zone. Trail running, weighted hiking, and outdoor climbing days are the best preparation in the months leading up to the camp.</p>
+      </div>
+      <div class="prog-faq-meta">
+        <span class="prog-faq-msaa-pill">
+          <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          Answered by MSAA
+        </span>
+        <span class="prog-faq-meta-date">Reviewed 14 April 2026</span>
+      </div>
+    </div>
+
+    <!-- Q5-Q8 — collapsed -->
+    <div class="prog-faq-item" data-expanded="false" data-source="editorial">
+      <div class="prog-faq-q" data-faq-toggle>
+        <p class="prog-faq-q-text">What gear should I buy versus rent?</p>
+        <span class="prog-faq-q-icon">+</span>
+      </div>
+      <div class="prog-faq-a"><p>Buy: harness, helmet, climbing shoes — these are personal-fit items you'll use every course. Rent or borrow: trad rack, double ropes, alpine boots, glacier gear — these are expensive and progression-specific.</p></div>
+    </div>
+
+    <div class="prog-faq-item" data-expanded="false" data-source="editorial">
+      <div class="prog-faq-q" data-faq-toggle>
+        <p class="prog-faq-q-text">Can I book the courses individually instead of as a bundle?</p>
+        <span class="prog-faq-q-icon">+</span>
+      </div>
+      <div class="prog-faq-a"><p>Absolutely. Each course is also available as a standalone booking — the bundle just gets you a discount for committing to the full path upfront.</p></div>
+    </div>
+
+    <div class="prog-faq-item" data-expanded="false" data-source="msaa">
+      <div class="prog-faq-q" data-faq-toggle>
+        <p class="prog-faq-q-text">What happens if a course gets cancelled by weather?</p>
+        <span class="prog-faq-q-icon">+</span>
+      </div>
+      <div class="prog-faq-a"><p>MSAA's policy is to either reschedule to the next available date at no charge, or refund in full if rescheduling doesn't work for your timeline.</p></div>
+      <!-- Note: meta block lives between answer and rest of card. Currently hidden because data-expanded="false". -->
+      <div class="prog-faq-meta">
+        <span class="prog-faq-msaa-pill">
+          <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          Answered by MSAA
+        </span>
+        <span class="prog-faq-meta-date">Reviewed 22 March 2026</span>
+      </div>
+    </div>
+
+    <div class="prog-faq-item" data-expanded="false" data-source="editorial">
+      <div class="prog-faq-q" data-faq-toggle>
+        <p class="prog-faq-q-text">Is this progression suitable for someone over 50?</p>
+        <span class="prog-faq-q-icon">+</span>
+      </div>
+      <div class="prog-faq-a"><p>Yes — MSAA regularly works with climbers in their 50s and 60s. Fitness matters more than age, especially for the Bugaboos capstone.</p></div>
+    </div>
+
+  </div>
+
+  <!-- Ask MSAA card (same as on the main progression page) -->
+  <div class="prog-ask">
+    <div class="prog-ask-header">
+      <div class="prog-ask-tile">MSAA</div>
+      <div>
+        <p class="prog-ask-title">Ask MSAA directly</p>
+        <p class="prog-ask-sub">Good questions get reviewed and published here for everyone.</p>
+      </div>
+    </div>
+
+    <p class="prog-ask-context">Your question goes to backcountryfinder first. If it's a good one, we'll forward to MSAA, get an answer, and add it to this page so others benefit too. We'll email you when it's published.</p>
+
+    <form data-phase="3b-stub" onsubmit="return false;">
+      <div class="prog-form-grid-2">
+        <div class="prog-form-field">
+          <label for="ask-name">Your name</label>
+          <input id="ask-name" type="text" placeholder="Luke Mortimer" />
+        </div>
+        <div class="prog-form-field">
+          <label for="ask-email">Email</label>
+          <input id="ask-email" type="email" placeholder="luke@example.com" />
+        </div>
+      </div>
+
+      <div class="prog-form-field">
+        <label for="ask-question">Your question</label>
+        <textarea id="ask-question" rows="3" placeholder="What's a realistic timeline if I can only get out one weekend a month?"></textarea>
+      </div>
+
+      <button type="submit" class="prog-form-submit prog-form-submit-alt" data-ask-submit>Submit question</button>
+      <p class="prog-form-fineprint">Questions are reviewed by backcountryfinder before being sent to MSAA.</p>
+    </form>
+  </div>
+
+</div>
+
+</div>
+
+<script>
+(function () {
+  var collapseBtn = document.querySelector('[data-faq-collapse-all]');
+  if (collapseBtn) {
+    collapseBtn.addEventListener('click', function () {
+      var anyExpanded = !!document.querySelector('.prog-faq-item[data-expanded="true"]');
+      document.querySelectorAll('.prog-faq-item').forEach(function (item) {
+        item.setAttribute('data-expanded', anyExpanded ? 'false' : 'true');
+        var icon = item.querySelector('.prog-faq-q-icon');
+        if (icon) icon.textContent = anyExpanded ? '+' : '−';
+      });
+      collapseBtn.textContent = anyExpanded ? 'Expand all ▾' : 'Collapse all ▴';
+    });
+  }
+  document.querySelectorAll('[data-faq-toggle]').forEach(function (q) {
+    q.addEventListener('click', function () {
+      var item = q.closest('.prog-faq-item');
+      var expanded = item.getAttribute('data-expanded') === 'true';
+      item.setAttribute('data-expanded', !expanded);
+      var icon = item.querySelector('.prog-faq-q-icon');
+      if (icon) icon.textContent = expanded ? '+' : '−';
+    });
+  });
+})();
+</script>
+
+</body>
+</html>

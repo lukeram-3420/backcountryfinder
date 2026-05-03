@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Progression page — mobile ground truth</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,700&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --green-dark: #1a2e1a;
+    --green-mid: #2d4a2d;
+    --green-accent: #4ade80;
+    --green-light: #eaf3de;
+    --amber-light: #faeeda;
+    --amber-dark: #854f0b;
+    --text-primary: #1a1a1a;
+    --text-secondary: #555;
+    --text-tertiary: #888;
+    --border: rgba(0,0,0,0.08);
+    --border-mid: rgba(0,0,0,0.13);
+    --bg: #f8faf8;
+    --bg-card: #ffffff;
+    --bg-secondary: #f2f4f2;
+    --radius: 12px;
+    --radius-sm: 8px;
+    --radius-pill: 24px;
+    --font: 'Plus Jakarta Sans', sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font);
+    background: #d8ddd8;
+    color: var(--text-primary);
+    -webkit-font-smoothing: antialiased;
+    padding: 24px 0;
+    display: flex;
+    justify-content: center;
+  }
+
+  /*
+    The mobile frame mimics a 380px-wide phone viewport so reviewers can see
+    exactly how the layout behaves below the 480px breakpoint. The .prog-page
+    inside it inherits the same styles from progression.css — but at this
+    width, the @media (max-width: 480px) rules apply.
+  */
+  .device-frame {
+    width: 380px;
+    max-width: 100%;
+    background: var(--bg);
+    border-radius: 24px;
+    overflow: hidden;
+    box-shadow: 0 12px 36px rgba(0,0,0,0.18), 0 0 0 8px #2a2a2a;
+  }
+</style>
+
+<link rel="stylesheet" href="./progression.css">
+</head>
+<body>
+
+<!--
+  ─────────────────────────────────────────────────────────────────────────────
+  PROGRESSION PAGE — MOBILE GROUND TRUTH
+  ─────────────────────────────────────────────────────────────────────────────
+  Same DOM as progression-desktop.html — the layout differences are CSS-only,
+  driven by the @media (max-width: 480px) block in progression.css. This file
+  is rendered inside a 380px frame so reviewers can see the breakpoint apply.
+
+  Mobile-specific adaptations (all enforced in CSS, not markup):
+    - Page edges go full-width (no rounded corners)
+    - Crumb compresses; "Powered by" mark hidden
+    - Hero shrinks to 220px, title to 22px
+    - "The path" stat row becomes a 3-column card grid
+    - Provider rating chip wraps below the name when space is tight
+    - Course rungs go full-width, button stacks below the badges
+    - Bundle cards stack 1-column instead of 2-column grid
+    - Form name+email collapse from 2-column to 1-column
+    - FAQ "Collapse all" button drops below the heading instead of right of it
+
+  Note: gear list moves into the expanded Details panel (already true on
+  desktop too — this was a design decision earlier in the chat).
+-->
+
+<div class="device-frame">
+<main class="prog-page">
+
+  <div class="prog-crumb">
+    <div class="prog-crumb-path">
+      <div class="prog-crumb-mono">bf</div>
+      <span class="prog-crumb-url">/msaa/summer-progression</span>
+    </div>
+    <span class="prog-crumb-mark">Powered by backcountryfinder</span>
+  </div>
+
+  <div class="prog-hero" style="background-image: url('https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=800&q=80');">
+    <div class="prog-hero-overlay"></div>
+    <div class="prog-hero-pill">Capstone</div>
+    <div class="prog-hero-content">
+      <p class="prog-hero-eyebrow">MSAA · Summer</p>
+      <h1 class="prog-hero-title">How to become an alpine climber</h1>
+      <p class="prog-hero-sub">Gym to Bugaboos in five courses</p>
+    </div>
+  </div>
+
+  <a href="#bundle" class="prog-savings-hint">
+    <div class="prog-savings-hint-row">
+      <p class="prog-savings-hint-text"><strong>Save $701</strong> on the full path</p>
+      <span class="prog-savings-hint-cta">See bundle ↓</span>
+    </div>
+  </a>
+
+  <div class="prog-body">
+
+    <div class="prog-path">
+      <p class="prog-eyebrow">The path</p>
+      <p class="prog-path-blurb">From your first day on real rock to leading a multipitch route in the Bugaboos. Five courses, building one skill at a time.</p>
+      <!-- Mobile: 3-card stat grid (CSS handles this with grid-template-columns) -->
+      <div class="prog-path-stats">
+        <div class="stat-card"><strong>5</strong><span>courses</span></div>
+        <div class="stat-card"><strong>13</strong><span>days</span></div>
+        <div class="stat-card"><strong>12-18</strong><span>months</span></div>
+      </div>
+    </div>
+
+    <!--
+      Mobile note: in CSS, the prog-path-stats > .stat-card layout only applies
+      below 480px. On desktop, those .stat-card divs are styled as inline spans.
+      To support both, the markup uses .stat-card containers with <strong> +
+      <span> children — the desktop CSS just unwraps them visually.
+
+      Decision: use the SAME markup (.stat-card with strong+span) on both
+      breakpoints. Desktop CSS hides the card chrome.
+    -->
+
+    <div class="prog-provider">
+      <div class="prog-provider-head">
+        <div class="prog-provider-id">
+          <div class="prog-provider-tile">MSAA</div>
+          <div>
+            <p class="prog-provider-name">Mountain Skills Academy &amp; Adventures</p>
+            <p class="prog-provider-cert">ACMG &amp; IFMGA · Squamish, BC</p>
+          </div>
+        </div>
+        <a href="#" class="prog-provider-rating">
+          <span class="prog-provider-rating-stars">★ 4.9</span>
+          <span class="prog-provider-rating-count">312 Google reviews</span>
+        </a>
+      </div>
+      <p class="prog-provider-blurb">Operating since 2003, MSAA runs courses across Squamish, Whistler, and the Bugaboos with certified mountain guides.</p>
+    </div>
+
+    <!-- Course rungs -->
+    <div class="prog-rungs">
+
+      <div class="prog-rung" data-expanded="false" data-step="1">
+        <div class="prog-rung-row">
+          <div class="prog-rung-num">1</div>
+          <div class="prog-rung-body">
+            <p class="prog-rung-label">Foundation</p>
+            <p class="prog-rung-title">Intro to outdoor rock climbing</p>
+            <p class="prog-rung-meta">2 days · Squamish · From $395</p>
+            <div class="prog-rung-badges">
+              <span class="prog-badge prog-badge-difficulty-low">● ○ ○ ○ ○ Beginner</span>
+              <span class="prog-badge prog-badge-meta">No prerequisites</span>
+            </div>
+          </div>
+          <div class="prog-rung-actions">
+            <button class="prog-rung-toggle" aria-expanded="false" data-rung-toggle>Details ▾</button>
+          </div>
+        </div>
+        <div class="prog-rung-detail">
+          <div class="prog-rung-gear">
+            <p class="prog-rung-gear-label">What to bring</p>
+            <p class="prog-rung-gear-text">Climbing shoes — everything else provided.</p>
+          </div>
+          <p class="prog-rung-summary">Your first day on real rock. Spend two days at Smoke Bluffs in Squamish learning to move on granite, tie in safely, belay outdoors, and read a route.</p>
+          <a href="#" class="prog-rung-learn-more">Learn more →</a>
+        </div>
+      </div>
+
+      <div class="prog-gap"><div class="prog-gap-line"></div><span class="prog-gap-text">2-3 MONTHS PRACTICE</span><div class="prog-gap-line"></div></div>
+
+      <!-- Step 2 expanded for ground-truth view -->
+      <div class="prog-rung" data-expanded="true" data-step="2">
+        <div class="prog-rung-row">
+          <div class="prog-rung-num">2</div>
+          <div class="prog-rung-body">
+            <p class="prog-rung-label">Skill builder</p>
+            <p class="prog-rung-title">Anchor building &amp; top-rope setup</p>
+            <p class="prog-rung-meta">1 day · Squamish · From $245</p>
+            <div class="prog-rung-badges">
+              <span class="prog-badge prog-badge-difficulty-low">● ● ○ ○ ○ Novice</span>
+              <span class="prog-badge prog-badge-meta">After: Step 1</span>
+            </div>
+          </div>
+          <div class="prog-rung-actions">
+            <button class="prog-rung-toggle" aria-expanded="true" data-rung-toggle>Details ▴</button>
+          </div>
+        </div>
+        <div class="prog-rung-detail">
+          <div class="prog-rung-gear">
+            <p class="prog-rung-gear-label">What to bring</p>
+            <p class="prog-rung-gear-text">Harness, climbing shoes, helmet. Personal anchor system if you have one.</p>
+          </div>
+          <p class="prog-rung-summary">Build the gateway skill that separates gym climbers from outdoor climbers: setting up your own top-rope anchors. Spend a full day at Smoke Bluffs learning equalization, redundancy, and rope management on real rock.</p>
+          <a href="#" class="prog-rung-learn-more">Learn more →</a>
+        </div>
+      </div>
+
+      <div class="prog-gap"><div class="prog-gap-line"></div><span class="prog-gap-text">3-6 MONTHS PRACTICE</span><div class="prog-gap-line"></div></div>
+
+      <div class="prog-rung" data-expanded="false" data-step="3">
+        <div class="prog-rung-row">
+          <div class="prog-rung-num">3</div>
+          <div class="prog-rung-body">
+            <p class="prog-rung-label">Lead climbing</p>
+            <p class="prog-rung-title">Intro to sport lead climbing</p>
+            <p class="prog-rung-meta">2 days · Squamish · From $445</p>
+            <div class="prog-rung-badges">
+              <span class="prog-badge prog-badge-difficulty-mid">● ● ● ○ ○ Intermediate</span>
+              <span class="prog-badge prog-badge-meta">After: Steps 1-2</span>
+            </div>
+          </div>
+          <div class="prog-rung-actions">
+            <button class="prog-rung-toggle" aria-expanded="false" data-rung-toggle>Details ▾</button>
+          </div>
+        </div>
+        <div class="prog-rung-detail">
+          <div class="prog-rung-gear">
+            <p class="prog-rung-gear-label">What to bring</p>
+            <p class="prog-rung-gear-text">Harness, climbing shoes, helmet.</p>
+          </div>
+          <p class="prog-rung-summary">Move from following to leading. Two days on Squamish sport routes learning clipping technique, fall management, and lead belaying.</p>
+          <a href="#" class="prog-rung-learn-more">Learn more →</a>
+        </div>
+      </div>
+
+      <div class="prog-gap"><div class="prog-gap-line"></div><span class="prog-gap-text">3-6 MONTHS PRACTICE</span><div class="prog-gap-line"></div></div>
+
+      <div class="prog-rung" data-expanded="false" data-step="4">
+        <div class="prog-rung-row">
+          <div class="prog-rung-num">4</div>
+          <div class="prog-rung-body">
+            <p class="prog-rung-label">Trad &amp; multipitch</p>
+            <p class="prog-rung-title">Intro to trad &amp; multipitch climbing</p>
+            <p class="prog-rung-meta">3 days · Squamish · From $695</p>
+            <div class="prog-rung-badges">
+              <span class="prog-badge prog-badge-difficulty-mid">● ● ● ● ○ Advanced</span>
+              <span class="prog-badge prog-badge-meta">After: Steps 1-3</span>
+            </div>
+          </div>
+          <div class="prog-rung-actions">
+            <button class="prog-rung-toggle" aria-expanded="false" data-rung-toggle>Details ▾</button>
+          </div>
+        </div>
+        <div class="prog-rung-detail">
+          <div class="prog-rung-gear">
+            <p class="prog-rung-gear-label">What to bring</p>
+            <p class="prog-rung-gear-text">Harness, climbing shoes, helmet, trad rack if you have one.</p>
+          </div>
+          <p class="prog-rung-summary">Place your own protection and link multiple pitches together. Three days learning gear placements, anchor construction at belay stations, route-finding, and rope management.</p>
+          <a href="#" class="prog-rung-learn-more">Learn more →</a>
+        </div>
+      </div>
+
+      <div class="prog-gap"><div class="prog-gap-line"></div><span class="prog-gap-text">6-12 MONTHS PRACTICE</span><div class="prog-gap-line"></div></div>
+
+      <div class="prog-rung prog-rung-capstone" data-expanded="false" data-step="5" data-is-capstone="true">
+        <div class="prog-rung-row">
+          <div class="prog-rung-num">5</div>
+          <div class="prog-rung-body">
+            <p class="prog-rung-label">Capstone</p>
+            <p class="prog-rung-title">Bugaboos alpine climbing camp</p>
+            <p class="prog-rung-meta">5 days · Bugaboos · From $2,895</p>
+            <div class="prog-rung-badges">
+              <span class="prog-badge prog-badge-difficulty-high">● ● ● ● ● Expert</span>
+              <span class="prog-badge prog-badge-meta">After: Steps 1-4</span>
+            </div>
+          </div>
+          <div class="prog-rung-actions">
+            <button class="prog-rung-toggle" aria-expanded="false" data-rung-toggle>Details ▾</button>
+          </div>
+        </div>
+        <div class="prog-rung-detail">
+          <div class="prog-rung-gear">
+            <p class="prog-rung-gear-label">What to bring</p>
+            <p class="prog-rung-gear-text">Full alpine kit. See course page for the complete list — MSAA can also help advise.</p>
+          </div>
+          <p class="prog-rung-summary">Five days in the Bugaboos applying everything you've learned. Glacier travel, multi-pitch granite, and alpine rock climbing on iconic spires.</p>
+          <a href="#" class="prog-rung-learn-more">Learn more →</a>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Bundle section -->
+    <div id="bundle" class="prog-bundle">
+      <div class="prog-bundle-header">
+        <p class="prog-bundle-eyebrow">Book the full path</p>
+        <h2 class="prog-bundle-title">Commit to the journey, save on the way</h2>
+        <p class="prog-bundle-sub">Pick a bundle to request a quote from MSAA.</p>
+      </div>
+
+      <div class="prog-bundle-options">
+        <div class="prog-bundle-card" data-selected="false" data-bundle="skills">
+          <div class="prog-bundle-card-row">
+            <div class="prog-bundle-radio"></div>
+            <div class="prog-bundle-card-body">
+              <div class="prog-bundle-card-head">
+                <p class="prog-bundle-card-name">Skills bundle</p>
+                <span class="prog-bundle-discount-pill">Save 10%</span>
+              </div>
+              <p class="prog-bundle-card-scope">Steps 1-4</p>
+              <div class="prog-bundle-row-totals">
+                <span>Individual total</span>
+                <span class="strike">$1,780</span>
+              </div>
+              <div class="prog-bundle-row-final">
+                <span class="prog-bundle-row-final-label">Bundle price</span>
+                <span class="prog-bundle-row-final-price">$1,602</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="prog-bundle-card" data-selected="true" data-bundle="full">
+          <div class="prog-bundle-card-row">
+            <div class="prog-bundle-radio"></div>
+            <div class="prog-bundle-card-body">
+              <div class="prog-bundle-card-head">
+                <p class="prog-bundle-card-name">Full path</p>
+                <span class="prog-bundle-discount-pill">Save 15%</span>
+              </div>
+              <p class="prog-bundle-card-scope">Steps 1-5, includes capstone</p>
+              <div class="prog-bundle-row-totals">
+                <span>Individual total</span>
+                <span class="strike">$4,675</span>
+              </div>
+              <div class="prog-bundle-row-final">
+                <span class="prog-bundle-row-final-label">Bundle price</span>
+                <span class="prog-bundle-row-final-price">$3,974</span>
+              </div>
+              <p class="prog-bundle-savings-line">Save $701</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <form class="prog-form" data-phase="1-stub" onsubmit="return false;">
+        <p class="prog-form-eyebrow">Your details</p>
+
+        <div class="prog-form-grid-2">
+          <div class="prog-form-field">
+            <label for="m-bundle-name">Your name</label>
+            <input id="m-bundle-name" type="text" placeholder="Luke Mortimer" />
+          </div>
+          <div class="prog-form-field">
+            <label for="m-bundle-email">Email</label>
+            <input id="m-bundle-email" type="email" placeholder="luke@example.com" />
+          </div>
+        </div>
+
+        <div class="prog-form-field">
+          <label for="m-bundle-phone">Phone <span class="optional">— optional</span></label>
+          <input id="m-bundle-phone" type="tel" placeholder="604 555 0142" />
+        </div>
+
+        <div class="prog-form-field">
+          <label for="m-bundle-notes">Anything specific to share with MSAA? <span class="optional">— optional</span></label>
+          <textarea id="m-bundle-notes" rows="2" placeholder="Aiming for August 2026..."></textarea>
+        </div>
+
+        <button type="submit" class="prog-form-submit" data-bundle-submit>Send full path inquiry to MSAA</button>
+        <p class="prog-form-fineprint">By submitting, your details are shared with MSAA only. <a href="#">Privacy</a></p>
+      </form>
+    </div>
+
+    <!-- FAQ — Phase 1 empty state, Ask MSAA stub -->
+    <div class="prog-faq">
+      <div class="prog-faq-header">
+        <div class="prog-faq-header-text">
+          <p class="prog-eyebrow">Common questions</p>
+          <h2 class="prog-faq-title">Before you commit</h2>
+          <p class="prog-faq-intro">Answers to the questions most people ask.</p>
+        </div>
+        <button class="prog-faq-collapse-all" data-faq-collapse-all>Collapse all ▴</button>
+      </div>
+
+      <div class="prog-faq-list">
+        <div class="prog-faq-empty">Common questions will appear here as MSAA's customers ask them.</div>
+      </div>
+
+      <div class="prog-ask">
+        <div class="prog-ask-header">
+          <div class="prog-ask-tile">MSAA</div>
+          <div>
+            <p class="prog-ask-title">Ask MSAA directly</p>
+            <p class="prog-ask-sub">Good questions get reviewed and published here.</p>
+          </div>
+        </div>
+
+        <p class="prog-ask-context">Your question goes to backcountryfinder first. If it's a good one, we'll forward to MSAA, get an answer, and add it to this page.</p>
+
+        <form data-phase="3b-stub" onsubmit="return false;">
+          <div class="prog-form-grid-2">
+            <div class="prog-form-field">
+              <label for="m-ask-name">Your name</label>
+              <input id="m-ask-name" type="text" placeholder="Luke Mortimer" />
+            </div>
+            <div class="prog-form-field">
+              <label for="m-ask-email">Email</label>
+              <input id="m-ask-email" type="email" placeholder="luke@example.com" />
+            </div>
+          </div>
+
+          <div class="prog-form-field">
+            <label for="m-ask-question">Your question</label>
+            <textarea id="m-ask-question" rows="3" placeholder="What's a realistic timeline if I can only get out one weekend a month?"></textarea>
+          </div>
+
+          <button type="submit" class="prog-form-submit prog-form-submit-alt" data-ask-submit>Submit question</button>
+          <p class="prog-form-fineprint">Reviewed by backcountryfinder before being sent to MSAA.</p>
+        </form>
+      </div>
+    </div>
+
+    <div class="prog-credit">
+      <p>Curriculum designed by MSAA</p>
+      <p>Live availability · Updated daily</p>
+    </div>
+
+  </div>
+</main>
+</div>
+
+<script>
+(function () {
+  document.querySelectorAll('[data-rung-toggle]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var rung = btn.closest('.prog-rung');
+      var expanded = rung.getAttribute('data-expanded') === 'true';
+      rung.setAttribute('data-expanded', !expanded);
+      btn.setAttribute('aria-expanded', !expanded);
+      btn.textContent = expanded ? 'Details ▾' : 'Details ▴';
+    });
+  });
+
+  var BUNDLE_LABELS = {
+    skills: 'Send skills bundle inquiry to MSAA',
+    full:   'Send full path inquiry to MSAA'
+  };
+  function selectBundle(bundle) {
+    document.querySelectorAll('.prog-bundle-card').forEach(function (card) {
+      card.setAttribute('data-selected', card.getAttribute('data-bundle') === bundle ? 'true' : 'false');
+    });
+    var submitBtn = document.querySelector('[data-bundle-submit]');
+    if (submitBtn) submitBtn.textContent = BUNDLE_LABELS[bundle] || submitBtn.textContent;
+  }
+  document.querySelectorAll('.prog-bundle-card').forEach(function (card) {
+    card.addEventListener('click', function () {
+      selectBundle(card.getAttribute('data-bundle'));
+    });
+  });
+
+  var collapseBtn = document.querySelector('[data-faq-collapse-all]');
+  if (collapseBtn) {
+    collapseBtn.addEventListener('click', function () {
+      var anyExpanded = !!document.querySelector('.prog-faq-item[data-expanded="true"]');
+      document.querySelectorAll('.prog-faq-item').forEach(function (item) {
+        item.setAttribute('data-expanded', anyExpanded ? 'false' : 'true');
+        var icon = item.querySelector('.prog-faq-q-icon');
+        if (icon) icon.textContent = anyExpanded ? '+' : '−';
+      });
+      collapseBtn.textContent = anyExpanded ? 'Expand all ▾' : 'Collapse all ▴';
+    });
+  }
+})();
+</script>
+
+</body>
+</html>
