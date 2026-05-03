@@ -277,6 +277,14 @@ def assemble_page(env: Environment, progression: dict) -> tuple[str, str]:
     titles = [s["course_title"] for s in raw_steps]
     courses_by_title = fetch_courses_for_titles(provider["id"], titles)
 
+    missing = [t for t in titles if not courses_by_title.get(t.strip().lower())]
+    if missing:
+        raise RuntimeError(
+            f"missing live course session(s) for titles {missing!r}; "
+            "update progression_steps.course_title or check that the scraper is "
+            "still emitting rows with these exact titles"
+        )
+
     enriched_steps: list[dict] = []
     for raw in raw_steps:
         sessions = courses_by_title.get(raw["course_title"].strip().lower(), [])
