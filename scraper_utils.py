@@ -1096,6 +1096,55 @@ def _normalise_url(url: str) -> str:
     return f"{p.scheme}://{p.netloc.lower()}{path}"
 
 
+# ── Rezdy storefront helpers ─────────────────────────────────────────────────
+
+def discover_rezdy_catalogs(storefront_url: str, user_agent: str = None) -> list:
+    """Fetch a Rezdy storefront homepage and return every catalog slug
+    found in `<a href>` links, in document order with duplicates removed.
+
+    Returns slugs like 'catalog/315469/luxury-experiences' (no leading
+    slash, no scheme, no query). Empty list on fetch failure — caller
+    should fall back to its hardcoded list when this returns nothing.
+    """
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        log.warning("BeautifulSoup not installed — cannot discover Rezdy catalogs")
+        return []
+
+    headers = {
+        "User-Agent": user_agent or (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept-Language": "en-CA,en;q=0.9",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    }
+
+    try:
+        r = requests.get(storefront_url, headers=headers, timeout=20)
+        r.raise_for_status()
+    except Exception as e:
+        log.warning(f"Rezdy catalog discovery failed @ {storefront_url}: {e}")
+        return []
+
+    soup = BeautifulSoup(r.text, "html.parser")
+    catalog_re = re.compile(r"/catalog/(\d+)/([a-z0-9\-]+)", re.I)
+    seen = set()
+    slugs = []
+    for a in soup.find_all("a", href=True):
+        m = catalog_re.search(a["href"])
+        if not m:
+            continue
+        slug = f"catalog/{m.group(1)}/{m.group(2).lower()}"
+        if slug in seen:
+            continue
+        seen.add(slug)
+        slugs.append(slug)
+    log.info(f"Rezdy catalog discovery @ {storefront_url}: {len(slugs)} catalog(s)")
+    return slugs
+
+
 # ── Two-pass scraping helper ─────────────────────────────────────────────────
 
 def fetch_detail_pages(

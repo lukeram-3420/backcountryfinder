@@ -27,6 +27,7 @@ from scraper_utils import (
     update_provider_ratings,
     title_hash, activity_key,
     upsert_activity_control, load_activity_controls,
+    discover_rezdy_catalogs,
 )
 
 # Populated at main() start via load_activity_controls(). Consulted by the
@@ -60,6 +61,8 @@ PROVIDER = {
     "id":       "msaa",
     "name":     "Mountain Skills Academy",
     "storefront": "https://mountainskillsacademy.rezdy.com",
+    # Fallback list used only when homepage discovery fails (network error,
+    # Rezdy block, etc). The live source of truth is discover_rezdy_catalogs().
     "catalogs": [
         "catalog/315469/luxury-experiences",
         "catalog/517471/whistler-mountain-top",
@@ -96,7 +99,22 @@ def scrape_rezdy(provider: dict) -> list:
     """Scrape a Rezdy storefront using confirmed HTML structure."""
     log.info(f"Scraping {provider['name']} — {provider['storefront']}")
 
-    catalogs = provider.get("catalogs", [])
+    # Live-discover catalogs from the storefront homepage. Union with the
+    # hardcoded fallback so a Rezdy block / fetch failure can't drop coverage
+    # below the previous baseline.
+    discovered = discover_rezdy_catalogs(provider["storefront"])
+    fallback = provider.get("catalogs", []) or []
+    seen_slugs = set()
+    catalogs: list = []
+    for slug in list(discovered) + list(fallback):
+        if slug in seen_slugs:
+            continue
+        seen_slugs.add(slug)
+        catalogs.append(slug)
+    new_slugs = [s for s in discovered if s not in set(fallback)]
+    if new_slugs:
+        log.info(f"Discovered {len(new_slugs)} catalog(s) not in fallback list: {new_slugs}")
+
     if catalogs:
         all_courses = []
         seen_keys = set()  # deduplicate by booking URL base (Rezdy product ID) or title
