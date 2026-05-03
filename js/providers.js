@@ -3,15 +3,22 @@ async function loadProviders() {
   const grid = document.getElementById('provider-cards');
   if (!grid) return;
   try {
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/providers?select=id,name,website,location,rating,review_count,google_place_id,logo_url&active=eq.true&order=name.asc`,
-      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
-    );
-    const providers = await res.json();
+    const headers = { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` };
+    const [providers, progressions] = await Promise.all([
+      fetch(`${SUPABASE_URL}/rest/v1/providers?select=id,name,website,location,rating,review_count,google_place_id,logo_url&active=eq.true&order=name.asc`, { headers })
+        .then(r => r.json()),
+      fetch(`${SUPABASE_URL}/rest/v1/provider_progressions?select=provider_id,slug,title,subtitle&active=eq.true`, { headers })
+        .then(r => r.ok ? r.json() : [])
+        .catch(() => []),
+    ]);
     if (!providers.length) {
       grid.innerHTML = '<p style="color:var(--text-tertiary);font-size:13px;">No providers listed yet.</p>';
       return;
     }
+    const progByProvider = {};
+    (progressions || []).forEach(p => {
+      (progByProvider[p.provider_id] = progByProvider[p.provider_id] || []).push(p);
+    });
     grid.innerHTML = providers.map(p => {
       const reviewsUrl = p.google_place_id ? `https://search.google.com/local/reviews?placeid=${p.google_place_id}` : null;
       const rating = p.rating
@@ -20,6 +27,12 @@ async function loadProviders() {
           : `<div class="provider-card-rating">★ ${p.rating}${p.review_count ? ` · ${p.review_count}+ reviews` : ''}</div>`
         : '';
       const website = p.website ? `<a href="${p.website}" target="_blank" rel="noopener" class="provider-card-link">visit website ↗</a>` : '';
+      const progs = progByProvider[p.id] || [];
+      const progressionLinks = progs.length
+        ? `<div class="provider-card-progressions" style="margin-top:8px;display:flex;flex-direction:column;gap:4px;">${
+            progs.map(pr => `<a href="/${p.id}/${pr.slug}" onclick="event.stopPropagation()" class="provider-card-link" style="display:block;font-weight:700;color:var(--green-dark);">${pr.title} →</a>`).join('')
+          }</div>`
+        : '';
       const logo = p.logo_url
         ? `<div class="provider-card-logo"><img src="${p.logo_url}" alt="${p.name} logo" loading="lazy"></div>`
         : `<div class="provider-card-logo" style="background:#1a2e1a;"><span style="color:#4ade80;font-weight:800;font-size:16px;letter-spacing:-0.3px;">${p.name}</span></div>`;
@@ -31,6 +44,7 @@ async function loadProviders() {
             <div class="provider-card-loc">${p.location || ''}</div>
             ${rating}
             ${website}
+            ${progressionLinks}
           </div>
         </div>`;
     }).join('');
