@@ -810,6 +810,38 @@ git add -A && git commit -m "<describe what changed>" && git push
 ```
 Never wait for manual confirmation to commit.
 
+## Progression pages
+
+### Status
+Phase 1 shipped 2026-05-03. Renders static HTML progression pages from `provider_progressions` + `progression_steps` Supabase tables via `generate_progression_pages.py`. Pages are not interactive yet — bundle inquiry form (Phase 2) and FAQ Q&A (Phase 3b) are stubs. Design spec lives at `design-spec/`.
+
+### Architecture
+- Build script `generate_progression_pages.py` runs every 6 hours and on `repository_dispatch` events of type `progression_updated`.
+- Bundle math computed live from current `courses.price` values via `(provider_id, course_title)` lookup — scraper updates flow through automatically on next build.
+- Capstone styling driven by `progression_steps.is_capstone = true`. Exactly one per progression.
+- Hero image: `provider_progressions.hero_course_title` resolves to the matching course's `image_url`, falls back to capstone step's course.
+- Schema.org: `Course` per rung, `BreadcrumbList`, `HowTo`, `FAQPage` (empty until Phase 3b).
+- Stylesheet: `css/progression.css` is loaded by every generated page; the page's `<head>` defines the global tokens inline (matching `index.html`) so the CSS file relies on host-page tokens.
+- Generated output lives at `/<provider_id>/<slug>/index.html`. URLs resolve natively via Vercel's folder/index.html static serving — no rewrite needed in `vercel.json`.
+
+### Schema deviation from Phase 1 brief
+The brief specified `uuid REFERENCES providers(id)` and `uuid REFERENCES courses(id)`. Both `providers.id` and `courses.id` are actually `text` in this database, and `courses.id` is unstable per session (encodes date_sort). The shipped schema uses `text` for the provider FK and references courses by `(provider_id, course_title)` instead of by `courses.id`. Documented in `progressions_schema.sql` header.
+
+### Adding a new progression
+1. Insert into `provider_progressions` (active = false)
+2. Insert 5+ rows into `progression_steps`, exactly one with `is_capstone = true`
+3. Confirm bundle discount %s with provider
+4. Set `active = true`
+5. Trigger `build-progressions.yml` manually or wait for next 6-hour cron
+6. Provider page (the providers tab card) auto-detects active progressions and surfaces a "Curriculum paths" link
+
+### Conventions
+- One progression per provider per season
+- Slug must match URL segment exactly: `summer-progression`, `winter-progression`
+- `practice_gap_text` is the connector *before* a step (null for step 1)
+- `gear_text` lives on the step, not the course (progression-context-specific)
+- `design-spec/` files are source of truth for the visual layout — update them alongside any visual changes
+
 ## SEO landing pages — strategy and architecture
 
 ### Status
