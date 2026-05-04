@@ -221,6 +221,39 @@
   line-height: 1.6;
 }
 
+/* ── Share section ─────────────────────────────────────────────────────────── */
+.prog-share-section {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 18px 0 22px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  margin: 8px 0 4px;
+  flex-wrap: wrap;
+  position: relative;
+}
+.prog-share-tagline {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+.prog-share-btn {
+  background: var(--green-dark);
+  border: 1px solid var(--green-dark);
+  color: var(--green-accent);
+  font-size: 12px;
+  padding: 8px 16px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  font-family: var(--font);
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  transition: opacity 0.15s;
+}
+.prog-share-btn:hover { opacity: 0.85; }
+
 /* ── Course rungs ──────────────────────────────────────────────────────────── */
 .prog-rungs {
   display: flex;
