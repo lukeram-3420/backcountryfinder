@@ -34,8 +34,8 @@
 UPDATE provider_progressions
 SET title              = 'How to become an outdoor rock climber',
     subtitle           = 'Gym to the Stawamus Chief in six courses',
-    hero_blurb         = 'From your first day on real rock to leading a multipitch route up the Stawamus Chief in Squamish. Six courses, building one skill at a time, designed to take you from gym climber to confident outdoor lead climber.',
-    provider_blurb     = 'Operating since 2003, MSAA runs courses across Squamish and Whistler with a roster of certified mountain guides who tailor instruction to your pace.',
+    hero_blurb         = 'From your first day on real rock to a multipitch route up the Stawamus Chief in Squamish. Six courses, building one skill at a time, designed to safely take you from gym climber to confident trad lead climber.',
+    provider_blurb     = 'Operating since 2003, Mountain Skills Academy runs courses across Squamish and Whistler with a roster of IFMGA and ACMG certified mountain guides who tailor instruction to your pace.',
     hero_course_title  = 'Conquer The Chief',
     updated_at         = now()
 WHERE provider_id = 'msaa'

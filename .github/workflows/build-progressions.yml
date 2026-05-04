@@ -33,6 +33,11 @@ jobs:
           SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
       - name: Commit generated artifacts
+        # PR-triggered runs check out a detached merge ref and don't have a
+        # branch to push to — `git push` fails with exit 128. Treat PR runs
+        # as build-only validation; commit/push only on push, schedule,
+        # workflow_dispatch, or repository_dispatch.
+        if: github.event_name != 'pull_request'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
