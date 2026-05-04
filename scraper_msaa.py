@@ -70,7 +70,25 @@ MARKETING_SITE_BASE = "https://www.mountainskillsacademy.com"
 # `productsMonthlyCalendar/{id}`. Append the numeric {id} below.
 MSAA_CALENDAR_CATEGORY_IDS = [
     (508377, f"{MARKETING_SITE_BASE}/rock-climbing-courses/"),  # Rock Climbing
-    # TODO once captured from DevTools: Mountaineering, AST, Hiking, Skiing
+    # TODO once captured from DevTools: Mountaineering, AST, Hiking, Skiing,
+    # Guided Rock Climbing (/guided-rock-climbing/ — currently unbacked, see
+    # MSAA_EXTRA_ORPHAN_URLS below).
+]
+
+# Hardcoded orphan product URLs that aren't reachable via any category in
+# MSAA_CALENDAR_CATEGORY_IDS yet. Each entry is a Rezdy product URL on the
+# storefront. Pass 2 injects these into the orphan render queue so the
+# scraper picks them up alongside category-discovered products.
+#
+# REMOVE an entry once the marketing-site listing page that hosts that
+# product gets its productsMonthlyCalendar/{id} category captured and added
+# to MSAA_CALENDAR_CATEGORY_IDS — at that point the category fetch will
+# discover the product naturally and this hardcoded entry is redundant.
+MSAA_EXTRA_ORPHAN_URLS = [
+    # /guided-rock-climbing/conquer-the-chief/ — capstone of the MSAA
+    # progression page. Lives on the /guided-rock-climbing/ marketing
+    # listing whose Rezdy category ID has not been captured yet.
+    f"https://{REZDY_DOMAIN}/443528/conquer-the-chief",
 ]
 
 LOCATION_RE = re.compile(
@@ -529,6 +547,12 @@ def main():
                 provider["storefront"], cat_id, referer=cat_referer,
             )
             discovered_products.extend(urls)
+
+        # Inject hardcoded orphans (products not reachable via any category
+        # listing yet — see MSAA_EXTRA_ORPHAN_URLS for rationale).
+        if MSAA_EXTRA_ORPHAN_URLS:
+            log.info(f"Injecting {len(MSAA_EXTRA_ORPHAN_URLS)} hardcoded orphan URL(s)")
+            discovered_products.extend(MSAA_EXTRA_ORPHAN_URLS)
 
         pass1_bases = {(c.get("booking_url") or "").split("?")[0] for c in raw_courses}
         seen_orphans: set = set()
