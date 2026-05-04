@@ -923,6 +923,29 @@ The brief specified `uuid REFERENCES providers(id)` and `uuid REFERENCES courses
 - `gear_text` lives on the step, not the course (progression-context-specific)
 - `design-spec/` files are source of truth for the visual layout — update them alongside any visual changes
 
+### Phase 2.5 — Editorial FAQ seed
+Shipped 2026-05-04. Added `faq_items jsonb NOT NULL DEFAULT '[]'::jsonb` column to `provider_progressions`. Build script renders FAQ items from this column when non-empty, falls back to the empty-state card otherwise. `FAQPage` JSON-LD `mainEntity` now populated from the same data; provider-attributed answers add an `author` Organization for E-E-A-T. MSAA seeded with 7 editorial FAQs via `progressions_phase_2_5_schema.sql`.
+
+The "Ask {provider} directly" form remains inert — Phase 3a/3b will wire it.
+
+### Editing FAQs
+Direct jsonb edits in Supabase Studio. No admin UI at this scale. Schema per item:
+- `question` (text)
+- `answer` (HTML — paragraphs, occasional `<strong>`; trusted, not sanitized)
+- `source` (`'editorial'` | `'provider'`)
+- `reviewed_date` (ISO `YYYY-MM-DD`, only when `source='provider'`)
+- `display_order` (1-indexed int)
+
+When Phase 3a/3b ship, the build script will merge `faq_items` (editorial + provider-attributed) with `progression_questions WHERE status='published'` (user-submitted) at render time. No data migration needed — the two sources coexist.
+
+### FAQ conventions
+- `source: 'editorial'` — no badge on the page (Luke wrote it).
+- `source: 'provider'` — green "✓ Answered by {provider name}" badge plus formatted reviewed date. The badge text uses the provider's friendly name from the joined `providers` row at render time, so the schema generalises across all providers without per-provider source values. Must include `reviewed_date`.
+- HTML in `answer` is trusted — no sanitization in the build script.
+- Items sorted by `display_order` ascending, ties broken by question alphabetical (deterministic builds).
+- First item by sort renders expanded by default — gives crawlers and LLMs immediate visible content without a click.
+- The build script enriches each item with `reviewed_date_display` (e.g. "Reviewed 14 April 2026") via `format_review_date()` so the template stays presentation-only.
+
 ## SEO landing pages — strategy and architecture
 
 ### Status
