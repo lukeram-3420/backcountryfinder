@@ -10,7 +10,14 @@
 --   3. Intro to Sport Climbing & Leading (Lead climbing)
 --   4. Trad Lead & Progression           (Trad)
 --   5. Intro to Multi-Pitch Climbing     (Multipitch)
---   6. Conquer the Chief                 (Capstone — Stawamus Chief route)
+--   6. Conquer The Chief                 (Capstone — Stawamus Chief route)
+--
+-- IMPORTANT: course_title must match courses.title EXACTLY (case-sensitive
+-- IN clause in the build script). MSAA's Rezdy product page renders the
+-- capstone as "Conquer The Chief" (capital T) — title-case product name —
+-- so progression_steps.course_title and provider_progressions.hero_course_title
+-- both use the capital-T spelling. FAQ prose keeps the natural-English
+-- "Conquer the Chief" since it's flowing copy referring to the route.
 --
 -- Bundle math is computed live at build time from current `courses.price`,
 -- so totals/savings don't need recalculation here — they refresh on the
@@ -29,7 +36,7 @@ SET title              = 'How to become an outdoor rock climber',
     subtitle           = 'Gym to the Stawamus Chief in six courses',
     hero_blurb         = 'From your first day on real rock to leading a multipitch route up the Stawamus Chief in Squamish. Six courses, building one skill at a time, designed to take you from gym climber to confident outdoor lead climber.',
     provider_blurb     = 'Operating since 2003, MSAA runs courses across Squamish and Whistler with a roster of certified mountain guides who tailor instruction to your pace.',
-    hero_course_title  = 'Conquer the Chief',
+    hero_course_title  = 'Conquer The Chief',
     updated_at         = now()
 WHERE provider_id = 'msaa'
   AND slug        = 'summer-progression';
@@ -58,7 +65,7 @@ FROM p,
   (3, 'Intro to Sport Climbing & Leading', 'Lead climbing',     false, '3-6 MONTHS PRACTICE',   3, 'After: Steps 1-2', 'Harness, climbing shoes, helmet.'),
   (4, 'Trad Lead & Progression',           'Trad',              false, '3-6 MONTHS PRACTICE',   4, 'After: Steps 1-3', 'Harness, climbing shoes, helmet, trad rack if you have one.'),
   (5, 'Intro to Multi-Pitch Climbing',     'Multipitch',        false, '3-6 MONTHS PRACTICE',   4, 'After: Steps 1-4', 'Full lead rack and a partner you climb with regularly.'),
-  (6, 'Conquer the Chief',                 'Capstone',          true,  '6-12 MONTHS PRACTICE',  5, 'After: Steps 1-5', 'Full lead rack. See course page for the complete list — MSAA can also help advise.')
+  (6, 'Conquer The Chief',                 'Capstone',          true,  '6-12 MONTHS PRACTICE',  5, 'After: Steps 1-5', 'Full lead rack. See course page for the complete list — MSAA can also help advise.')
 ) AS s(step_number, course_title, rung_label, is_capstone, practice_gap_text, difficulty_level, prerequisites_text, gear_text);
 
 -- 3. Rewrite FAQ items that referenced the Bugaboos / alpine progression.
