@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ meta_title }}</title>
+<meta name="description" content="{{ meta_description }}">
+<link rel="canonical" href="{{ canonical_url }}">
+
+<meta property="og:title" content="{{ meta_title }}">
+<meta property="og:description" content="{{ meta_description }}">
+<meta property="og:url" content="{{ canonical_url }}">
+<meta property="og:type" content="article">
+{% if hero_image_url %}<meta property="og:image" content="{{ hero_image_url }}">{% endif %}
+<meta name="twitter:card" content="summary_large_image">
+
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231a2e1a'/%3E%3Cpath d='M2 27 L10 14 L16 20 L22 10 L30 27' stroke='%234ade80' stroke-width='1.4' fill='none' stroke-linejoin='round' opacity='0.6'/%3E%3Ccircle cx='22' cy='10' r='2.8' fill='%234ade80'/%3E%3C/svg%3E">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,700&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --green-dark: #1a2e1a;
+    --green-mid: #2d4a2d;
+    --green-accent: #4ade80;
+    --green-light: #eaf3de;
+    --amber-light: #faeeda;
+    --amber-dark: #854f0b;
+    --text-primary: #1a1a1a;
+    --text-secondary: #555;
+    --text-tertiary: #888;
+    --border: rgba(0,0,0,0.08);
+    --border-mid: rgba(0,0,0,0.13);
+    --bg: #f8faf8;
+    --bg-card: #ffffff;
+    --bg-secondary: #f2f4f2;
+    --radius: 12px;
+    --radius-sm: 8px;
+    --radius-pill: 24px;
+    --font: 'Plus Jakarta Sans', sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--font); background: var(--bg); color: var(--text-primary); min-height: 100vh; -webkit-font-smoothing: antialiased; }
+
+  /* Topnav — copied from index.html so it sits identically on every page */
+  .topnav { background: var(--green-dark); display: flex; align-items: center; justify-content: space-between; padding: 0 36px; height: 60px; position: sticky; top: 0; z-index: 100; }
+  .logo { display: flex; align-items: center; gap: 12px; cursor: pointer; text-decoration: none; }
+  .logo-wordmark { display: flex; flex-direction: column; line-height: 1.1; }
+  .logo-top { font-size: 15px; font-weight: 700; color: #fff; letter-spacing: -0.4px; }
+  .logo-bottom { font-size: 15px; font-weight: 700; font-style: italic; color: var(--green-accent); letter-spacing: -0.4px; }
+  .topnav-links { display: flex; gap: 4px; }
+  .nav-link { color: rgba(255,255,255,0.5); font-size: 13px; font-weight: 500; padding: 7px 16px; border-radius: var(--radius-pill); cursor: pointer; transition: all 0.15s; border: none; background: transparent; font-family: var(--font); text-decoration: none; }
+  .nav-link:hover { color: #fff; background: rgba(255,255,255,0.08); }
+
+  .prog-shell { padding: 24px 16px 80px; }
+
+  @media (max-width: 480px) {
+    .topnav { padding: 0 16px; height: 54px; }
+    .topnav-links { display: none; }
+    .prog-shell { padding: 0 0 60px; }
+  }
+</style>
+
+<link rel="stylesheet" href="/css/progression.css">
+
+<script type="application/ld+json">
+{{ json_ld_breadcrumb | safe }}
+</script>
+<script type="application/ld+json">
+{{ json_ld_howto | safe }}
+</script>
+{% for block in json_ld_courses %}
+<script type="application/ld+json">
+{{ block | safe }}
+</script>
+{% endfor %}
+<script type="application/ld+json">
+{{ json_ld_faq | safe }}
+</script>
+</head>
+<body>
+
+<nav class="topnav">
+  <a class="logo" href="/">
+    <svg width="30" height="30" viewBox="0 0 32 32" fill="none">
+      <path d="M5 27 L11 17 L16 22 L21 13 L27 27" stroke="#4ade80" stroke-width="1.1" fill="none" stroke-linejoin="round" opacity="0.2"/>
+      <path d="M2 27 L10 14 L16 20 L22 10 L30 27 Z" fill="#4ade80" opacity="0.1"/>
+      <path d="M2 27 L10 14 L16 20 L22 10 L30 27" stroke="#4ade80" stroke-width="1.4" fill="none" stroke-linejoin="round" opacity="0.5"/>
+      <path d="M0.3 25.95 L9.77 12.01 L15.76 18.01 L22 10" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2 2.5"/>
+      <circle cx="22" cy="10" r="2.8" fill="#4ade80"/>
+    </svg>
+    <div class="logo-wordmark">
+      <span class="logo-top">backcountry</span>
+      <span class="logo-bottom">finder</span>
+    </div>
+  </a>
+  <div class="topnav-links">
+    <a class="nav-link" href="/">search</a>
+    <a class="nav-link" href="/?page=saved">my list</a>
+    <a class="nav-link" href="/?page=providers">providers</a>
+    <a class="nav-link" href="/?page=about">about</a>
+  </div>
+</nav>
+
+<div class="prog-shell">
+<main class="prog-page">
+
+  <div class="prog-crumb">
+    <div class="prog-crumb-path">
+      <div class="prog-crumb-mono">bf</div>
+      <span class="prog-crumb-url">backcountryfinder.com / {{ provider.id }} / {{ progression.slug }}</span>
+    </div>
+    <span class="prog-crumb-mark">Powered by backcountryfinder</span>
+  </div>
+
+  <div class="prog-hero"{% if hero_image_url %} style="background-image: url('{{ hero_image_url }}');"{% endif %}>
+    <div class="prog-hero-overlay"></div>
+    {% if hero_pill %}<div class="prog-hero-pill">{{ hero_pill }}</div>{% endif %}
+    <div class="prog-hero-content">
+      <p class="prog-hero-eyebrow">{{ provider.name_short or provider.name }} · {{ season_label }} path</p>
+      <h1 class="prog-hero-title">{{ progression.title }}</h1>
+      {% if progression.subtitle %}<p class="prog-hero-sub">{{ progression.subtitle }}</p>{% endif %}
+    </div>
+  </div>
+
+  {% if full_path_savings > 0 %}
+  <a href="#bundle" class="prog-savings-hint">
+    <div class="prog-savings-hint-row">
+      <p class="prog-savings-hint-text"><strong>Save ${{ '{:,}'.format(full_path_savings) }}</strong> when you book the full path together</p>
+      <span class="prog-savings-hint-cta">See bundle ↓</span>
+    </div>
+  </a>
+  {% endif %}
+
+  <div class="prog-body">
+
+    <div class="prog-path">
+      <p class="prog-eyebrow">The path</p>
+      <p class="prog-path-blurb">{{ progression.hero_blurb }}</p>
+      <div class="prog-path-stats">
+        <span><strong>{{ steps|length }}</strong> course{{ '' if steps|length == 1 else 's' }}</span>
+        <span><strong>{{ total_days }}</strong> days total</span>
+        {% if progression_duration %}<span><strong>{{ progression_duration }}</strong> months</span>{% endif %}
+      </div>
+    </div>
+
+    <div class="prog-provider">
+      <div class="prog-provider-head">
+        <div class="prog-provider-id">
+          <div class="prog-provider-tile">{{ provider.tile_label }}</div>
+          <div>
+            <p class="prog-provider-name">{{ provider.name }}</p>
+            <p class="prog-provider-cert">{{ provider.cert_line }}</p>
+          </div>
+        </div>
+        {% if provider.reviews_url %}
+        <a href="{{ provider.reviews_url }}" target="_blank" rel="noopener" class="prog-provider-rating">
+          <span class="prog-provider-rating-stars">★ {{ provider.rating_display }}</span>
+          <span class="prog-provider-rating-count">{{ provider.review_count_display }}</span>
+        </a>
+        {% else %}
+        <span class="prog-provider-rating">
+          <span class="prog-provider-rating-stars">★ {{ provider.rating_display }}</span>
+          <span class="prog-provider-rating-count">{{ provider.review_count_display }}</span>
+        </span>
+        {% endif %}
+      </div>
+      <p class="prog-provider-blurb">{{ progression.provider_blurb }}</p>
+    </div>
+
+    <div class="prog-rungs">
+      {% for step in steps %}
+      {% if step.practice_gap_text %}
+      <div class="prog-gap"><div class="prog-gap-line"></div><span class="prog-gap-text">{{ step.practice_gap_text }}</span><div class="prog-gap-line"></div></div>
+      {% endif %}
+      <div class="prog-rung{% if step.is_capstone %} prog-rung-capstone{% endif %}" data-expanded="false" data-step="{{ step.step_number }}"{% if step.is_capstone %} data-is-capstone="true"{% endif %}>
+        <div class="prog-rung-row">
+          <div class="prog-rung-num">{{ step.step_number }}</div>
+          <div class="prog-rung-body">
+            <p class="prog-rung-label">{{ step.rung_label }}</p>
+            <p class="prog-rung-title">{{ step.course_title }}</p>
+            <p class="prog-rung-meta">{{ step.meta_line }}</p>
+            <div class="prog-rung-badges">
+              <span class="prog-badge {{ step.difficulty_class }}">{{ step.difficulty_dots }} {{ step.difficulty_label }}</span>
+              <span class="prog-badge prog-badge-meta">{{ step.prerequisites_text or 'No prerequisites' }}</span>
+            </div>
+          </div>
+          <div class="prog-rung-actions">
+            <button class="prog-rung-toggle" aria-expanded="false" data-rung-toggle>Details ▾</button>
+          </div>
+        </div>
+        <div class="prog-rung-detail">
+          {% if step.gear_text %}
+          <div class="prog-rung-gear">
+            <p class="prog-rung-gear-label">What to bring</p>
+            <p class="prog-rung-gear-text">{{ step.gear_text }}</p>
+          </div>
+          {% endif %}
+          {% if step.summary %}<p class="prog-rung-summary">{{ step.summary }}</p>{% endif %}
+          {% if step.learn_more_url %}<a href="{{ step.learn_more_url }}" class="prog-rung-learn-more">Learn more about this course →</a>{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    {% if show_bundle %}
+    <div id="bundle" class="prog-bundle">
+      <div class="prog-bundle-header">
+        <p class="prog-bundle-eyebrow">Book the full path</p>
+        <h2 class="prog-bundle-title">Commit to the journey, save on the way</h2>
+        <p class="prog-bundle-sub">Pick a bundle to request a quote from {{ provider.name_short or provider.name }}.</p>
+      </div>
+
+      <div class="prog-bundle-options">
+        {% if progression.skills_bundle_discount_pct > 0 %}
+        <div class="prog-bundle-card" data-selected="false" data-bundle="skills">
+          <div class="prog-bundle-card-row">
+            <div class="prog-bundle-radio"></div>
+            <div class="prog-bundle-card-body">
+              <div class="prog-bundle-card-head">
+                <p class="prog-bundle-card-name">Skills bundle</p>
+                <span class="prog-bundle-discount-pill">Save {{ progression.skills_bundle_discount_pct|int }}%</span>
+              </div>
+              <p class="prog-bundle-card-scope">Steps 1-{{ skills_bundle_step_count }}</p>
+              <div class="prog-bundle-row-totals">
+                <span>Individual total</span>
+                <span class="strike">${{ '{:,}'.format(skills_bundle_individual_total) }}</span>
+              </div>
+              <div class="prog-bundle-row-final">
+                <span class="prog-bundle-row-final-label">Bundle price</span>
+                <span class="prog-bundle-row-final-price">${{ '{:,}'.format(skills_bundle_price) }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+
+        {% if progression.full_path_discount_pct > 0 %}
+        <div class="prog-bundle-card" data-selected="true" data-bundle="full">
+          <div class="prog-bundle-card-row">
+            <div class="prog-bundle-radio"></div>
+            <div class="prog-bundle-card-body">
+              <div class="prog-bundle-card-head">
+                <p class="prog-bundle-card-name">Full path</p>
+                <span class="prog-bundle-discount-pill">Save {{ progression.full_path_discount_pct|int }}%</span>
+              </div>
+              <p class="prog-bundle-card-scope">Steps 1-{{ steps|length }}, includes capstone</p>
+              <div class="prog-bundle-row-totals">
+                <span>Individual total</span>
+                <span class="strike">${{ '{:,}'.format(full_path_individual_total) }}</span>
+              </div>
+              <div class="prog-bundle-row-final">
+                <span class="prog-bundle-row-final-label">Bundle price</span>
+                <span class="prog-bundle-row-final-price">${{ '{:,}'.format(full_path_price) }}</span>
+              </div>
+              {% if full_path_savings > 0 %}<p class="prog-bundle-savings-line">Save ${{ '{:,}'.format(full_path_savings) }}</p>{% endif %}
+            </div>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+
+      <form class="prog-form" data-phase="1-stub" onsubmit="return false;">
+        <p class="prog-form-eyebrow">Your details</p>
+        <div class="prog-form-grid-2">
+          <div class="prog-form-field">
+            <label for="bundle-name">Your name</label>
+            <input id="bundle-name" type="text" placeholder="Luke Mortimer" />
+          </div>
+          <div class="prog-form-field">
+            <label for="bundle-email">Email</label>
+            <input id="bundle-email" type="email" placeholder="luke@example.com" />
+          </div>
+        </div>
+        <div class="prog-form-field">
+          <label for="bundle-phone">Phone <span class="optional">— optional</span></label>
+          <input id="bundle-phone" type="tel" placeholder="604 555 0142" />
+        </div>
+        <div class="prog-form-field">
+          <label for="bundle-notes">Anything specific to share with {{ provider.name_short or provider.name }}? <span class="optional">— optional</span></label>
+          <textarea id="bundle-notes" rows="2" placeholder="Aiming for August 2026, climbing 5.9 indoors, flexible on the earlier course dates..."></textarea>
+        </div>
+        <button type="submit" class="prog-form-submit" data-bundle-submit>{{ default_bundle_cta }}</button>
+        <p class="prog-form-fineprint">By submitting, your details are shared with {{ provider.name_short or provider.name }} only. <a href="/">Privacy</a></p>
+      </form>
+    </div>
+    {% endif %}
+
+    <div class="prog-faq">
+      <div class="prog-faq-header">
+        <div class="prog-faq-header-text">
+          <p class="prog-eyebrow">Common questions</p>
+          <h2 class="prog-faq-title">Before you commit</h2>
+          <p class="prog-faq-intro">Answers to the questions most people ask. Ask {{ provider.name_short or provider.name }} directly at the bottom if something's not covered.</p>
+        </div>
+        <button class="prog-faq-collapse-all" data-faq-collapse-all>Collapse all ▴</button>
+      </div>
+
+      <div class="prog-faq-list">
+        {% if faq_items %}
+          {% for item in faq_items %}
+          <div class="prog-faq-item" data-expanded="{{ 'true' if loop.first else 'false' }}" data-source="{{ item.source }}">
+            <div class="prog-faq-q" data-faq-toggle>
+              <p class="prog-faq-q-text">{{ item.question }}</p>
+              <span class="prog-faq-q-icon">{{ '−' if loop.first else '+' }}</span>
+            </div>
+            <div class="prog-faq-a">{{ item.answer | safe }}</div>
+            {% if item.source == 'provider' %}
+            <div class="prog-faq-meta">
+              <span class="prog-faq-msaa-pill">
+                <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                Answered by {{ provider_badge_name }}
+              </span>
+              {% if item.reviewed_date_display %}<span class="prog-faq-meta-date">{{ item.reviewed_date_display }}</span>{% endif %}
+            </div>
+            {% endif %}
+          </div>
+          {% endfor %}
+        {% else %}
+        <div class="prog-faq-empty">Common questions will appear here as {{ provider.name_short or provider.name }}'s customers ask them.</div>
+        {% endif %}
+      </div>
+
+      <div class="prog-ask">
+        <div class="prog-ask-header">
+          <div class="prog-ask-tile">{{ provider.tile_label }}</div>
+          <div>
+            <p class="prog-ask-title">Ask {{ provider.name_short or provider.name }} directly</p>
+            <p class="prog-ask-sub">Good questions get reviewed and published here for everyone.</p>
+          </div>
+        </div>
+        <p class="prog-ask-context">Your question goes to backcountryfinder first. If it's a good one, we'll forward to {{ provider.name_short or provider.name }}, get an answer, and add it to this page so others benefit too. We'll email you when it's published.</p>
+        <form data-phase="3b-stub" onsubmit="return false;">
+          <div class="prog-form-grid-2">
+            <div class="prog-form-field">
+              <label for="ask-name">Your name</label>
+              <input id="ask-name" type="text" placeholder="Luke Mortimer" />
+            </div>
+            <div class="prog-form-field">
+              <label for="ask-email">Email</label>
+              <input id="ask-email" type="email" placeholder="luke@example.com" />
+            </div>
+          </div>
+          <div class="prog-form-field">
+            <label for="ask-question">Your question</label>
+            <textarea id="ask-question" rows="3" placeholder="What's a realistic timeline if I can only get out one weekend a month?"></textarea>
+          </div>
+          <button type="submit" class="prog-form-submit prog-form-submit-alt" data-ask-submit>Submit question</button>
+          <p class="prog-form-fineprint">Questions are reviewed by backcountryfinder before being sent to {{ provider.name_short or provider.name }}.</p>
+        </form>
+      </div>
+    </div>
+
+    <div class="prog-credit">
+      <p>Curriculum designed by {{ provider.name }}</p>
+      <p>Live availability · Updated daily</p>
+    </div>
+
+  </div>
+</main>
+</div>
+
+<script>
+(function () {
+  document.querySelectorAll('[data-rung-toggle]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var rung = btn.closest('.prog-rung');
+      var expanded = rung.getAttribute('data-expanded') === 'true';
+      rung.setAttribute('data-expanded', !expanded);
+      btn.setAttribute('aria-expanded', !expanded);
+      btn.textContent = expanded ? 'Details ▾' : 'Details ▴';
+    });
+  });
+
+  var BUNDLE_LABELS = {{ bundle_labels_json | safe }};
+  function selectBundle(bundle) {
+    document.querySelectorAll('.prog-bundle-card').forEach(function (card) {
+      card.setAttribute('data-selected', card.getAttribute('data-bundle') === bundle ? 'true' : 'false');
+    });
+    var submitBtn = document.querySelector('[data-bundle-submit]');
+    if (submitBtn && BUNDLE_LABELS[bundle]) submitBtn.textContent = BUNDLE_LABELS[bundle];
+  }
+  document.querySelectorAll('.prog-bundle-card').forEach(function (card) {
+    card.addEventListener('click', function () {
+      selectBundle(card.getAttribute('data-bundle'));
+    });
+  });
+
+  var collapseBtn = document.querySelector('[data-faq-collapse-all]');
+  if (collapseBtn) {
+    collapseBtn.addEventListener('click', function () {
+      var anyExpanded = !!document.querySelector('.prog-faq-item[data-expanded="true"]');
+      document.querySelectorAll('.prog-faq-item').forEach(function (item) {
+        item.setAttribute('data-expanded', anyExpanded ? 'false' : 'true');
+        var icon = item.querySelector('.prog-faq-q-icon');
+        if (icon) icon.textContent = anyExpanded ? '+' : '−';
+      });
+      collapseBtn.textContent = anyExpanded ? 'Expand all ▾' : 'Collapse all ▴';
+    });
+  }
+
+  document.querySelectorAll('[data-faq-toggle]').forEach(function (q) {
+    q.addEventListener('click', function () {
+      var item = q.closest('.prog-faq-item');
+      var expanded = item.getAttribute('data-expanded') === 'true';
+      item.setAttribute('data-expanded', !expanded);
+      var icon = item.querySelector('.prog-faq-q-icon');
+      if (icon) icon.textContent = expanded ? '+' : '−';
+    });
+  });
+})();
+</script>
+
+</body>
+</html>

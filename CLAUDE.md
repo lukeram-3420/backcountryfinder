@@ -334,7 +334,8 @@ Both systems produce identical output (rows upserted to the `courses` table with
 | Function | Signature | Description |
 |----------|-----------|-------------|
 | `claude_classify` | `(prompt: str, max_tokens: int = 256) -> dict` | Call Claude Haiku, return parsed JSON. Returns `{}` on failure. |
-| `generate_summaries_batch` | `(courses: list, provider_id: str = None) -> dict` | Batch-generate two-field summaries (Phase 1 V2): `display_summary` (user-facing) + `search_document` (Algolia keywords). Input: list of `{id, title, description, provider}`. Returns `{course_id: {"summary": str, "search_document": str}}`. Internally upserts both fields to `course_summaries` table. `provider_id` param used for upsert; falls back to each course dict's `provider_id` key. Processes in batches of 12 with single retry on failure. |
+| `generate_summaries_batch` | `(courses: list, provider_id: str = None) -> dict` | Batch-generate two-field summaries (Phase 1 V2): `display_summary` (user-facing) + `search_document` (Algolia keywords). Input: list of `{id, title, description, provider}`. Returns `{course_id: {"summary": str, "search_document": str}}`. Internally upserts both fields to `course_summaries` table. `provider_id` param used for upsert; falls back to each course dict's `provider_id` key. Processes in batches of 12 with single retry on failure. **Caches via `course_summaries.description_hash`** (PR #48): preflight bulk-fetches existing rows, skips Haiku for any `(provider_id, title)` whose stored hash matches `md5(description.strip())` and has a non-empty cached summary. Only cache misses go to Haiku; hits are merged into the return value. **Caller contract:** scrapers must pass `provider_id=PROVIDER["id"]` explicitly OR include `provider_id` on every per-course dict. If neither is supplied, `_upsert_course_summaries` writes rows with `provider_id=""` which (a) collide on the unique constraint with every run and (b) make the cache permanently miss because the lookup filters out empty provider_ids. PRs #49 + #53 fixed this for all 14 scrapers. |
+| `_load_cached_summaries` | `(provider_ids: list) -> dict` | Private helper. Bulk-fetches `course_summaries` rows for the given providers via single PostgREST GET with `Range: 0-49999`. Returns `{(provider_id, title): {summary, search_document, description_hash}}`. Used internally by `generate_summaries_batch`'s preflight cache check. Logs and returns `{}` on failure (cache miss → fall through to Haiku). |
 
 #### Dates & IDs
 
@@ -448,6 +449,76 @@ it has real dates and availability; Pass 2 is the inquiry-only safety net.
   extraction: only run regex against containers whose class/id matches
   `schedule|dates|upcoming|session|availability|calendar`, never against
   `soup.get_text()`
+
+**FareHarbor-specific notes (added May 2026 after API rework):**
+
+FareHarbor stripped pricing from the entire `/api/v1/companies/.../items/...`
+namespace in their 2026 rework. Pricing now lives **only** on the embed-side
+endpoint `/api/embed/{shortname}/price-preview/per-day/v2/`. Three other
+endpoints carry partial data, all captured via Playwright XHR interception:
+
+| Endpoint | Carries |
+|---|---|
+| `/api/v1/companies/{shortname}/items/` | Catalogue (titles, IDs, descriptions). Plain HTTP, no auth. **No pricing.** |
+| `/api/v1/companies/{shortname}/items/{pk}/calendar/{YYYY}/{MM}/?allow_grouped=yes&bookable_only=no` | Per-month availability dicts with `pk`, `start_at`, `capacity_remaining`. **No pricing.** Replaces the legacy `/availabilities/` endpoint. |
+| `/api/v1/companies/{shortname}/items/{pk}/` | Per-item details (94 keys). **No pricing on this either** — `customer_prototypes: None`. |
+| `/api/embed/{shortname}/price-preview/per-day/v2/?item_pks={pk}&start_date=YYYY-MM-DD&end_date=YYYY-MM-DD` | The price source. Body shape: `{"prices": [{"date": "YYYY-MM-DD", "price": {"low": cents, "high": cents}}], "details": {currency, prices_include_taxes, ...}}`. `low` and `high` are an integer cents range across customer types. Empty `prices: []` = item has no bookable dates in the queried window. |
+
+Implementation pattern in `scraper_vibe_backcountry.py` (the only FareHarbor
+scraper as of writing — see provider table):
+
+1. **Catalog fetch** — plain HTTP `fh_get("items/")` for the shallow listing.
+2. **Playwright walk per item** — load `https://fareharbor.com/embeds/book/{shortname}/items/{pk}/calendar/{YYYY}/{MM}/?full-items=yes&flow=no&g4=yes` for each month in the lookahead window. The page's Angular widget fires both the calendar XHR (availabilities) AND the price-preview XHR (pricing) — `on_response` matches both URL patterns and stores them. The `/embeds/` page-shell URL is explicitly excluded so we don't try to JSON-parse the HTML.
+3. **Recursive walker** (`_walk_for_amount`) finds the smallest amount-like value anywhere in the price-preview body. AMOUNT_KEYS includes `low`, `high`, `amount`, `total`, etc. Handles both numeric and string-formatted (`"$250.00"`) values via `_coerce_amount`. Returns the raw cents value.
+4. **Cents conversion** — divide by 100 explicitly on the price-preview path. The widget displays whole dollars but the API stores cents (verified — `18550 = $185.50` for "Beginner Paddling Skills"). Don't use a magnitude-based heuristic; a $2,000+ multi-day trip would get mis-classified as $20.
+
+**Multi-availability dedup is required.** FareHarbor exposes morning/afternoon
+slots of the same product on the same day as distinct `pk` values. The V2
+stable id `{provider_id}-{date_sort}-{title_hash}` collapses these to one
+row, which Postgres rejects with code 21000 (`"ON CONFLICT DO UPDATE command
+cannot affect row a second time"`) when both end up in one upsert batch.
+Filter `seen_ids` before `sb_upsert("courses", ...)` — pattern at
+`scraper_vibe_backcountry.py:457` and `scraper_altus.py:1054`. PR #55 fixed
+this for Vibe; copy that pattern verbatim if onboarding another FareHarbor
+provider.
+
+**Diagnostic-first iteration history (PRs #50-#76):** the API rework took
+five diagnostic-then-fix cycles to fully reverse-engineer. The pattern of
+"add a `[shape]` log line on the silent-failure path, ship that, read the
+output, then ship the targeted fix" is now baked into the scraper's
+`on_response` handler. Future shape drift on either the calendar or
+price-preview endpoint will surface in the per-item summary log without
+another diagnostic-only PR cycle.
+
+**Checkfront-specific notes (added May 2026):**
+
+Checkfront's `/api/3.0/item/cal` endpoint occasionally returns 500 even on
+otherwise valid requests, and some tenants have data-corruption ghosts that
+crash the endpoint deterministically for specific products. Three defensive
+layers, all in `scraper_girth_hitch_guiding.py` (replicate when adding
+another Checkfront scraper):
+
+1. **Retry-on-5xx in `cf_get`** — three attempts with exponential backoff
+   (2s, 4s, 8s). 4xx still raises immediately. Soaks transient infra blips.
+2. **Per-item fallback in `fetch_availability`** — if a batch of 5 items
+   sustains 500s after retries, retry each item individually. The healthy
+   items get through, only the broken ones get logged + skipped. Prevents
+   one bad product from killing the whole run.
+3. **Hardcoded skip list (`BROKEN_ITEM_IDS`)** — for items confirmed broken
+   beyond retry. Girth Hitch has `{8, 14, 20, 134, 143}` set in scraper
+   module top-level (PR #58). Filter `[i for i in ids if int(i) not in
+   BROKEN_ITEM_IDS]` before calling `fetch_availability`. Avoids wasting
+   the per-item-fallback API budget on every run.
+
+The skip list is a workaround, not a fix. **Real resolution is on the
+provider's side**: those item_ids correspond to archived / misconfigured
+products in their Checkfront account whose availability rules crash the
+public API. Cross-reference the IDs against the provider's Checkfront admin
+and ask them to clean up. Once they confirm fixed, drop the IDs from the
+set or just leave it as a no-op (the IDs will no longer be in the catalog).
+Compare with the binary-flag bug at `/api/3.0/item/cal` documented above
+under `detect_checkfront_spot_counts` — different failure mode, same
+"upstream-data-quality issue surfaced by our scraper" story.
 
 **URL drift detection (for hardcoded URL lists):**
 Scrapers with hardcoded program URL lists (`scraper_yamnuska.py`,
@@ -789,6 +860,16 @@ All Supabase queries default to 1000 rows. For queries that need all rows use ex
 ### Algolia location search must target `location_canonical`
 In `algolia_sync.py`, `searchableAttributes` and `attributesForFaceting` must reference `location_canonical`, not `location` or `location_raw`. The canonical field is the clean `"City, Province"` string (e.g. `"Canmore, AB"`, `"Squamish, BC"`) that matches the BC/AB/etc. synonyms. `location_raw` is whatever string the provider's site happens to use — inconsistent format, no guaranteed province code — so searching against it silently drops results. Records push `location_canonical` + `location_raw` as separate fields; never collapse them into a single `location` key and never add `location_raw` to the searchable list. Bug history: an earlier version of the sync script mapped `"location": course.get("location_raw")` and listed `"location"` in `searchableAttributes`, which broke every location-based search.
 
+### PostgREST upsert pitfalls (May 2026)
+
+Three rules learned the hard way over PRs #53, #54, #55. All three of these failures are silent and look healthy in the scraper logs unless you grep for the specific error codes.
+
+**1. `on_conflict=col1,col2` is required when the unique constraint isn't the primary key.** PostgREST's `Prefer: resolution=merge-duplicates` defaults to PK conflict detection. The `course_summaries` table's unique constraint is `(provider_id, title)` — not the primary key — so the merge would silently fall through to a plain INSERT and 23505 every time. `_upsert_course_summaries` in `scraper_utils.py` uses `?on_conflict=provider_id,title` for this reason. Any new table with a non-PK unique constraint needs the same treatment. Symptom of the missing param: `WARNING course_summaries upsert failed 409` on every run, plus a stale-data side effect because the row never actually updates.
+
+**2. Never reintroduce a local `sb_upsert` that bypasses keyset batching.** `scraper_utils.sb_upsert` groups rows by their key tuple and POSTs one request per group. PRs #54 removed broken local copies from `scraper_altus.py` and `scraper_hangfire.py` that posted everything in one request — this triggered PGRST102 (`"All object keys must match"`) on any batch where some rows had `summary`/`search_document` fields and others didn't. The local copies also swallowed errors with `log.error()` instead of raising, so the courses upsert silently dropped rows for weeks. **Audit:** `for f in scraper_*.py; do grep -l "^def sb_upsert" $f; done` should return zero hits except `scraper_utils.py`.
+
+**3. V2 stable id collisions on per-day-multi-slot platforms (FareHarbor, possibly future).** The V2 id format `{provider_id}-{date_sort}-{title_hash}` collapses morning/afternoon slots of the same product on the same date into one row. Multiple distinct upstream `pk`s mapping to the same V2 id end up in one upsert batch → Postgres returns code 21000 (`"ON CONFLICT DO UPDATE command cannot affect row a second time"`). Add a `seen_ids = set()` filter loop right before `sb_upsert("courses", rows)` — pattern at `scraper_vibe_backcountry.py:457` and `scraper_altus.py:1054`. The collision is per-batch, so even small batches hit it. Symptom: `ERROR Supabase upsert error 500: {"code":"21000",...}` in the scraper log, followed by a hard exit and zero rows upserted.
+
 ## Slash commands
 
 ### /add-scraper
@@ -809,6 +890,61 @@ When making any file changes, always commit and push automatically using:
 git add -A && git commit -m "<describe what changed>" && git push
 ```
 Never wait for manual confirmation to commit.
+
+## Progression pages
+
+### Status
+Phase 1 shipped 2026-05-03. Renders static HTML progression pages from `provider_progressions` + `progression_steps` Supabase tables via `generate_progression_pages.py`. Pages are not interactive yet — bundle inquiry form (Phase 2) and FAQ Q&A (Phase 3b) are stubs. Design spec lives at `design-spec/`.
+
+### Architecture
+- Build script `generate_progression_pages.py` runs every 6 hours and on `repository_dispatch` events of type `progression_updated`.
+- Bundle math computed live from current `courses.price` values via `(provider_id, course_title)` lookup — scraper updates flow through automatically on next build.
+- Capstone styling driven by `progression_steps.is_capstone = true`. Exactly one per progression.
+- Hero image: `provider_progressions.hero_course_title` resolves to the matching course's `image_url`, falls back to capstone step's course.
+- Schema.org: `Course` per rung, `BreadcrumbList`, `HowTo`, `FAQPage` (empty until Phase 3b).
+- Stylesheet: `css/progression.css` is loaded by every generated page; the page's `<head>` defines the global tokens inline (matching `index.html`) so the CSS file relies on host-page tokens.
+- Generated output lives at `/<provider_id>/<slug>/index.html`. URLs resolve natively via Vercel's folder/index.html static serving — no rewrite needed in `vercel.json`.
+
+### Schema deviation from Phase 1 brief
+The brief specified `uuid REFERENCES providers(id)` and `uuid REFERENCES courses(id)`. Both `providers.id` and `courses.id` are actually `text` in this database, and `courses.id` is unstable per session (encodes date_sort). The shipped schema uses `text` for the provider FK and references courses by `(provider_id, course_title)` instead of by `courses.id`. Documented in `progressions_schema.sql` header.
+
+### Adding a new progression
+1. Insert into `provider_progressions` (active = false)
+2. Insert 5+ rows into `progression_steps`, exactly one with `is_capstone = true`
+3. Confirm bundle discount %s with provider
+4. Set `active = true`
+5. Trigger `build-progressions.yml` manually or wait for next 6-hour cron
+6. Provider page (the providers tab card) auto-detects active progressions and surfaces a "Curriculum paths" link
+
+### Conventions
+- One progression per provider per season
+- Slug must match URL segment exactly: `summer-progression`, `winter-progression`
+- `practice_gap_text` is the connector *before* a step (null for step 1)
+- `gear_text` lives on the step, not the course (progression-context-specific)
+- `design-spec/` files are source of truth for the visual layout — update them alongside any visual changes
+
+### Phase 2.5 — Editorial FAQ seed
+Shipped 2026-05-04. Added `faq_items jsonb NOT NULL DEFAULT '[]'::jsonb` column to `provider_progressions`. Build script renders FAQ items from this column when non-empty, falls back to the empty-state card otherwise. `FAQPage` JSON-LD `mainEntity` now populated from the same data; provider-attributed answers add an `author` Organization for E-E-A-T. MSAA seeded with 7 editorial FAQs via `progressions_phase_2_5_schema.sql`.
+
+The "Ask {provider} directly" form remains inert — Phase 3a/3b will wire it.
+
+### Editing FAQs
+Direct jsonb edits in Supabase Studio. No admin UI at this scale. Schema per item:
+- `question` (text)
+- `answer` (HTML — paragraphs, occasional `<strong>`; trusted, not sanitized)
+- `source` (`'editorial'` | `'provider'`)
+- `reviewed_date` (ISO `YYYY-MM-DD`, only when `source='provider'`)
+- `display_order` (1-indexed int)
+
+When Phase 3a/3b ship, the build script will merge `faq_items` (editorial + provider-attributed) with `progression_questions WHERE status='published'` (user-submitted) at render time. No data migration needed — the two sources coexist.
+
+### FAQ conventions
+- `source: 'editorial'` — no badge on the page (Luke wrote it).
+- `source: 'provider'` — green "✓ Answered by {provider name}" badge plus formatted reviewed date. The badge text uses the provider's friendly name from the joined `providers` row at render time, so the schema generalises across all providers without per-provider source values. Must include `reviewed_date`.
+- HTML in `answer` is trusted — no sanitization in the build script.
+- Items sorted by `display_order` ascending, ties broken by question alphabetical (deterministic builds).
+- First item by sort renders expanded by default — gives crawlers and LLMs immediate visible content without a click.
+- The build script enriches each item with `reviewed_date_display` (e.g. "Reviewed 14 April 2026") via `format_review_date()` so the template stays presentation-only.
 
 ## SEO landing pages — strategy and architecture
 
