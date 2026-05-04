@@ -22,6 +22,7 @@ import logging
 import os
 import sys
 from collections import defaultdict
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -251,11 +252,53 @@ def build_course_schema(provider: dict, step: dict) -> str:
     return json.dumps(block, indent=2)
 
 
-def build_faq_empty() -> str:
+def format_review_date(iso_date: str) -> str:
+    """Render an ISO date (YYYY-MM-DD) as 'Reviewed 14 April 2026'."""
+    dt = datetime.fromisoformat(iso_date)
+    return f"Reviewed {dt.day} {dt.strftime('%B %Y')}"
+
+
+def sorted_faq_items(items: list[dict]) -> list[dict]:
+    """Order by display_order ascending, breaking ties by question alphabetical
+    so builds stay deterministic."""
+    return sorted(
+        items or [],
+        key=lambda i: (
+            i.get("display_order") if i.get("display_order") is not None else 9_999,
+            (i.get("question") or "").lower(),
+        ),
+    )
+
+
+def enrich_faq_item(item: dict) -> dict:
+    """Add view-only fields the template needs (badge text, formatted date)."""
+    out = dict(item)
+    if out.get("source") == "provider" and out.get("reviewed_date"):
+        out["reviewed_date_display"] = format_review_date(out["reviewed_date"])
+    return out
+
+
+def build_faq_schema(items: list[dict], provider_name: str) -> str:
+    main_entity = []
+    for item in items:
+        answer_block = {
+            "@type": "Answer",
+            "text": item.get("answer") or "",
+        }
+        if item.get("source") == "provider":
+            answer_block["author"] = {
+                "@type": "Organization",
+                "name": provider_name,
+            }
+        main_entity.append({
+            "@type": "Question",
+            "name": item.get("question") or "",
+            "acceptedAnswer": answer_block,
+        })
     return json.dumps({
         "@context": "https://schema.org",
         "@type": "FAQPage",
-        "mainEntity": [],
+        "mainEntity": main_entity,
     }, indent=2)
 
 
@@ -354,6 +397,16 @@ def assemble_page(env: Environment, progression: dict) -> tuple[str, str]:
 
     json_ld_courses = [build_course_schema(provider, s) for s in enriched_steps]
 
+    raw_faq = progression.get("faq_items") or []
+    if isinstance(raw_faq, str):
+        try:
+            raw_faq = json.loads(raw_faq)
+        except json.JSONDecodeError:
+            log.warning(f"faq_items not parseable JSON for {progression['provider_id']}/{progression['slug']}")
+            raw_faq = []
+    faq_items = [enrich_faq_item(it) for it in sorted_faq_items(raw_faq)]
+    provider_badge_name = short_name or provider["name"]
+
     ctx = {
         "provider": {
             **provider,
@@ -380,7 +433,9 @@ def assemble_page(env: Environment, progression: dict) -> tuple[str, str]:
         "json_ld_breadcrumb": build_breadcrumb(provider, progression, canonical_url),
         "json_ld_howto": build_howto(progression, enriched_steps),
         "json_ld_courses": json_ld_courses,
-        "json_ld_faq": build_faq_empty(),
+        "json_ld_faq": build_faq_schema(faq_items, provider["name"]),
+        "faq_items": faq_items,
+        "provider_badge_name": provider_badge_name,
         **bundle_math,
     }
 

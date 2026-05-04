@@ -299,7 +299,28 @@
       </div>
 
       <div class="prog-faq-list">
+        {% if faq_items %}
+          {% for item in faq_items %}
+          <div class="prog-faq-item" data-expanded="{{ 'true' if loop.first else 'false' }}" data-source="{{ item.source }}">
+            <div class="prog-faq-q" data-faq-toggle>
+              <p class="prog-faq-q-text">{{ item.question }}</p>
+              <span class="prog-faq-q-icon">{{ '−' if loop.first else '+' }}</span>
+            </div>
+            <div class="prog-faq-a">{{ item.answer | safe }}</div>
+            {% if item.source == 'provider' %}
+            <div class="prog-faq-meta">
+              <span class="prog-faq-msaa-pill">
+                <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                Answered by {{ provider_badge_name }}
+              </span>
+              {% if item.reviewed_date_display %}<span class="prog-faq-meta-date">{{ item.reviewed_date_display }}</span>{% endif %}
+            </div>
+            {% endif %}
+          </div>
+          {% endfor %}
+        {% else %}
         <div class="prog-faq-empty">Common questions will appear here as {{ provider.name_short or provider.name }}'s customers ask them.</div>
+        {% endif %}
       </div>
 
       <div class="prog-ask">
