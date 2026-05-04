@@ -64,6 +64,7 @@
 </style>
 
 <link rel="stylesheet" href="/css/progression.css">
+<link rel="stylesheet" href="/css/share-widget.css">
 
 <script type="application/ld+json">
 {
@@ -427,6 +428,12 @@
         
       </div>
       <p class="prog-provider-blurb">Operating since 2003, Mountain Skills Academy runs courses across Squamish and Whistler with a roster of IFMGA and ACMG certified mountain guides who tailor instruction to your pace.</p>
+    </div>
+
+    <div class="prog-share-section">
+      <p class="prog-share-tagline">Know someone who'd want this?</p>
+      <button id="prog-share-btn" class="prog-share-btn" type="button">Share this progression</button>
+      <div class="share-popover" id="prog-share-popover"></div>
     </div>
 
     <div class="prog-rungs">
@@ -866,8 +873,28 @@
       if (icon) icon.textContent = expanded ? '+' : '−';
     });
   });
+
+  // Share widget — wire the after-hero Share button up to the popover.
+  // openSharePopover is provided by /js/share-widget.js loaded below.
+  var shareBtn = document.getElementById('prog-share-btn');
+  var sharePopover = document.getElementById('prog-share-popover');
+  if (shareBtn && sharePopover) {
+    shareBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      e.preventDefault();
+      if (typeof window.openSharePopover !== 'function') return;
+      window.openSharePopover({
+        popoverEl: sharePopover,
+        anchorEl: e.currentTarget,
+        shareUrl: location.href,
+        title: document.title,
+        headerText: 'share this progression',
+      });
+    });
+  }
 })();
 </script>
+<script src="/js/share-widget.js"></script>
 
 </body>
 </html>
