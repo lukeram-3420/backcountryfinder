@@ -1,0 +1,74 @@
+/* Share popover — used by index.html (saved-list share) and progression
+   pages. Token references resolve to whatever :root the host page defines
+   (both pages declare the same green/text/border/radius tokens). */
+
+.share-popover-wrap { position: relative; display: inline-block; }
+.share-popover {
+  display: none;
+  position: fixed;
+  background: var(--bg-card);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius);
+  padding: 14px;
+  width: min(230px, calc(100vw - 32px));
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.14);
+  z-index: 999;
+}
+.share-popover.active { display: block; }
+.share-popover-title {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
+}
+.share-popover-btns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.sp-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+  border: 1.5px solid var(--border-mid);
+  cursor: pointer;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  text-decoration: none;
+  font-family: var(--font);
+  transition: opacity 0.12s;
+}
+.sp-btn:hover { opacity: 0.82; }
+.sp-btn-wa { background: #25D366; color: #fff; border-color: #25D366; }
+.sp-btn-im { background: var(--green-dark); color: var(--green-accent); border-color: var(--green-dark); }
+.sp-btn-native {
+  grid-column: 1 / -1;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+.sp-btn-copy {
+  grid-column: 1 / -1;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.sp-url {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  padding: 5px 8px;
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: monospace;
+}

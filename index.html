@@ -305,19 +305,7 @@
   .shared-save-btn { background: var(--green-accent); color: var(--green-dark); border: none; border-radius: var(--radius-sm); padding: 8px 16px; font-size: 12px; font-weight: 700; cursor: pointer; font-family: var(--font); }
   .shared-dismiss { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.6); border: none; border-radius: var(--radius-sm); padding: 8px 14px; font-size: 12px; cursor: pointer; font-family: var(--font); font-weight: 500; }
 
-  /* SHARE POPOVER */
-  .share-popover-wrap { position: relative; display: inline-block; }
-  .share-popover { display: none; position: fixed; background: var(--bg-card); border: 1px solid var(--border-mid); border-radius: var(--radius); padding: 14px; width: min(230px,calc(100vw - 32px)); box-shadow: 0 8px 32px rgba(0,0,0,0.14); z-index: 999; }
-  .share-popover.active { display: block; }
-  .share-popover-title { font-size: 10px; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
-  .share-popover-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px; }
-  .sp-btn { display: flex; align-items: center; justify-content: center; gap: 5px; padding: 8px 10px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 600; border: 1.5px solid var(--border-mid); cursor: pointer; background: var(--bg-card); color: var(--text-primary); text-decoration: none; font-family: var(--font); transition: opacity 0.12s; }
-  .sp-btn:hover { opacity: 0.82; }
-  .sp-btn-wa { background: #25D366; color: #fff; border-color: #25D366; }
-  .sp-btn-im { background: var(--green-dark); color: var(--green-accent); border-color: var(--green-dark); }
-  .sp-btn-native { grid-column: 1/-1; background: var(--bg-secondary); color: var(--text-secondary); }
-  .sp-btn-copy { grid-column: 1/-1; background: var(--bg-secondary); color: var(--text-secondary); font-size: 11px; }
-  .sp-url { font-size: 10px; color: var(--text-tertiary); background: var(--bg-secondary); border-radius: 4px; padding: 5px 8px; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; }
+  /* SHARE POPOVER styles live in /css/share-widget.css (loaded above) */
 
   /* EMAIL MODAL */
   .email-list-modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 200; align-items: center; justify-content: center; padding: 20px; }
@@ -425,6 +413,8 @@
     .providers-hero-btns .provider-cta-btn { width: 100%; text-align: center; }
   }
 </style>
+<link rel="stylesheet" href="/css/share-widget.css">
+<script defer src="/js/share-widget.js"></script>
 <script defer src="/js/cards.js"></script>
 <script defer src="/js/saved.js"></script>
 <script defer src="/js/ui.js"></script>
