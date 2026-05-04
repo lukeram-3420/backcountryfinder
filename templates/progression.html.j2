@@ -109,7 +109,16 @@
 
   <div class="prog-crumb">
     <div class="prog-crumb-path">
-      <div class="prog-crumb-mono">bf</div>
+      <span class="prog-crumb-mono" aria-label="backcountryfinder">
+        <svg viewBox="0 0 32 32" width="22" height="22" xmlns="http://www.w3.org/2000/svg" focusable="false" aria-hidden="true">
+          <rect width="32" height="32" rx="8" fill="#1a2e1a"/>
+          <path d="M5 27 L11 17 L16 22 L21 13 L27 27" stroke="#4ade80" stroke-width="1.1" fill="none" stroke-linejoin="round" opacity="0.3"/>
+          <path d="M2 27 L10 14 L16 20 L22 10 L30 27 Z" fill="#4ade80" opacity="0.15"/>
+          <path d="M2 27 L10 14 L16 20 L22 10 L30 27" stroke="#4ade80" stroke-width="1.4" fill="none" stroke-linejoin="round" opacity="0.6"/>
+          <path d="M0.3 25.95 L9.77 12.01 L15.76 18.01 L22 10" stroke="#ffffff" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2 2.5"/>
+          <circle cx="22" cy="10" r="2.8" fill="#4ade80"/>
+        </svg>
+      </span>
       <span class="prog-crumb-url">backcountryfinder.com / {{ provider.id }} / {{ progression.slug }}</span>
     </div>
     <span class="prog-crumb-mark">Powered by backcountryfinder</span>
@@ -117,7 +126,6 @@
 
   <div class="prog-hero"{% if hero_image_url %} style="background-image: url('{{ hero_image_url }}');"{% endif %}>
     <div class="prog-hero-overlay"></div>
-    {% if hero_pill %}<div class="prog-hero-pill">{{ hero_pill }}</div>{% endif %}
     <div class="prog-hero-content">
       <p class="prog-hero-eyebrow">{{ provider.name_short or provider.name }} · {{ season_label }} path</p>
       <h1 class="prog-hero-title">{{ progression.title }}</h1>

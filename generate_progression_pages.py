@@ -421,7 +421,6 @@ def assemble_page(env: Environment, progression: dict) -> tuple[str, str]:
         "steps": enriched_steps,
         "season_label": season_label,
         "hero_image_url": hero_image_url,
-        "hero_pill": f"Capstone: {capstone['course_title'].split(' ')[0]}" if capstone else None,
         "total_days": total_days,
         "progression_duration": "12-18",
         "show_bundle": show_bundle,

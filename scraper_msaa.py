@@ -415,11 +415,31 @@ def scrape_rezdy_product_page(browser, product_url: str, utm: str) -> Optional[d
         if og and og.get("content"):
             image_url = og["content"]
         else:
-            img = soup.find("img")
-            if img and img.get("src"):
-                image_url = img["src"]
+            # Fallback: walk every <img> and pick the first one that isn't a
+            # tracking pixel. Rezdy product pages embed a Facebook Pixel
+            # (`facebook.com/tr?id=...`) and sometimes Google Analytics
+            # beacons as the first <img> in the DOM, so a naive
+            # `soup.find("img")` writes the tracking URL to courses.image_url.
+            # Conquer The Chief surfaced this in May 2026 — its og:image was
+            # missing and the FB pixel got promoted to the hero image on
+            # the progression page.
+            tracking_substrings = (
+                "facebook.com/tr",
+                "google-analytics.com",
+                "googletagmanager.com",
+                "doubleclick.net",
+                "/pixel",
+            )
+            for img in soup.find_all("img"):
+                src = img.get("src") or img.get("data-src") or ""
+                if not src:
+                    continue
+                if any(t in src for t in tracking_substrings):
+                    continue
+                image_url = src
                 if image_url.startswith("//"):
                     image_url = "https:" + image_url
+                break
 
         price = None
         price_match = re.search(r"(?:CAD\s*)?\$\s?([\d,]+(?:\.\d{2})?)", page_text)
