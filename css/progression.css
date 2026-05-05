@@ -188,23 +188,32 @@
   flex-shrink: 0;
 }
 .prog-provider-tile-logo {
-  /* Logo variant overrides the 36×36 acronym tile. 96×96 is a balance
-     between "logo readable" (we landed on 156 first, which looked
-     disconnected from the text) and "tile doesn't dominate the section". */
-  width: 96px;
-  height: 96px;
+  /* Match the visual height of the 2-line text block to its right
+     (~17px name + 4px gap + ~13px cert + line-heights ≈ 56px).
+     Bigger sizes left the box visually disconnected from the text;
+     smaller sizes left the visible icon unreadable. Pull the source's
+     internal whitespace tight by scaling the img inside an overflow-
+     hidden frame so a logo with built-in padding still reads well. */
+  width: 56px;
+  height: 56px;
   background: transparent;
   border: 0;
   padding: 0;
   overflow: hidden;
   border-radius: var(--radius-sm);
+  flex-shrink: 0;
 }
 .prog-provider-tile-logo img {
   width: 100%;
   height: 100%;
   object-fit: contain;
   display: block;
-  border-radius: var(--radius-sm);
+  /* Visually crop source-image whitespace so the icon reads larger
+     inside a small tile. transform-origin=center keeps the icon
+     centered after zoom. Safe for vector logos; raster logos may
+     soften slightly but still read better than at 1× with whitespace. */
+  transform: scale(1.4);
+  transform-origin: center;
 }
 .prog-provider-name {
   font-size: 17px;
@@ -963,7 +972,7 @@
   .prog-provider-rating { align-self: flex-start; }
   /* Scale the logo tile down on mobile so it doesn't crowd the
      name + cert text. Acronym fallback unchanged. */
-  .prog-provider-tile-logo { width: 72px; height: 72px; }
+  .prog-provider-tile-logo { width: 48px; height: 48px; }
   .prog-provider-name { font-size: 15px; }
 
   /* Rungs stack vertically on mobile — number and title at top, button below */
