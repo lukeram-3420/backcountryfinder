@@ -188,16 +188,23 @@
   flex-shrink: 0;
 }
 .prog-provider-tile-logo {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  padding: 4px;
+  /* Logo variant overrides the 36×36 acronym tile — give the logo
+     enough pixels to read, drop the bg/border/padding so it doesn't
+     compete with the logo's own visual weight. */
+  width: 52px;
+  height: 52px;
+  background: transparent;
+  border: 0;
+  padding: 0;
   overflow: hidden;
+  border-radius: var(--radius-sm);
 }
 .prog-provider-tile-logo img {
   width: 100%;
   height: 100%;
   object-fit: contain;
   display: block;
+  border-radius: var(--radius-sm);
 }
 .prog-provider-name {
   font-size: 14px;
