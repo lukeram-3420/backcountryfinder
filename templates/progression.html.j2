@@ -158,7 +158,13 @@
     <div class="prog-provider">
       <div class="prog-provider-head">
         <div class="prog-provider-id">
+          {% if provider.logo_url %}
+          <div class="prog-provider-tile prog-provider-tile-logo">
+            <img src="{{ provider.logo_url }}" alt="{{ provider.name }} logo" loading="lazy" />
+          </div>
+          {% else %}
           <div class="prog-provider-tile">{{ provider.tile_label }}</div>
+          {% endif %}
           <div>
             <p class="prog-provider-name">{{ provider.name }}</p>
             <p class="prog-provider-cert">{{ provider.cert_line }}</p>
@@ -197,6 +203,14 @@
             <p class="prog-rung-label">{{ step.rung_label }}</p>
             <p class="prog-rung-title">{{ step.course_title }}</p>
             <p class="prog-rung-meta">{{ step.meta_line }}</p>
+            {% if step.next_date_display %}
+            <p class="prog-rung-availability">
+              <span class="prog-rung-next-date">Next: {{ step.next_date_display }}</span>
+              <span class="prog-rung-avail-chip prog-rung-avail-{{ step.next_avail or 'open' }}">{{ step.next_avail_label }}</span>
+            </p>
+            {% elif step.has_custom_dates %}
+            <p class="prog-rung-availability prog-rung-availability-flex">By inquiry · flexible dates</p>
+            {% endif %}
             <div class="prog-rung-badges">
               <span class="prog-badge {{ step.difficulty_class }}">{{ step.difficulty_dots }} {{ step.difficulty_label }}</span>
               <span class="prog-badge prog-badge-meta">{{ step.prerequisites_text or 'No prerequisites' }}</span>
