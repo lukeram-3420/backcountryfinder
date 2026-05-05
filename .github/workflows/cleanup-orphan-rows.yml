@@ -1,0 +1,50 @@
+name: Cleanup V2 Orphan Rows
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider_id:
+        description: 'Provider ID to clean (leave blank for all providers)'
+        required: false
+        type: string
+      dry_run:
+        description: 'Identify orphans without writing (default true for safety)'
+        required: true
+        type: boolean
+        default: true
+      soft_mode:
+        description: 'UPDATE rows to active=false instead of DELETE (only needed if a hard FK blocks DELETE)'
+        required: true
+        type: boolean
+        default: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run cleanup
+        run: |
+          ARGS=""
+          if [ -n "${{ github.event.inputs.provider_id }}" ]; then
+            ARGS="$ARGS --provider-id ${{ github.event.inputs.provider_id }}"
+          fi
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          if [ "${{ github.event.inputs.soft_mode }}" = "true" ]; then
+            ARGS="$ARGS --soft-mode"
+          fi
+          echo "Running: python cleanup_v2_orphan_rows.py $ARGS"
+          python cleanup_v2_orphan_rows.py $ARGS
+        env:
+          SUPABASE_URL:         ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
