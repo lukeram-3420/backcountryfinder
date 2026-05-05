@@ -72,21 +72,36 @@ def _headers() -> dict:
 
 
 def fetch_courses(provider_id: Optional[str]) -> list:
-    """Fetch every row in `courses` (or just one provider's). Uses
-    Range: 0-49999 to bypass the default 1000-row PostgREST limit, per the
-    pagination rule in CLAUDE.md."""
-    params = {
-        "select": "id,provider_id,title,date_sort,custom_dates,active,auto_flagged,flag_reason",
-    }
-    if provider_id:
-        params["provider_id"] = f"eq.{provider_id}"
-    r = requests.get(
-        f"{SUPABASE_URL}/rest/v1/courses",
-        headers={**_headers(), "Range": "0-49999"},
-        params=params,
-    )
-    r.raise_for_status()
-    return r.json()
+    """Fetch every row in `courses` (or just one provider's). Paginates in
+    1000-row windows because Supabase's server-side `max-rows` config caps
+    a single response at 1000 regardless of the Range header. PostgREST
+    `offset` + `limit` query params bypass this cleanly."""
+    select = "id,provider_id,title,date_sort,custom_dates,active,auto_flagged,flag_reason"
+    page_size = 1000
+    offset = 0
+    out: list = []
+    while True:
+        params = {
+            "select": select,
+            "order": "id.asc",
+            "offset": str(offset),
+            "limit": str(page_size),
+        }
+        if provider_id:
+            params["provider_id"] = f"eq.{provider_id}"
+        r = requests.get(
+            f"{SUPABASE_URL}/rest/v1/courses",
+            headers=_headers(),
+            params=params,
+        )
+        r.raise_for_status()
+        page = r.json()
+        out.extend(page)
+        log.info(f"  fetched page offset={offset} size={len(page)}")
+        if len(page) < page_size:
+            break
+        offset += page_size
+    return out
 
 
 def delete_course(course_id: str) -> bool:
