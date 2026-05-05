@@ -426,6 +426,60 @@ def load_price_escalation_candidates(provider_id: str) -> set:
     return ids
 
 
+def _build_session_index(courses: list) -> dict:
+    """Group active session rows by `(provider_id, lower(title))` so the
+    date-escalation check can look up siblings of a candidate row in O(1).
+
+    Used by `_has_current_sibling` to suppress past_date_escalated /
+    future_date_escalated upgrades on V2 stable-id orphans — the rows that
+    accumulate when a provider transitions a course from "scheduled with
+    dates" to "inquiry-only / flex-date". V2 ids encode `date_sort`, so the
+    new flex row gets a different course_id and the old dated row stays in
+    the DB forever; on date-passing it would otherwise escalate forever.
+    """
+    index: dict = {}
+    for c in courses:
+        title = (c.get("title") or "").strip().lower()
+        if not title:
+            continue
+        key = (c.get("provider_id") or "", title)
+        index.setdefault(key, []).append(c)
+    return index
+
+
+def _has_current_sibling(c: dict, session_index: dict, today: date) -> bool:
+    """True if `c` has at least one active sibling row (same provider+title,
+    different course_id) that is currently bookable. "Currently bookable"
+    means active=True AND (`custom_dates=True` OR `date_sort >= today`).
+
+    Returns False for courses with no sibling at all — those are genuine
+    stale provider listings and should still escalate.
+    """
+    title = (c.get("title") or "").strip().lower()
+    if not title:
+        return False
+    key = (c.get("provider_id") or "", title)
+    siblings = session_index.get(key) or []
+    cid = c.get("id")
+    for s in siblings:
+        if s.get("id") == cid:
+            continue
+        if s.get("active") is not True:
+            continue
+        if s.get("custom_dates"):
+            return True
+        sds = s.get("date_sort")
+        if not sds:
+            continue
+        try:
+            sd = datetime.strptime(sds, "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            continue
+        if sd >= today:
+            return True
+    return False
+
+
 def check_dates(courses: list, auto_hidden: list, escalation_ids: set) -> list:
     """Check 4: Date sanity (Initiative 5 — active provider loop).
 
@@ -439,16 +493,25 @@ def check_dates(courses: list, auto_hidden: list, escalation_ids: set) -> list:
     upgraded to the '_escalated' suffix — the admin UI filters on that
     suffix to render the Flags tab Date escalations section.
 
+    Sibling-aware escalation guard: a row is kept at the non-escalated
+    `past_date` / `future_date` flag (so it stays auto-hidden) but is NOT
+    upgraded to `_escalated` when another active row for the same
+    (provider_id, title) is currently bookable. This blocks the false-flag
+    flood from V2-id orphans — when a provider switches a course from
+    scheduled to flex, the old dated rows would otherwise escalate forever.
+
     Priority stack per course:
       1. custom_dates=true OR date_sort IS NULL → skip entirely. Flex-date
          and private-guiding rows by design; hard skip, not soft.
       2. validator_suppressions (course_id-scoped) matching 'past_date' /
          'future_date' → skip entire check for that course_id.
-      3. Condition A / B automated checks → auto-hide, escalate if aged.
+      3. Condition A / B automated checks → auto-hide, escalate only if
+         aged AND no current sibling exists for the same title.
     """
     email_only: list = []
     today = date.today()
     two_years = today + timedelta(days=730)
+    session_index = _build_session_index(courses)
 
     for c in courses:
         # 1. Hard skip for flex-date / private-guiding rows.
@@ -471,13 +534,21 @@ def check_dates(courses: list, auto_hidden: list, escalation_ids: set) -> list:
 
         # 3. Condition A — Past date with active=true.
         if d < today and c.get("active") is True:
-            reason = "past_date_escalated" if cid in escalation_ids else "past_date"
+            should_escalate = (
+                cid in escalation_ids
+                and not _has_current_sibling(c, session_index, today)
+            )
+            reason = "past_date_escalated" if should_escalate else "past_date"
             flag_course(cid, reason, auto_hidden, title=title)
             continue
 
         # 3. Condition B — Far future (>2 years).
         if d > two_years:
-            reason = "future_date_escalated" if cid in escalation_ids else "future_date"
+            should_escalate = (
+                cid in escalation_ids
+                and not _has_current_sibling(c, session_index, today)
+            )
+            reason = "future_date_escalated" if should_escalate else "future_date"
             flag_course(cid, reason, auto_hidden, title=title)
             continue
 
@@ -713,7 +784,7 @@ def main():
     # Fetch all courses for this provider
     courses = sb_get("courses", {
         "provider_id": f"eq.{provider_id}",
-        "select": "id,title,summary,price,date_sort,date_display,avail,active,spots_remaining,custom_dates,booking_url",
+        "select": "id,provider_id,title,summary,price,date_sort,date_display,avail,active,spots_remaining,custom_dates,booking_url",
     })
     current_count = len(courses)
     print(f"  Fetched {current_count} courses")
