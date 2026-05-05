@@ -17,6 +17,11 @@ on:
         required: true
         type: boolean
         default: false
+  schedule:
+    # Daily 03:00 UTC — after scraper-all (00:00 UTC) + validate steps settle.
+    # Scheduled runs always do a full real-delete sweep; the workflow_dispatch
+    # inputs above only apply to manual runs.
+    - cron: '0 3 * * *'
 
 jobs:
   cleanup:
@@ -33,16 +38,22 @@ jobs:
 
       - name: Run cleanup
         run: |
-          ARGS=""
-          if [ -n "${{ github.event.inputs.provider_id }}" ]; then
-            ARGS="$ARGS --provider-id ${{ github.event.inputs.provider_id }}"
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            # Daily sweep — hardcoded: all providers, real delete, default mode.
+            ARGS=""
+          else
+            ARGS=""
+            if [ -n "${{ github.event.inputs.provider_id }}" ]; then
+              ARGS="$ARGS --provider-id ${{ github.event.inputs.provider_id }}"
+            fi
+            if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+              ARGS="$ARGS --dry-run"
+            fi
+            if [ "${{ github.event.inputs.soft_mode }}" = "true" ]; then
+              ARGS="$ARGS --soft-mode"
+            fi
           fi
-          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
-            ARGS="$ARGS --dry-run"
-          fi
-          if [ "${{ github.event.inputs.soft_mode }}" = "true" ]; then
-            ARGS="$ARGS --soft-mode"
-          fi
+          echo "Trigger: ${{ github.event_name }}"
           echo "Running: python cleanup_v2_orphan_rows.py $ARGS"
           python cleanup_v2_orphan_rows.py $ARGS
         env:
