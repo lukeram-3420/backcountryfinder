@@ -190,9 +190,11 @@
 .prog-provider-tile-logo {
   /* Logo variant overrides the 36×36 acronym tile — give the logo
      enough pixels to read, drop the bg/border/padding so it doesn't
-     compete with the logo's own visual weight. */
-  width: 52px;
-  height: 52px;
+     compete with the logo's own visual weight. Source logos often
+     embed their own padding/whitespace so the visible mark needs a
+     larger box to read. */
+  width: 156px;
+  height: 156px;
   background: transparent;
   border: 0;
   padding: 0;
@@ -960,6 +962,9 @@
   .prog-provider { margin-bottom: 18px; padding: 14px; }
   .prog-provider-head { flex-wrap: wrap; gap: 10px; }
   .prog-provider-rating { align-self: flex-start; }
+  /* Scale the logo tile down on mobile so it doesn't crowd the
+     name + cert text. Acronym fallback unchanged. */
+  .prog-provider-tile-logo { width: 96px; height: 96px; }
 
   /* Rungs stack vertically on mobile — number and title at top, button below */
   .prog-rung-row {
