@@ -129,6 +129,57 @@ def pick_representative(sessions: list[dict]) -> Optional[dict]:
     return sessions[0]
 
 
+def pick_next_available_session(sessions: list[dict]) -> Optional[dict]:
+    """Return the chronologically-soonest bookable session, or None.
+
+    A session is bookable when:
+      - date_sort parses to a real date and is today or later,
+      - it isn't a `custom_dates` (inquiry-only) row,
+      - and it isn't sold out.
+
+    Used to drive the per-rung availability line (the live-dates feature)
+    AND the per-step `Course.hasCourseInstance.startDate` schema. Distinct
+    from `pick_representative` (which picks cheapest for static display).
+    """
+    today = datetime.utcnow().date()
+    bookable: list[tuple[object, dict]] = []
+    for s in sessions:
+        if s.get("custom_dates"):
+            continue
+        if s.get("avail") == "sold":
+            continue
+        ds = s.get("date_sort")
+        if not ds:
+            continue
+        try:
+            d = datetime.fromisoformat(str(ds)).date()
+        except (ValueError, TypeError):
+            continue
+        if d < today:
+            continue
+        bookable.append((d, s))
+    if not bookable:
+        return None
+    return min(bookable, key=lambda x: x[0])[1]
+
+
+def format_next_date(date_sort: str) -> str:
+    """ISO YYYY-MM-DD → 'Mar 15, 2026'. Unaffected by platform locale."""
+    dt = datetime.fromisoformat(str(date_sort))
+    return f"{dt.strftime('%b')} {dt.day}, {dt.year}"
+
+
+def render_availability_label(avail: Optional[str], spots_remaining: Optional[int]) -> str:
+    """Short user-facing label for the availability chip on the rung row.
+    Mirrors the avail vocabulary used by the rest of the system (see
+    Database Schema in CLAUDE.md): open / low / critical / sold."""
+    if avail == "critical" and isinstance(spots_remaining, int) and spots_remaining > 0:
+        return f"{spots_remaining} spot{'' if spots_remaining == 1 else 's'} left"
+    if avail == "low":
+        return "Low availability"
+    return "Open"
+
+
 def render_meta_line(rep: dict) -> str:
     parts = []
     duration = rep.get("duration_days")
@@ -226,15 +277,6 @@ def build_howto(progression: dict, steps: list[dict]) -> str:
 
 
 def build_course_schema(provider: dict, step: dict) -> str:
-    offer = None
-    if step.get("price") and step["price"] > 0:
-        offer = {
-            "@type": "Offer",
-            "price": str(int(step["price"])),
-            "priceCurrency": step.get("currency") or "CAD",
-            "availability": "https://schema.org/InStock",
-            "url": step.get("booking_url"),
-        }
     block = {
         "@context": "https://schema.org",
         "@type": "Course",
@@ -247,7 +289,32 @@ def build_course_schema(provider: dict, step: dict) -> str:
         },
         "educationalLevel": DIFFICULTY[step["difficulty_level"]][1],
     }
-    if offer:
+    offer = None
+    if step.get("price") and step["price"] > 0:
+        offer = {
+            "@type": "Offer",
+            "price": str(int(step["price"])),
+            "priceCurrency": step.get("currency") or "CAD",
+            "availability": "https://schema.org/InStock",
+            "url": step.get("booking_url"),
+        }
+    # When a real upcoming session exists, wrap price + start date in a
+    # CourseInstance — this is the structure Google's Course rich result
+    # documents (https://developers.google.com/search/docs/appearance/structured-data/course-info).
+    # Falls back to a top-level Offer when only static price info is known.
+    if step.get("next_date_iso"):
+        instance = {
+            "@type": "CourseInstance",
+            "courseMode": "InPerson",
+            "startDate": step["next_date_iso"],
+        }
+        location = step.get("location_canonical") or step.get("location_raw")
+        if location:
+            instance["location"] = location
+        if offer:
+            instance["offers"] = offer
+        block["hasCourseInstance"] = instance
+    elif offer:
         block["offers"] = offer
     return json.dumps(block, indent=2)
 
@@ -332,7 +399,12 @@ def assemble_page(env: Environment, progression: dict) -> tuple[str, str]:
     for raw in raw_steps:
         sessions = courses_by_title.get(raw["course_title"].strip().lower(), [])
         rep = pick_representative(sessions) or {}
+        next_session = pick_next_available_session(sessions)
+        next_date_iso = next_session.get("date_sort") if next_session else None
         dots, label, badge_class = DIFFICULTY[raw["difficulty_level"]]
+        # Track whether ANY session for this title is custom_dates so the
+        # template can render "By inquiry" when no concrete dates exist.
+        has_custom_dates = any(s.get("custom_dates") for s in sessions)
         enriched_steps.append({
             **raw,
             "course_title": raw["course_title"],
@@ -343,10 +415,24 @@ def assemble_page(env: Environment, progression: dict) -> tuple[str, str]:
             "learn_more_url": utm_url(rep.get("booking_url")),
             "summary": rep.get("summary"),
             "currency": rep.get("currency") or "CAD",
+            "location_canonical": rep.get("location_canonical"),
+            "location_raw": rep.get("location_raw"),
             "meta_line": render_meta_line(rep),
             "difficulty_dots": dots,
             "difficulty_label": label,
             "difficulty_class": badge_class,
+            # Live-availability fields (drives the per-rung "Next: …" line and
+            # Course.hasCourseInstance.startDate in JSON-LD).
+            "next_date_iso": next_date_iso,
+            "next_date_display": format_next_date(next_date_iso) if next_date_iso else None,
+            "next_avail": next_session.get("avail") if next_session else None,
+            "next_spots": next_session.get("spots_remaining") if next_session else None,
+            "next_avail_label": render_availability_label(
+                next_session.get("avail") if next_session else None,
+                next_session.get("spots_remaining") if next_session else None,
+            ) if next_session else None,
+            "next_booking_url": utm_url(next_session.get("booking_url")) if next_session else None,
+            "has_custom_dates": has_custom_dates and not next_session,
         })
 
     capstone = next((s for s in enriched_steps if s["is_capstone"]), enriched_steps[-1])
