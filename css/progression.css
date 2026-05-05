@@ -188,13 +188,11 @@
   flex-shrink: 0;
 }
 .prog-provider-tile-logo {
-  /* Logo variant overrides the 36×36 acronym tile — give the logo
-     enough pixels to read, drop the bg/border/padding so it doesn't
-     compete with the logo's own visual weight. Source logos often
-     embed their own padding/whitespace so the visible mark needs a
-     larger box to read. */
-  width: 156px;
-  height: 156px;
+  /* Logo variant overrides the 36×36 acronym tile. 96×96 is a balance
+     between "logo readable" (we landed on 156 first, which looked
+     disconnected from the text) and "tile doesn't dominate the section". */
+  width: 96px;
+  height: 96px;
   background: transparent;
   border: 0;
   padding: 0;
@@ -209,13 +207,14 @@
   border-radius: var(--radius-sm);
 }
 .prog-provider-name {
-  font-size: 14px;
+  font-size: 17px;
   font-weight: 700;
   color: var(--text-primary);
-  margin-bottom: 2px;
+  margin-bottom: 4px;
+  letter-spacing: -0.2px;
 }
 .prog-provider-cert {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-secondary);
 }
 .prog-provider-rating {
@@ -964,7 +963,8 @@
   .prog-provider-rating { align-self: flex-start; }
   /* Scale the logo tile down on mobile so it doesn't crowd the
      name + cert text. Acronym fallback unchanged. */
-  .prog-provider-tile-logo { width: 96px; height: 96px; }
+  .prog-provider-tile-logo { width: 72px; height: 72px; }
+  .prog-provider-name { font-size: 15px; }
 
   /* Rungs stack vertically on mobile — number and title at top, button below */
   .prog-rung-row {
