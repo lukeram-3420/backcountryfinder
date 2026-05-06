@@ -508,6 +508,7 @@ def scrape_rezdy_product_page(browser, product_url: str, utm: str) -> Optional[d
             "booking_url":      booking_url,
             "description":      description,
             "custom_dates":     custom_dates,
+            "booking_mode":     "request" if custom_dates else "instant",
             "scraped_at":       datetime.utcnow().isoformat(),
             "_pass2_rendered":  True,
         }
@@ -674,6 +675,7 @@ def main():
                 "booking_url":        booking_url,
                 "active":             active,
                 "custom_dates":       custom_dates,
+                "booking_mode":       "request" if custom_dates else "instant",
                 "summary":            c.get("summary", ""),
                 "search_document":    c.get("search_document", ""),
                 "description":        c.get("description", "") or page_description,
