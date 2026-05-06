@@ -19,6 +19,7 @@ from scraper_utils import (
     sb_get, sb_patch, sb_upsert,
     find_place_id, get_place_details, send_email,
     generate_summaries_batch,
+    log_price_change,
     SUPABASE_URL, SUPABASE_KEY, RESEND_API_KEY,
     GOOGLE_PLACES_API_KEY, ANTHROPIC_API_KEY,
 )
@@ -280,6 +281,30 @@ def send_summary(updated: int, overridden: int, no_match: int, no_price: int):
         to=NOTIFY_EMAIL,
     )
 
+# ── Price-log helper ──────────────────────────────────────────────────────────
+def _log_price_after_patch(title: str) -> None:
+    """Append a course_price_log row for every session of (PROVIDER_ID, title)
+    after a price-touching sb_patch. Required because scraper_aaa.py's listing
+    pass writes price=None (Checkfront cal endpoint has no prices), so without
+    this aaa never produces a single price-log row despite having 1,156+ priced
+    sessions in the courses table.
+
+    log_price_change no-change-skips when the value matches the last logged
+    row, so this is idempotent and safe to call on every patch.
+    """
+    try:
+        rows = sb_get("courses", {
+            "provider_id": f"eq.{PROVIDER_ID}",
+            "title":       f"eq.{title}",
+            "select":      "id,provider_id,title,date_sort,price,currency",
+        })
+    except Exception as e:
+        print(f"      ⚠ price-log refetch failed for '{title}': {e}")
+        return
+    for c in rows:
+        if c.get("price") is not None:
+            log_price_change(c)
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     print("🏔 Alpine Air Adventures — details scraper")
@@ -336,6 +361,8 @@ def main():
                     f"provider_id=eq.{PROVIDER_ID}&title=eq.{requests.utils.quote(cf_title)}",
                     payload
                 )
+                if "price" in payload:
+                    _log_price_after_patch(cf_title)
             print(f"    ✅ Override: {cf_title} → ${override.get('price')} | {override.get('summary','')[:50]}")
             overridden += 1
             continue
@@ -374,6 +401,8 @@ def main():
                 f"provider_id=eq.{PROVIDER_ID}&title=eq.{requests.utils.quote(cf_title)}",
                 payload
             )
+            if "price" in payload:
+                _log_price_after_patch(cf_title)
 
         print(f"    ✅ {cf_title} → ${price} | {summary[:50] if summary else 'no summary'}")
         updated += 1
@@ -440,6 +469,8 @@ def main():
                 f"provider_id=eq.{PROVIDER_ID}&title=eq.{requests.utils.quote(fix_title)}",
                 patch,
             )
+            if "price" in patch:
+                _log_price_after_patch(fix_title)
         time.sleep(0.3)
 
     # 8. Fallback: regenerate summaries for any AAA courses still missing one
