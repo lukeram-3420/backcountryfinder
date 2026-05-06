@@ -2522,7 +2522,7 @@ const DETECTED_PLATFORMS = new Set([
 // with CLAUDE.md's Provider-Specific Scrapers table.
 const PLATFORM_REFERENCE = {
   rezdy:       { files: ['scraper_altus.py', 'scraper_msaa.py'],             note: 'Rezdy storefront API; JSON catalog.' },
-  checkfront:  { files: ['scraper_aaa.py'],                                   note: 'Checkfront API 3.0; token auth.' },
+  checkfront:  { files: ['scraper_girth_hitch_guiding.py', 'scraper_checkfront_utils.py'], note: 'Modern Checkfront pattern: shared scraper_checkfront_utils + sampled rated-price (fetch_rated_price_sampled) + flex-row emission for dateless items + 3-strikes circuit breaker. Public API, no credentials needed. Do NOT copy scraper_aaa.py — it stays on the deferred-migration WordPress-hybrid path tracked in issue #110.' },
   zaui:        { files: ['scraper_vanmtnguides.py', 'scraper_zaui_utils.py'], note: 'GROUPED scraper — accepts --group N (0..3). Add all 4 steps to scraper-all.yml or accept a structural ~50% drop-badge on the Providers tab.' },
   woocommerce: { files: ['scraper_cwms.py'],                                  note: 'WooCommerce REST.' },
   squarespace: { files: ['scraper_jht.py'],                                   note: 'Squarespace JSON feed — note site chrome may be Squarespace even when booking is Checkfront.' },
@@ -2564,8 +2564,6 @@ window.copyPipelinePrompt = async (id) => {
     : `         run: python scraper_${moduleId}.py`;
 
   const lines = [
-    '⚠️ Before proceeding: confirm you were launched with --dangerously-skip-permissions. If not, stop and tell the user to relaunch with `claude --dangerously-skip-permissions`.',
-    '',
     'Read CLAUDE.md + add-provider-instructions.md + scraper_utils.py in full. Read ONLY the reference scraper(s) named below — do not read the whole scraper_*.py library.',
     '',
     'Provider:',
@@ -2586,10 +2584,30 @@ window.copyPipelinePrompt = async (id) => {
     '    normalise_location, load_location_mappings,',
     '    generate_summaries_batch,',
     '    log_availability_change, log_price_change,',
-    '    update_provider_ratings,',
+    '    update_provider_ratings, update_provider_shared_utils,',
     '    spots_to_avail, append_utm,',
     '    parse_date_sort, is_future,',
+    '    activity_key, upsert_activity_control, load_activity_controls,',
     '    UTM',
+  );
+  if (rawPlatform === 'checkfront') {
+    lines.push(
+      '',
+      'Plus, for Checkfront tenants — also import the shared utils module:',
+      '    from scraper_checkfront_utils import (',
+      '        fetch_catalog, fetch_calendar, fetch_rated_price_sampled,',
+      '        parse_rated_price,',
+      '    )',
+      '    from scraper_utils import detect_checkfront_spot_counts',
+      '',
+      'And the PROVIDER dict must include:',
+      '    "shared_utils_module": "scraper_checkfront_utils"',
+      '',
+      "main() calls update_provider_shared_utils(PROVIDER['id'], PROVIDER.get('shared_utils_module'))",
+      "right after update_provider_ratings — drives the admin Providers-tab Type column.",
+    );
+  }
+  lines.push(
     '',
     'Course upsert dict (minimum shape):',
     `    id:                stable_id_v2("${r.id}", date_sort, title)`,
@@ -2597,6 +2615,7 @@ window.copyPipelinePrompt = async (id) => {
     '    duration_days, price (int, CAD), currency ("CAD"),',
     '    spots_remaining, avail (spots_to_avail), image_url,',
     '    booking_url (append_utm), active (avail != "sold"),',
+    '    booking_mode ("instant" default; "request" for flex / inquiry-only rows),',
     '    custom_dates (bool), summary (""), search_document ("")',
     '    location_canonical: OMIT THE KEY when normalise_location returns None.',
     '                        Never set it to None — merge-duplicates would',
@@ -2662,8 +2681,12 @@ window.copyPipelinePrompt = async (id) => {
     '  • If parsing dates from HTML, scope regex matching to containers whose class/id matches',
     '    (schedule|dates|upcoming|session|availability|calendar), case-insensitive. Never run',
     '    date regex against soup.get_text(). See extract_schedule_text() in scraper_altus.py.',
-    '  • Filter non-course products (subscriptions, gift cards, memberships, digital downloads)',
-    '    via a module-level EXCLUDE_TITLES list of lowercased titles. See scraper_altus.py.',
+    '  • Per-title visibility lives in the activity_controls table — admin flips visible=false',
+    '    via the Activity Tracking tab. Scrapers call _is_visible() before any expensive work',
+    '    (see scraper_girth_hitch_guiding.py for the pattern). Module-level EXCLUDE_CATEGORIES',
+    '    still applies for platforms that expose categories (e.g. Checkfront\'s',
+    '    {"merchandise", "equipment", "samples"}). The historical EXCLUDE_TITLES constant',
+    '    pattern was retired in Initiative 8 — do not introduce a new one.',
     '  • Playwright only if Step 1 says JS-rendered. Follow scraper_yamnuska.py pattern — never',
     '    import Playwright at the top level of scraper_utils.py.',
     '  • Commit + push when Step 2 is complete.',
