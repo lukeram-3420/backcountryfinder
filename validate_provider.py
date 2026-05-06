@@ -24,7 +24,7 @@ from datetime import datetime, date, timedelta
 import requests
 
 from scraper_utils import (
-    sb_get, sb_upsert, sb_patch, send_email,
+    sb_get, sb_get_all, sb_upsert, sb_patch, send_email,
     generate_summaries_batch,
     SUPABASE_URL, SUPABASE_KEY,
 )
@@ -384,7 +384,7 @@ def load_escalation_candidates(provider_id: str) -> set:
     """
     cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
     try:
-        rows = sb_get("course_availability_log", {
+        rows = sb_get_all("course_availability_log", {
             "provider_id": f"eq.{provider_id}",
             "scraped_at": f"lte.{cutoff}",
             "select": "course_id",
@@ -408,7 +408,7 @@ def load_price_escalation_candidates(provider_id: str) -> set:
     """
     cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
     try:
-        rows = sb_get("course_price_log", {
+        rows = sb_get_all("course_price_log", {
             "provider_id": f"eq.{provider_id}",
             "logged_at": f"lte.{cutoff}",
             "select": "title_hash,date_sort",
@@ -781,8 +781,12 @@ def main():
     except Exception as e:
         print(f"  ⚠ Could not reset validator_warnings: {e}")
 
-    # Fetch all courses for this provider
-    courses = sb_get("courses", {
+    # Fetch all courses for this provider — paginated. PostgREST caps each
+    # page at 1000 rows, so an unpaginated read silently clamps the catalog
+    # for any provider above that threshold (aaa: 1312, girth-hitch-guiding:
+    # 1876). The per-row work below and the scraper_run_log course_count both
+    # depend on this being the full set.
+    courses = sb_get_all("courses", {
         "provider_id": f"eq.{provider_id}",
         "select": "id,provider_id,title,summary,price,date_sort,date_display,avail,active,spots_remaining,custom_dates,booking_url",
     })

@@ -65,7 +65,14 @@ def _sb_headers(prefer: str = "resolution=merge-duplicates") -> dict:
 
 
 def sb_get(table: str, params: dict = None) -> list:
-    """GET rows from a Supabase table. params is a dict of query-string filters."""
+    """GET rows from a Supabase table. params is a dict of query-string filters.
+
+    NOTE: PostgREST silently caps responses at 1000 rows by default. If the
+    caller needs every row (counting, escalation classification, anything that
+    iterates the result), use `sb_get_all` instead — calling `len()` on this
+    response on a >1000-row table is a known foot-gun (CLAUDE.md "Known
+    gotchas — Supabase pagination").
+    """
     if params is None:
         params = {}
     r = requests.get(
@@ -75,6 +82,37 @@ def sb_get(table: str, params: dict = None) -> list:
     )
     r.raise_for_status()
     return r.json()
+
+
+def sb_get_all(table: str, params: dict = None, page_size: int = 1000) -> list:
+    """Paginated GET — returns every row matching the filter, not just the
+    first page. Pages via offset+limit; stops when a page returns less than
+    `page_size`. Always orders by `id` for stable pagination unless the caller
+    overrides `order`.
+
+    Use this for every read that powers a count, an escalation set, or any
+    full-table iteration. Mirrors the pattern in algolia_sync.fetch_courses.
+    """
+    if params is None:
+        params = {}
+    params = dict(params)  # copy — don't mutate caller's dict
+    params.setdefault("order", "id")
+    all_rows: list = []
+    offset = 0
+    while True:
+        page_params = dict(params, limit=str(page_size), offset=str(offset))
+        r = requests.get(
+            f"{SUPABASE_URL}/rest/v1/{table}",
+            headers=_sb_headers(),
+            params=page_params,
+        )
+        r.raise_for_status()
+        page = r.json()
+        all_rows.extend(page)
+        if len(page) < page_size:
+            break
+        offset += page_size
+    return all_rows
 
 
 def sb_upsert(table: str, rows: list) -> None:
