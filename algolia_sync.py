@@ -173,6 +173,17 @@ def group_courses_for_algolia(courses):
     `objectID` is `{provider_id}-{title_hash}` — flat, no date segment, so
     the search grid no longer indexes the same course as N records.
     """
+    def first_nonempty(items, key):
+        """Return the first non-empty value of `key` across `items`, else None.
+        Used for course-level fields that should be shared across all sessions
+        of a (provider_id, title_hash) group — protects the Algolia record from
+        an empty head row when a sibling session has the value populated."""
+        for c in items:
+            v = c.get(key)
+            if v not in (None, ""):
+                return v
+        return None
+
     buckets = {}
     for c in courses:
         key = _group_key(c)
@@ -200,14 +211,14 @@ def group_courses_for_algolia(courses):
             "id":                   head.get("id"),
             "title_hash":           th if th and not th.startswith("title:") else None,
             "title":                head.get("title"),
-            "search_document":      head.get("search_document"),
-            "summary":              head.get("summary"),
-            "location_canonical":   head.get("location_canonical"),
-            "location_raw":         head.get("location_raw"),
-            "duration_days":        head.get("duration_days"),
-            "currency":             head.get("currency"),
-            "image_url":            head.get("image_url"),
-            "booking_mode":         head.get("booking_mode"),
+            "search_document":      first_nonempty(items, "search_document"),
+            "summary":              first_nonempty(items, "summary"),
+            "location_canonical":   first_nonempty(items, "location_canonical"),
+            "location_raw":         first_nonempty(items, "location_raw"),
+            "duration_days":        first_nonempty(items, "duration_days"),
+            "currency":             first_nonempty(items, "currency"),
+            "image_url":            first_nonempty(items, "image_url"),
+            "booking_mode":         first_nonempty(items, "booking_mode"),
             "custom_dates":         head.get("custom_dates"),
             "price_min":            price_min,
             "price_has_variations": price_has_variations,
