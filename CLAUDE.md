@@ -1404,7 +1404,7 @@ V2 is an incremental migration on the live system. V1 and V2 coexist in the same
 | — | Activity Tracking dashboard (Initiative 8 of data quality mission) | Complete — new `activity_controls` + `scraper_config` tables, new admin tab, two edge functions (`admin-toggle-activity-control` / `admin-update-scraper-config`), new seed workflow (`seed-activity-controls.yml`). **All 23 active scrapers** upsert `(provider_id, activity_key)` for every activity they see and gate expensive work behind `visible` (only `scraper.py` legacy monolith and `scraper_aaa_details.py` enrichment pass don't participate). Per-scraper `EXCLUDE_TITLES` lists retired: 5 real lists (altus, vibe, girth_hitch, cloud_nine, bow_valley) seeded into `activity_controls(visible=false)` via `seed_activity_controls.py`, then constants and call sites deleted; 4 empty `EXTRA_EXCLUDE_TITLES = []` constants also removed (canmore, banff, mt_norquay, toby_creek). Visible toggle **cascades to `courses.active`** on flip so the frontend hides / re-shows immediately without waiting for the next scraper run — makes Visible a general-purpose "hide this course" control. Zaui scrapers additionally pick per-activity lookahead from `tracking_mode` (`immediate`/14d or `extended`/180d by default) — projected ~90% reduction in `fetch_unavailability` calls on Banff Adventures once most activities default to immediate. Structural Zaui filters (hotels/transfers/categories/substring DEFAULT_EXCLUDE_TITLES) stay as code in `scraper_zaui_utils.py`. Tab degrades gracefully when the schema tables are missing (setup hint instead of JS crash). |
 | — | Algolia server-side dedup + card-button unification | Complete — `algolia_sync.py group_courses_for_algolia()` emits one record per `(provider_id, title_hash)` with a `dates[]` array + `next_date_sort` scalar; `customRanking` switched to `asc(next_date_sort)`. `mapHit()` reads the new shape directly. `groupCoursesForCards()` is now passthrough on the search path. Multi-date affordance now visible on the default index page (no longer dependent on density-after-filter). Results count shows unique courses (~3-5k), not session count. Save button unified across primary + expanded session rows. `js/saved.js` `_dsKey()` coerces `date_sort` to string-or-null on store/lookup so the saved visual state actually flips on click. `renderSaved()` now renders one card per saved entry (no grouping) — saving feels per-date. |
 | — | Sort + filter controls on the Search page | Complete — Location dropdown added inside the search bar between `#search-query` and `#search-date`; populated from a single Algolia facet query in `populateLocationDropdown()` (sorted A→Z, "Anywhere" prepended, course count appended), feeds a `location_canonical:{val}` facetFilter into `applyConfigFilters()` alongside the existing provider-deep-link filter. Price toggle pill added below the search bar (`#sort-price`); `cyclePriceSort()` cycles `off → asc → desc → off` and swaps the active Algolia index via `search.helper.setIndex()` between the primary and two new replicas (`courses_v2_price_asc` / `courses_v2_price_desc`), declared on the primary in `algolia_sync.py configure_index()`. Replicas inherit records / searchable attrs / faceting; only `customRanking` differs. Synonyms re-pushed to all three indexes (replicas don't auto-mirror synonyms). Lazy-init (PR #39) extended — location-dropdown focus/change and price-pill click also trigger Algolia activation on SEO pages. |
-| 5 | Velocity signals (fill rate, price trend) | Not started — needs 4+ weeks of log data + completion of "Phase 5 prerequisites" (see below) |
+| 5 | Velocity signals (fill rate, price trend) | Not started — needs 4+ weeks of log data + completion of "Phase 5 prerequisites" (see below). Granularity audit (2026-05-06) found ~90% of the catalog is binary-flag with no per-course velocity signal possible from public APIs — bucket-level signal must be primary. See "Velocity signal granularity ceiling" below. |
 | 6 | Validator simplification | Partially done — activity and price checks simplified; date check is active-loop; remaining cleanup pending |
 | 7 | Drop V1 columns + tables post-cutover | Not started |
 
@@ -1569,6 +1569,8 @@ Two pieces of historical pollution must be addressed before any velocity computa
 
 **Prerequisite A — `course_availability_log.bad_data` for the Checkfront binary-flag bug**
 
+*Status (2026-05-06):* Schema migration **shipped** — `bad_data boolean NOT NULL DEFAULT false` added to `course_availability_log`. Backfill query below is still **pending** — run it after at least one healthy post-fix scrape baseline has accumulated for `aaa` + `girth-hitch-guiding` (now satisfied as of 2026-05-06).
+
 *Window of contamination:* `scraped_at >= '2026-04-16 07:18:43 UTC'` (V2 cutover) `AND scraped_at < '2026-04-29 02:30:00 UTC'` (PR #41 merge)
 *Affected providers:* `aaa`, `girth-hitch-guiding` only (Bow Valley scraper doesn't write per-date avail — uses HTML widget scrape, not `/api/3.0/item/cal`).
 *Contamination shape:* rows with `spots_remaining=1` and `avail='critical'` that were actually binary-flag products (the API was just emitting "available yes/no", value `1`). The pre-PR-41 scraper had a global-vs-per-item probe bug that flipped any catalog-wide `>1` value into a per-item assumption that `1` meant "1 spot remaining".
@@ -1610,9 +1612,86 @@ The `NOT EXISTS` clause is the safeguard: if a product **ever** legitimately log
 
 `course_price_log.bad_data` was added in Initiative 4 with write-time population (`log_price_change` sets `bad_data=true` when `price <= 0`). No backfill was required because the validator's auto-hide on `price<=0` predates the log-population work. Phase 5 must still add `AND NOT bad_data` to every price-trend query — verify this contract is wired before any velocity dashboards ship.
 
-**Inherent limitation (not fixable, must be handled gracefully):**
+**Inherent limitation (not fixable from public APIs, must be handled gracefully):**
 
-Binary-flag Checkfront products produce no velocity granularity post-fix — they log `spots_remaining=null, avail='open'` until the date sells out. Phase 5 should detect this case (e.g. "course has zero log rows with `spots_remaining > 1`") and skip velocity computation for those products entirely. The synthetic card object's `velocity_fill_pct` should remain `null`, which the existing card render in `js/cards.js` already handles via `display:none` on the velocity widget.
+Binary-flag Checkfront products and most other non-Checkfront-real-count products produce no velocity granularity from the data we currently scrape — they log `spots_remaining=null, avail='open'` until the date sells out. Phase 5 should detect this case (e.g. "course has zero log rows with `spots_remaining > 1`") and skip per-course velocity computation for those products entirely. The synthetic card object's `velocity_fill_pct` should remain `null`, which the existing card render in `js/cards.js` already handles via `display:none` on the velocity widget. Bucket-level signal (see next section) is the path forward for those courses; per-tenant authenticated APIs are the path to upgrading them to granular if/when credentials are obtained.
+
+### Velocity signal granularity ceiling — platform-API audit (2026-05-06)
+
+A full audit of `course_availability_log` distinct-session granularity ran 2026-05-06 and revealed the velocity engine's data ceiling. Of ~29,279 distinct course-date sessions in the log, only **~9.6% (2,814)** currently carry integer `spots_remaining` values. The remaining ~90% (~26,420 sessions) are binary-flag (`spots_remaining=null`) and only log on `avail` flips. The ceiling is platform-API-imposed, not a scraper bug.
+
+#### Per-platform verdict (public/unauthenticated endpoints)
+
+| Provider category | Sessions | Granular today? | Why |
+|---|---|---|---|
+| Checkfront real-count items (`girth-hitch-guiding`, ~3.5% of `aaa`) | ~2,510 | ✓ yes | `detect_checkfront_spot_counts` correctly identifies real-count items per-product; binary items skipped. |
+| WordPress / Rails real-count (`yamnuska`, `cwms`, `iag`, `hvi`, `canadian-rockies-hiking-by-yamnuska`) | ~304 | ✓ yes | Provider HTML exposes integer count strings, scrapers parse them. |
+| Rezdy via public storefront HTML (`msaa`, `altus`) | ~155 | ✗ no | Public `{storefront}/catalog/{id}` HTML doesn't include seat counts. The unused `scrape_rezdy_api()` fallback in `scraper_altus.py` would parse the public `/products` JSON endpoint, but that endpoint also doesn't expose `seatsAvailable`. Recoverable only via authenticated Supplier/Connect API — see below. |
+| Zaui public booking-widget API (`banff-adventures`, `canmore-adventures`, `vanmtnguides`, `mt-norquay`, `toby-creek-adventures`) | ~24,441 | ✗ no | Public `{tenant}.zaui.net/booking/api` endpoints (`/activity/list`, `/activity/fetchUnavailability`) expose price tiers + availability dates but **no capacity/inventory fields anywhere in the response**. All 5 scrapers hardcode `spots_remaining=None, avail='open'` — deliberate design reflecting the API surface. Recoverable only via authenticated ZAPI or OCTO — see below. |
+| FareHarbor / Squarespace / WordPress no-count (`vibe-backcountry`, `bsa`, `srg`, `summit`, `jht`) | ~295 | ✗ no | Source pages don't expose count data. No documented authenticated alternative for these tenants. |
+
+#### Recovery path — authenticated APIs (require per-tenant credentials)
+
+Both Rezdy and Zaui expose real-time seat counts through their **authenticated** API tiers. These are platform-supported integrations, not reverse-engineering. Acquiring read-only credentials for any tenant flips that tenant's entire catalog from binary to granular on the next scrape.
+
+| Platform | Authenticated endpoint | Seat-count field | Auth model | Rate limit |
+|---|---|---|---|---|
+| **Rezdy Supplier / Connect API** | `/availability` — returns sessions with `seats` (capacity) + `seatsAvailable` (remaining) + `priceOptions` | `seatsAvailable` (int) | API key (query param) **OR** OAuth2 bearer; per-tenant — merchant generates from Rezdy admin | 100 req/min/key |
+| **Zaui ZAPI (Supplier API)** | `checkInventory` (single date) and `batchAvailability` (multi-date), both return `activityTimeSpotsRemaining` + `numberOnStandby` + `isStandbyAvailable` | `activityTimeSpotsRemaining` (int) | Per-tenant API token; merchant adds us as user in their Zaui system, issues ZAPI token | not documented |
+| **Zaui OCTO** | OCTO standard endpoints (Open Connection for Tourism Operators); returns `availability.vacancies` per date | `availability.vacancies` (int) | Multi-tenant: one OCTO consumer can talk to many suppliers; **free to use** through Zaui per their docs. Merchant still has to enable our connection on their end. | not documented |
+
+Sources: [Rezdy Supplier Spec](https://developers.rezdy.com/rezdyapi/index-supplier.html), [Rezdy Connect Spec](https://developers.rezdy.com/rezdyconnect/index.html), [Zaui ZAPI Check Inventory](https://docs.zaui.com/zapi/zapi-calls/activity-calls/check-inventory), [Zaui ZAPI Batch Availability](https://docs.zaui.com/zapi/zapi-calls/booking/batch-availability), [Zaui OCTO Spec](https://docs.zaui.com/octo).
+
+#### Coverage math if credentials are acquired
+
+| Scenario | Granular sessions | % of catalog |
+|---|---|---|
+| Today (2026-05-06, no credentials) | 2,814 | 9.6% |
+| + msaa + altus Rezdy keys | 2,969 | 10.1% |
+| + Banff Adventures Zaui token only | 18,279 | 62.4% |
+| + all 5 Zaui tokens | 27,255 | 93.0% |
+| + Zaui OCTO bridge (one credential set, all 5 tenants) | 27,255 | 93.0% |
+
+Banff Adventures alone (15,310 sessions, 52% of catalog) is the single biggest available lever. OCTO is the path-of-least-friction alternative since it's a multi-tenant standard rather than 5 separate token negotiations.
+
+#### Implications for velocity engine architecture
+
+Pure per-course velocity is structurally impossible for the 90% binary catalog **and won't change without provider-credential acquisition**. The engine therefore must be designed around **bucket-level velocity** as the primary signal, with two complementary inputs:
+
+- **Granular bucket signal** — averaging spot-decrements across granular courses in a bucket (e.g. AST 1 in BC). Available today for buckets containing the ~10% granular providers; expands with each new credential acquired.
+- **Binary bucket signal** — fraction of bucket sessions that flipped to `sold` plus median days-from-listing-to-sold. Available for any bucket once enough sessions actually sell out; accumulates over the season. The first sold-flip from `skaha-rock-adventures` (44 flips by 2026-05-06) confirmed the binary pipeline works end-to-end.
+
+Per-card "🔥 filling fast" badge logic should fire on per-course velocity when granular data is available, and fall back to bucket-level "this category is filling fast" otherwise. The State of the Backcountry page leans more heavily on bucket-level binary signal since it's the only path that scales across the full catalog.
+
+#### Acquisition priorities (if pursuing the credential path)
+
+Ranked by impact:
+1. **Banff Adventures Zaui token** — 15,310 sessions, 52% of catalog. Single biggest move.
+2. **Zaui OCTO bridge** — covers all 5 Zaui tenants under one credential set if individual operators enable our connection; faster than 5 separate token negotiations.
+3. **Remaining 4 Zaui tokens individually** — vanmtnguides (4,823) > canmore-adventures (2,109) > mt-norquay (1,196) > toby-creek-adventures (1,003).
+4. **Rezdy Supplier API keys for msaa + altus** — small (~155 sessions) but signals merchant-integration seriousness and gives reciprocity leverage.
+
+#### Re-running the audit
+
+The audit query (run in Supabase SQL editor) for any future re-validation:
+
+```sql
+WITH latest AS (
+  SELECT DISTINCT ON (provider_id, title_hash, date_sort)
+         provider_id, title_hash, date_sort, spots_remaining, avail
+  FROM course_availability_log
+  ORDER BY provider_id, title_hash, date_sort, scraped_at DESC
+)
+SELECT provider_id,
+       COUNT(*) FILTER (WHERE spots_remaining IS NOT NULL)                                  AS granular_courses,
+       COUNT(*) FILTER (WHERE spots_remaining IS NULL AND avail = 'sold')                    AS binary_already_sold,
+       COUNT(*) FILTER (WHERE spots_remaining IS NULL AND avail = 'open')                    AS binary_still_open,
+       COUNT(*) FILTER (WHERE spots_remaining IS NULL AND avail NOT IN ('open','sold'))      AS binary_other_avail,
+       COUNT(*)                                                                              AS total_courses
+FROM latest
+GROUP BY 1
+ORDER BY total_courses DESC;
+```
 
 ### Data quality mission (parallel track)
 See [data_quality_initiatives.md](data_quality_initiatives.md) for the initiative plan.
