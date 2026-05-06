@@ -21,6 +21,12 @@ Endpoints covered:
 
 Reference: https://api.checkfront.com/ref/item.html
 Sample rated response: https://github.com/Checkfront/API/blob/master/docs/examples/response/item-rated.json
+
+Maintainer note: any scraper that imports from this module MUST set
+``"shared_utils_module": "scraper_checkfront_utils"`` in its PROVIDER config
+dict so the Providers-tab Type column in admin.html renders ``Shared utils``
+for that provider. Scrapers already call ``update_provider_shared_utils``
+next to ``update_provider_ratings``; the value comes from the PROVIDER dict.
 """
 
 from __future__ import annotations
