@@ -27,7 +27,7 @@ from scraper_utils import (
     update_provider_ratings, update_provider_shared_utils,
     title_hash, activity_key,
     upsert_activity_control, load_activity_controls,
-    discover_rezdy_catalogs, fetch_rezdy_calendar_products,
+    discover_rezdy_catalogs, fetch_rezdy_calendar_sessions,
 )
 
 # Populated at main() start via load_activity_controls(). Consulted by the
@@ -45,6 +45,14 @@ def _is_visible(provider_id: str, title: str) -> bool:
     )
     ctrl = _CONTROLS.get(key)
     return not (ctrl and ctrl.get("visible") is False)
+
+
+def _format_calendar_date_display(date_sort: str) -> str:
+    """YYYY-MM-DD → 'May 9, 2026' for human-readable date_display."""
+    try:
+        return datetime.strptime(date_sort, "%Y-%m-%d").strftime("%b %-d, %Y")
+    except Exception:
+        return date_sort
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -562,17 +570,38 @@ def main():
         # category ID per listing page covers products outside the
         # storefront catalogs (e.g. Trad Lead & Progression, Rock Rescue).
         # Endpoint is on rezdy.com so it's reachable from GitHub Actions —
-        # the marketing site itself is Cloudflare-blocked. Returns empty if
-        # Rezdy's referer/origin allowlist rejects the request.
+        # the marketing site itself is Cloudflare-blocked. The calendar
+        # response carries per-session dates (preferredDate query param on
+        # each chooseQuantity link), which we use directly instead of
+        # falling back to the unreliable rendered-text date regex.
+        cal_sessions_by_pid: dict = {}
         discovered_products: list = []
         for cat_id, cat_referer in MSAA_CALENDAR_CATEGORY_IDS:
-            urls = fetch_rezdy_calendar_products(
+            products_data = fetch_rezdy_calendar_sessions(
                 provider["storefront"], cat_id, referer=cat_referer,
             )
-            discovered_products.extend(urls)
+            for prod in products_data:
+                pid = prod["product_id"]
+                existing = cal_sessions_by_pid.get(pid)
+                if existing:
+                    seen = {(d["date_sort"], d.get("time", ""))
+                            for d in existing["dates"]}
+                    for d in prod["dates"]:
+                        key = (d["date_sort"], d.get("time", ""))
+                        if key not in seen:
+                            existing["dates"].append(d)
+                            seen.add(key)
+                else:
+                    cal_sessions_by_pid[pid] = {
+                        "title": prod["title"],
+                        "url":   prod["url"],
+                        "dates": list(prod["dates"]),
+                    }
+                discovered_products.append(prod["url"])
 
         # Inject hardcoded orphans (products not reachable via any category
-        # listing yet — see MSAA_EXTRA_ORPHAN_URLS for rationale).
+        # listing yet — see MSAA_EXTRA_ORPHAN_URLS for rationale). These
+        # have no calendar dates available; they fall through to flex.
         if MSAA_EXTRA_ORPHAN_URLS:
             log.info(f"Injecting {len(MSAA_EXTRA_ORPHAN_URLS)} hardcoded orphan URL(s)")
             discovered_products.extend(MSAA_EXTRA_ORPHAN_URLS)
@@ -598,10 +627,29 @@ def main():
             if not _is_visible(provider["id"], course["title"]):
                 log.info(f"  Skipping hidden title: {course['title']}")
                 continue
-            raw_courses.append(course)
-            pass2_count += 1
+
+            # Look up calendar sessions by productId. Each product was
+            # rendered once for description / price / image; if the
+            # calendar gave us dates, fan out one row per session date
+            # so the upsert step produces real dated rows instead of a
+            # single flex row.
+            pid_match = re.search(r"\.com/(\d+)", url)
+            pid = pid_match.group(1) if pid_match else None
+            cal_data = cal_sessions_by_pid.get(pid) if pid else None
+            if cal_data and cal_data["dates"]:
+                for d in cal_data["dates"]:
+                    row = dict(course)
+                    row["date_sort"]    = d["date_sort"]
+                    row["date_display"] = _format_calendar_date_display(d["date_sort"])
+                    row["custom_dates"] = False
+                    row["booking_mode"] = "instant"
+                    raw_courses.append(row)
+                    pass2_count += 1
+            else:
+                raw_courses.append(course)
+                pass2_count += 1
             time.sleep(1)
-        log.info(f"Pass 2: {pass2_count} orphan product(s) added to scrape queue")
+        log.info(f"Pass 2: {pass2_count} orphan row(s) added to scrape queue")
 
         for c in raw_courses:
             # Skip past courses
