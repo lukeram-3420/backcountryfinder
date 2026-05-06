@@ -172,12 +172,23 @@ def main():
     print(f"  Calendar entries returned: {len(cal)}")
 
     # 4. Fetch rated response per item (prices + per-date real stock counts).
-    # Rated requests are public-API-accessible; same retry-on-5xx logic applies
-    # via cf_get. ~80 extra GETs for the typical catalog — well within budget.
-    print("  Fetching rated responses for prices + per-date stock counts...")
+    # Rated requests are public-API-accessible. Two scope-limits to keep
+    # wall-time bounded on this flaky tenant:
+    #   (a) only rated-fetch items that succeeded on the calendar pass —
+    #       items that 500'd on /item/cal will almost certainly 500 on
+    #       /item/{id} too (same upstream-data root cause); skipping them
+    #       avoids re-hammering and another retry storm.
+    #   (b) fetch_rated_item defaults to attempts=1 (no retries) — a
+    #       transient blip on rated isn't worth 14s; price falls back to
+    #       catalog (None for this tenant) cleanly.
+    rated_eligible = [iid for iid in item_ids if str(iid) in cal]
+    skipped_due_to_cal_failure = len(item_ids) - len(rated_eligible)
+    print(f"  Fetching rated responses for prices + per-date stock counts "
+          f"({len(rated_eligible)} items; "
+          f"{skipped_due_to_cal_failure} skipped due to calendar 500s)...")
     rated_data: dict = {}        # {item_id: full response dict}
     rated_failed: list = []
-    for item_id in item_ids:
+    for item_id in rated_eligible:
         try:
             rated_data[str(item_id)] = fetch_rated_item(
                 CF_BASE, item_id, start_s, end_s,
@@ -188,7 +199,7 @@ def main():
     if rated_failed:
         print(f"  ⚠ {len(rated_failed)} item(s) failed rated fetch; "
               f"those will fall back to catalog price (likely None)")
-    print(f"  Rated fetched for {len(rated_data)}/{len(item_ids)} items")
+    print(f"  Rated fetched for {len(rated_data)}/{len(rated_eligible)} eligible items")
 
     # 5. Build rows
     rows = []
