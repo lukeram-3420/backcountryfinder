@@ -321,10 +321,20 @@ function applyConfigFilters() {
   const dateVal = document.getElementById('search-date').value;
   if (dateVal) {
     const ts = Math.floor(new Date(dateVal).getTime() / 1000);
-    // Algolia records are now grouped per course with a scalar `next_date_sort`
-    // (the smallest upcoming date_sort across all sessions in the group). Filter
-    // on that so a course with any matching session passes the filter.
-    config.numericFilters = [`next_date_sort>=${ts}`];
+    // Filter on `max_date_sort` (the largest date_sort across the group) so a
+    // record passes when AT LEAST ONE session is on/after the user's date.
+    // Filtering on `next_date_sort` (the smallest) would hide a course whose
+    // earliest session is in the past even though it has many future sessions.
+    // mapHit() drops past-date sessions client-side so the rendered card
+    // matches the filter intent.
+    //
+    // Nested-array form is OR: a record passes if EITHER attribute matches.
+    // Acts as a transition fallback — Algolia excludes records that lack the
+    // filtered attribute, so until the next algolia_sync.py run repopulates
+    // every record with `max_date_sort`, the legacy `next_date_sort` branch
+    // keeps the existing records visible. Safe to drop the fallback once a
+    // full sync has completed post-deploy.
+    config.numericFilters = [[`max_date_sort>=${ts}`, `next_date_sort>=${ts}`]];
   }
   // Facet filters — combine provider deep link + location dropdown
   const facetFilters = [];
