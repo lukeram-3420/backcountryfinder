@@ -1671,14 +1671,55 @@ Sources: [Rezdy Supplier Spec](https://developers.rezdy.com/rezdyapi/index-suppl
 
 Two existing Checkfront scrapers (`scraper_aaa.py`, `scraper_girth_hitch_guiding.py`) share `scraper_checkfront_utils.py` — same pattern as `scraper_zaui_utils.py`. Public API with rated requests gives both prices and real stock counts; no credentials needed. The utils module exposes:
 
-- `cf_get(tenant_base, endpoint, params, headers)` — generic Checkfront GET with retry-on-5xx and per-attempt exponential backoff (2s, 4s, 8s) for the transient infra blips this platform produces.
+- `cf_get(tenant_base, endpoint, params, headers, attempts=3)` — generic Checkfront GET with retry-on-5xx and exponential backoff (2s, 4s, 8s). The `attempts` knob lets non-critical paths fast-fail (e.g. rated requests default to `attempts=1`).
 - `fetch_catalog(tenant_base, headers)` — `/api/3.0/item` for the full item catalogue.
-- `fetch_calendar(tenant_base, item_ids, start, end, headers)` — `/api/3.0/item/cal` with batch-of-5 + per-item-fallback (some Checkfront tenants 500 on larger batches; one bad item shouldn't take out the whole run).
-- `fetch_rated_item(tenant_base, item_id, start, end, headers)` — `/api/3.0/item/{id}?start_date=…&end_date=…` for the rated response (price + per-date real stock counts).
-- `parse_rated_price(item_data)` — extracts the integer price from `item.rate.summary.price.total` (handles the `"$130.00"` string format).
-- `parse_rated_per_date_stock(item_data)` — extracts `{YYYYMMDD: {available, total}}` from `item.rate.dates`.
+- `fetch_calendar(tenant_base, item_ids, start, end, headers, batch_size=5)` — `/api/3.0/item/cal` with batch-of-5 + per-item-fallback (some Checkfront tenants 500 on larger batches; one bad item shouldn't take out the whole run).
+- `fetch_rated_item(tenant_base, item_id, start, end, headers, attempts=1)` — full-window rated. **Use only on fast tenants** — wide windows (180 days) cause Checkfront to compute rates across every date × every customer-type combination, which times out at 15s on slow tenants. Defaults to `attempts=1` (fast-fail) since the caller can fall back.
+- **`fetch_rated_price_sampled(tenant_base, item_id, start_iso, sample_offsets_days=(0,30,90,150), lookahead_days=180, headers, attempts=1, guests=1)`** — recommended production path. Spot-checks 4 dates with 1-day windows + `param[guests]=1` (forces a single rate plan). First-failure short-circuit: if today's sample fails, skip remaining offsets for that item. Each 1-day sample is a tiny computation (<1s), vs ~15s+ timeout for full-window. Returns `{YYYYMMDD: price}`; caller decides how to handle variance across samples.
+- `parse_rated_price(item_data)` — extracts the integer price from `item.rate.summary.price.total` (handles the `"$130.00"` string format, banker's-rounded).
+- `parse_rated_per_date_stock(item_data)` — extracts `{YYYYMMDD: {available, total}}` from `item.rate.dates`. Useful when the full-window `fetch_rated_item` returns; the sampled helper doesn't fetch stock data.
 
-Onboarding a new Checkfront provider becomes a ~50-line scraper file: `PROVIDER` config dict, tenant-specific `EXCLUDE_CATEGORIES`, optional `BROKEN_ITEM_IDS` set (per-tenant data-quality issues — Girth Hitch has `{8, 14, 20, 134, 143}` per PRs #55-#58), optional `LOCATION_MAP` for title-keyword location resolution, and a `main()` that orchestrates `fetch_catalog → filter → fetch_calendar → fetch_rated_item per visible item → build rows → upsert → log`. Stable IDs go through `stable_id_v2` from `scraper_utils` so log continuity is preserved across the V1→V2 cutover.
+Onboarding a new Checkfront provider becomes a ~50-line scraper file: `PROVIDER` config dict, tenant-specific `EXCLUDE_CATEGORIES`, optional `BROKEN_ITEM_IDS` set (per-tenant data-quality issues — Girth Hitch has `{8, 14, 20, 134, 143}` per PRs #55-#58), optional `LOCATION_MAP` for title-keyword location resolution, and a `main()` that orchestrates `fetch_catalog → filter → fetch_calendar → fetch_rated_price_sampled per cal-eligible item → flex-row probe per dateless item → build rows → upsert → log`. Stable IDs go through `stable_id_v2` from `scraper_utils` so log continuity is preserved across the V1→V2 cutover.
+
+**Tenant-quirk handling — patterns learned from the Girth Hitch tenant (PRs #105, #106, #108, #109):**
+
+1. **Slow tenants → use sampled rated, not full-window.** Some Checkfront tenants compute rates across every date × every customer-type combination, making 180-day rated requests time out at 15s. `fetch_rated_price_sampled` sidesteps this with 4 single-day requests. Cheap (~32s for 8 items) and reliable. Reference: PR #108 — full-window rated returned `Rated fetched for 0/8 eligible items` on the Girth Hitch tenant; sampled path captures 8/8.
+2. **Skip rated for items that already failed calendar.** The same upstream-data corruption that 500s on `/item/cal` typically also fails on `/item/{id}` rated. Filter before the rated loop:
+   ```python
+   rated_eligible = [iid for iid in item_ids if str(iid) in cal]
+   ```
+   Saves a full retry cycle on broken items (PR #106).
+3. **Hardcoded `BROKEN_ITEM_IDS` set per tenant.** When specific item IDs persistently 500 across multiple runs (verified by a few days of identical failed-IDs lists), pre-emptively skip them. Saves ~14s per skipped item per scrape. Re-evaluate when the provider confirms a fix on their side. Pattern: `BROKEN_ITEM_IDS = {8, 14, 20, 134, 143}` at module top-level, then `[i for i in ids if int(i) not in BROKEN_ITEM_IDS]` before the calendar fetch.
+4. **3-strikes circuit breaker on flex-row probing.** When iterating over many dateless items to emit flex rows, abort the loop if 3 consecutive items fail their rated sample — the tenant is clearly storming. Caps worst-case wall time. Pattern from `scraper_girth_hitch_guiding.py`:
+   ```python
+   consecutive_flex_failures = 0
+   for item_id in flex_eligible:
+       samples = fetch_rated_price_sampled(...)
+       if not valid:
+           consecutive_flex_failures += 1
+           if consecutive_flex_failures >= 3:
+               break
+           continue
+       consecutive_flex_failures = 0
+       # ... build flex row ...
+   ```
+
+**Flex-row / notify-me emission for dateless items (PR #109):** items in the catalogue that have no upcoming bookable dates in the lookahead window should be emitted as flex-date rows rather than dropped. They feed the existing notifications-table notify-me flow and stay searchable year-round per the SEO seasonality strategy (CLAUDE.md "scrapers must persist dateless courses across runs as `notify_me` mode rows rather than dropping them").
+
+Pattern in `scraper_girth_hitch_guiding.py`:
+
+1. After calendar pass: `flex_eligible = [iid for iid in item_ids if str(iid) not in cal]` — items the calendar didn't return (either 500'd or no upcoming dates).
+2. For each flex-eligible item, attempt one rated price sample (`sample_offsets_days=(0,)` — single sample is enough for a flex row, no need for variance detection).
+3. If rated returns a price, emit a row with:
+   - `id = stable_id_v2(provider_id, None, title)` → `{provider}-flex-{title_hash}`
+   - `date_sort = None`, `date_display = "Inquire for dates"`
+   - `custom_dates = True`, `booking_mode = "request"`, `active = True`
+4. If rated fails → skip silently (most likely a chronic 500-er; `fetch_rated_price_sampled`'s first-failure short-circuit handles cleanly).
+5. Merge flex rows into the main row list before summary generation so they share the Haiku summary pass.
+
+Today's Girth Hitch run produces 44 flex rows in addition to 1,289 dated rows — courses that would have been silently dropped before.
+
+**Deferred — `scraper_aaa.py` migration to checkfront utils** ([issue #110](https://github.com/lukeram-3420/backcountryfinder/issues/110)). AAA currently runs a 2-pass pipeline: `scraper_aaa.py` (Checkfront listing with `price=None`) + `scraper_aaa_details.py` (WordPress product-page patches for prices, descriptions, summaries). PR #102 closed the price-log gap by adding `_log_price_after_patch` calls. The pipeline is healthy — 1,156 priced sessions captured per run — and migrating to checkfront utils is risk-without-reward today because (a) `aaa_details` scrapes descriptions + summaries that the Checkfront API doesn't expose so we'd keep `aaa_details` running anyway, (b) today's Girth Hitch journey took 5 PRs to bake the pattern, and (c) the aaa Checkfront tenant might also time out on rated requests. Migrate when one of three triggers fires: WordPress breaks (parsing breaks → maintenance must-do), authenticated Checkfront credentials acquired (Supplier API gives real stock counts, biggest unlock), or onboarding a similar hybrid provider (forces the pattern anyway → fold aaa in alongside). See [issue #110](https://github.com/lukeram-3420/backcountryfinder/issues/110) for the full rationale.
 
 #### Coverage math if credentials are acquired
 
