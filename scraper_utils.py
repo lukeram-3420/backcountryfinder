@@ -8,6 +8,7 @@ scraper.py (the original monolith) is NOT affected — it keeps its own copies.
 Public API:
   Supabase:  sb_get, sb_upsert, sb_insert, sb_patch
   Places:    find_place_id, get_place_details, update_provider_ratings
+  Provider:  update_provider_shared_utils
   Location:  load_location_mappings, normalise_location
   Claude:    claude_classify, generate_summaries_batch
   Dates:     parse_date_sort, is_future
@@ -224,6 +225,27 @@ def get_place_details(place_id: str) -> dict:
     except Exception as e:
         log.warning(f"Place details failed for {place_id}: {e}")
         return {}
+
+
+def update_provider_shared_utils(provider_id: str, module_name: Optional[str]) -> None:
+    """PATCH providers.shared_utils_module for a single provider.
+
+    Drives the Providers-tab Type column in admin.html (Shared utils vs
+    Unique). Pass the module name (e.g. ``"scraper_zaui_utils"``) when the
+    scraper imports from a platform-specific shared helpers file; pass
+    ``None`` for bespoke scrapers so a shared→bespoke migration self-
+    corrects on the next run.
+
+    Convention: every scraper calls this once per run, right after
+    ``update_provider_ratings``. The value typically comes from
+    ``PROVIDER.get("shared_utils_module")`` so the declaration sits next
+    to the rest of the provider config.
+    """
+    try:
+        sb_patch("providers", f"id=eq.{provider_id}",
+                 {"shared_utils_module": module_name})
+    except Exception as e:
+        log.warning("update_provider_shared_utils failed for %s: %s", provider_id, e)
 
 
 def update_provider_ratings(provider_id: str) -> None:

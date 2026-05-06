@@ -23,7 +23,7 @@ import datetime
 from scraper_utils import (
     sb_upsert, stable_id_v2,
     log_availability_change, log_price_change,
-    update_provider_ratings,
+    update_provider_ratings, update_provider_shared_utils,
     load_location_mappings, normalise_location,
     generate_summaries_batch,
     spots_to_avail, append_utm,
@@ -124,6 +124,8 @@ def main():
         update_provider_ratings(PROVIDER["id"])
     except Exception as e:
         print(f"  Places update failed: {e}")
+
+    update_provider_shared_utils(PROVIDER["id"], PROVIDER.get("shared_utils_module"))
 
     loc_mappings = load_location_mappings()
     print(f"  Loaded {len(loc_mappings)} location mappings")
@@ -280,7 +282,10 @@ def main():
             # 1. Calendar integer if detect_checkfront_spot_counts says safe
             # 2. None (binary-flag product, avail='open' until sold)
             spots_remaining = None
-            if item_has_spot_counts:
+            rated_stock_for_date = rated_stock.get(date_key) or {}
+            if rated_stock_for_date.get("available") is not None:
+                spots_remaining = rated_stock_for_date["available"]
+            elif item_has_spot_counts:
                 try:
                     spots_remaining = int(available)
                 except (ValueError, TypeError):

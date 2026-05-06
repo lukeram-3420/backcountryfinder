@@ -33,6 +33,7 @@ from scraper_utils import (
     log_availability_change,
     log_price_change,
     update_provider_ratings,
+    update_provider_shared_utils,
     spots_to_avail,
     append_utm,
     parse_date_sort,
@@ -498,6 +499,8 @@ def main():
         update_provider_ratings(PROVIDER["id"])
     except Exception as e:
         log.warning(f"  Places update failed: {e}")
+
+    update_provider_shared_utils(PROVIDER["id"], PROVIDER.get("shared_utils_module"))
 
     global _CONTROLS
     _CONTROLS = load_activity_controls(PROVIDER["id"])

@@ -29,7 +29,7 @@ from scraper_utils import (
     load_location_mappings, normalise_location,
     claude_classify, generate_summaries_batch,
     parse_date_sort, is_future, stable_id_v2,
-    update_provider_ratings, send_email,
+    update_provider_ratings, update_provider_shared_utils, send_email,
     detect_url_drift,
     SUPABASE_URL, SUPABASE_KEY, ANTHROPIC_API_KEY, GOOGLE_PLACES_API_KEY,
     RESEND_API_KEY, UTM,
@@ -526,6 +526,8 @@ def main():
     log.info("=== Yamnuska scraper starting ===")
 
     update_provider_ratings(PROVIDER["id"])
+
+    update_provider_shared_utils(PROVIDER["id"], PROVIDER.get("shared_utils_module"))
 
     global _CONTROLS
     _CONTROLS = load_activity_controls(PROVIDER["id"])

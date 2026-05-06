@@ -23,7 +23,7 @@ from scraper_utils import (
     stable_id_v2, generate_summaries_batch,
     title_hash, activity_key,
     upsert_activity_control, load_activity_controls,
-    sb_upsert,
+    sb_upsert, update_provider_shared_utils,
 )
 
 _CONTROLS: dict = {}
@@ -396,6 +396,8 @@ def main():
     log.info(f"=== {provider['name']} scraper starting ===")
 
     update_provider_ratings(provider["id"])
+
+    update_provider_shared_utils(provider["id"], provider.get("shared_utils_module"))
 
     mappings = load_location_mappings()
     log.info(f"Loaded {len(mappings)} location mappings")
