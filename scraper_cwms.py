@@ -312,6 +312,7 @@ def main():
             "price": c.get("price"), "spots_remaining": None, "avail": "open",
             "image_url": c.get("image_url"), "booking_url": booking_url,
             "active": active, "custom_dates": custom_dates,
+            "booking_mode": "request" if custom_dates else "instant",
             "summary": "", "search_document": "",
             "description": c.get("description", ""),
             "scraped_at": c["scraped_at"],
@@ -365,6 +366,7 @@ def main():
                 "avail":         session.get("avail", "open"),
                 "booking_url":   session_url,
                 "custom_dates":  False,
+                "booking_mode":  "instant",
                 "active":        session.get("avail") != "sold",
                 "description":   course.get("description", ""),
             })

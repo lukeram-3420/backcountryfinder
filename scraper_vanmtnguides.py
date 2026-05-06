@@ -262,6 +262,7 @@ def main():
                 "avail":              "open",
                 "active":             True,
                 "custom_dates":       True,
+                "booking_mode":       "request",
                 "booking_url":        booking_url,
                 "image_url":          image_url,
                 "summary":            "",

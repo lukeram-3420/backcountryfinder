@@ -856,6 +856,7 @@ def scrape_website_course(url: str) -> list:
             "search_document": "",
             "avail":         "open",
             "custom_dates":  True,
+            "booking_mode":  "request",
             "scraped_at":    scraped_at,
         })
 
@@ -952,6 +953,7 @@ def main():
             "booking_url":        booking_url,
             "active":             active,
             "custom_dates":       custom_dates,
+            "booking_mode":       "request" if custom_dates else "instant",
             "summary":            c.get("summary", ""),
             "search_document":    c.get("search_document", ""),
             "description":        page_description or c.get("description", ""),
@@ -993,6 +995,7 @@ def main():
                 "booking_url":        c.get("booking_url"),
                 "active":             True,
                 "custom_dates":       c.get("custom_dates", False),
+                "booking_mode":       "request" if c.get("custom_dates") else "instant",
                 "summary":            "",
                 "search_document":    "",
                 "description":        c.get("description", ""),

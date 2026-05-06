@@ -323,7 +323,7 @@ def scrape_course_page(url: str) -> list[dict]:
             "title":            title,
             "location_raw":     location,
             "location_canonical": location,
-            "date_display":     None,
+            "date_display":     "Flexible dates",
             "date_sort":        None,
             "avail":            "open",
             "price":            price,
@@ -334,6 +334,8 @@ def scrape_course_page(url: str) -> list[dict]:
             "booking_url":      booking_url,
             "active":           True,
             "spots_remaining":  None,
+            "custom_dates":     True,
+            "booking_mode":     "request",
         })
 
     return rows

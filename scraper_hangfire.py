@@ -460,6 +460,7 @@ def main():
             "booking_url":        booking_url,
             "active":             active,
             "custom_dates":       custom_dates,
+            "booking_mode":       "request" if custom_dates else "instant",
             "summary":            "",
             "search_document":    "",
             "description":        page_description,

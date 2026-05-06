@@ -273,6 +273,7 @@ def main():
             "booking_url":        c.get("booking_url"),
             "active":             True,
             "custom_dates":       c.get("custom_dates", False),
+            "booking_mode":       "request" if c.get("custom_dates") else "instant",
             "summary":            "",
             "search_document":    "",
             "description":        c.get("description", ""),
