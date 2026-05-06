@@ -22,7 +22,7 @@ from scraper_utils import (
     normalise_location, log_availability_change, log_price_change,
     stable_id_v2, generate_summaries_batch, title_hash,
     activity_key, upsert_activity_control, load_activity_controls,
-    sb_upsert,
+    sb_upsert, update_provider_shared_utils,
 )
 
 
@@ -871,6 +871,8 @@ def main():
 
     # Update provider ratings from Google Places
     update_provider_ratings(provider["id"])
+
+    update_provider_shared_utils(provider["id"], provider.get("shared_utils_module"))
 
     # Load location mappings
     mappings = load_location_mappings()

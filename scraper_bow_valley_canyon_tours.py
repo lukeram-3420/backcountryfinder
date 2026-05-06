@@ -28,7 +28,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 from scraper_utils import (
     sb_upsert, stable_id_v2,
     log_availability_change, log_price_change,
-    update_provider_ratings,
+    update_provider_ratings, update_provider_shared_utils,
     load_location_mappings, normalise_location,
     generate_summaries_batch,
     append_utm,
@@ -319,6 +319,8 @@ def main():
         update_provider_ratings(PROVIDER["id"])
     except Exception as e:
         log.warning(f"Places update failed: {e}")
+
+    update_provider_shared_utils(PROVIDER["id"], PROVIDER.get("shared_utils_module"))
 
     loc_mappings = load_location_mappings()
     log.info(f"Loaded {len(loc_mappings)} location mappings")

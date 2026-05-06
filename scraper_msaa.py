@@ -24,7 +24,7 @@ from scraper_utils import (
     load_location_mappings, normalise_location,
     generate_summaries_batch,
     parse_date_sort, is_future, stable_id_v2,
-    update_provider_ratings,
+    update_provider_ratings, update_provider_shared_utils,
     title_hash, activity_key,
     upsert_activity_control, load_activity_controls,
     discover_rezdy_catalogs, fetch_rezdy_calendar_products,
@@ -532,6 +532,8 @@ def main():
 
     # Update provider ratings from Google Places
     update_provider_ratings(provider["id"])
+
+    update_provider_shared_utils(provider["id"], provider.get("shared_utils_module"))
 
     # Load location mappings
     mappings = load_location_mappings()

@@ -195,7 +195,7 @@
   <div class="main">
     <!-- TAB: PROVIDERS -->
     <div class="tab-panel" id="panel-providers">
-      <details class="instructions"><summary>How to use this tab</summary><p>Toggle a provider off to hide all their courses from the site. Toggling the active switch (in either direction) automatically dispatches the <code>sync-algolia.yml</code> workflow so the frontend Search grid updates within ~30 seconds instead of waiting for the next 6-hour cron. Click Run to trigger a fresh scrape for that provider. Click Validate to run the validator — use this after fixing a mapping or summary to confirm the flag is resolved without waiting for the next cron run. <strong>Scraper</strong> classifies how the provider is being scraped. Shows the platform name (<code>rezdy</code> / <code>zaui</code> / <code>checkfront</code> / <code>woocommerce</code> / <code>squarespace</code>) if we have reusable adapter code — a new provider on that platform can be onboarded by cloning the pattern. Shows <strong>bespoke</strong> if the scraper is hand-written for that specific site (custom HTML, Rails, custom WordPress, Playwright-specific, etc.) — onboarding a similar site still needs a dedicated scraper. Shows a dash if no scraper run has been recorded yet. If a provider is showing bespoke when you'd expect a platform name, run <code>backfill_platforms.py</code> — detection may have missed the signature because <code>providers.website</code> points at a marketing page rather than the booking subdomain. Last run shows the most recent scraper execution per provider. A yellow <strong>⚠ drop ↗</strong> badge appears on the status cell when the last scrape returned &gt;30% fewer courses than the previous run — click it to jump to the GitHub Actions workflow for that provider and investigate the scraper run (Initiative 7). Use Validate after Run to confirm fixes were applied. Validate alone is useful after fixing summaries — for mapping or scraper fixes, always Run first then Validate. Run all triggers a full scrape of all providers — expect 45-60 minutes. <strong>Date added</strong> shows when the provider was first inserted into the <code>providers</code> table (ISO date YYYY-MM-DD) — useful for spotting recent onboarding work or sorting newest-first to QA new providers. Column headers are clickable to sort ascending or descending — Provider, Scraper, Last run, Courses, Status, and Date added are all sortable.</p></details>
+      <details class="instructions"><summary>How to use this tab</summary><p>Toggle a provider off to hide all their courses from the site. Toggling the active switch (in either direction) automatically dispatches the <code>sync-algolia.yml</code> workflow so the frontend Search grid updates within ~30 seconds instead of waiting for the next 6-hour cron. Click Run to trigger a fresh scrape for that provider. Click Validate to run the validator — use this after fixing a mapping or summary to confirm the flag is resolved without waiting for the next cron run. <strong>Scraper</strong> shows the booking platform we detected for that provider (<code>rezdy</code> / <code>checkfront</code> / <code>zaui</code> / <code>wordpress</code> / <code>unknown</code> etc.) — informational only, no implication about whether scraper code is shared. Dash if no scraper run has been recorded yet. <strong>Type</strong> indicates whether the scraper imports from a platform-specific shared helpers file. <strong>Shared utils</strong> (green) means the scraper writes a <code>shared_utils_module</code> value on its provider row at scrape time — today only <code>scraper_zaui_utils</code> qualifies, used by the 5 Zaui scrapers. <strong>Unique</strong> (amber) means the scraper is fully bespoke even when other providers happen to be on the same booking platform (e.g. Checkfront's three providers all have unique scrapers). The classification is data-driven from <code>providers.shared_utils_module</code> and updates automatically as new shared utils files land — no admin code change required. Last run shows the most recent scraper execution per provider. A yellow <strong>⚠ drop ↗</strong> badge appears on the status cell when the last scrape returned &gt;30% fewer courses than the previous run — click it to jump to the GitHub Actions workflow for that provider and investigate the scraper run (Initiative 7). Use Validate after Run to confirm fixes were applied. Validate alone is useful after fixing summaries — for mapping or scraper fixes, always Run first then Validate. Run all triggers a full scrape of all providers — expect 45-60 minutes. <strong>Date added</strong> shows when the provider was first inserted into the <code>providers</code> table (ISO date YYYY-MM-DD) — useful for spotting recent onboarding work or sorting newest-first to QA new providers. Column headers are clickable to sort ascending or descending — Provider, Scraper, Type, Last run, Courses, Status, and Date added are all sortable.</p></details>
       <div class="stats-row" id="stats-row">
         <div class="stat-card"><div class="stat-label">Providers</div><div class="stat-value" id="stat-providers">—</div></div>
         <div class="stat-card"><div class="stat-label">Courses</div><div class="stat-value" id="stat-courses">—</div></div>
@@ -703,26 +703,20 @@ async function countRows(table, filterQuery = '') {
 }
 
 // Providers table state
-let cachedProviders = [];       // enriched: {id, name, active, created_at, lastRun, visible, af, uf, scraperKind}
+// Per-row enrichment: {id, name, active, created_at, lastRun, prevRun, visible,
+//   af, uf, scraperPlatform: booking_platform shown in the Scraper column,
+//   scraperType: 'shared' | 'unique' | '' — drives the Type column}
+let cachedProviders = [];
 let providersSort = { col: 'name', dir: 'asc' };
 
-// Booking platforms for which we have reusable adapter code: a new provider
-// on one of these platforms can be scraped by cloning the existing pattern
-// with minimal change. Providers whose scraper doesn't match any of these
-// (including generic 'wordpress' / 'unknown') are labelled 'bespoke' —
-// their scraper is hand-written for that site. Mirror against
-// PLATFORM_REFERENCE in copyPipelinePrompt (admin.html) when adding a new
-// reusable pattern.
-const REUSABLE_PLATFORMS = new Set([
-  'rezdy',       // scraper_altus, scraper_msaa (shared Rezdy API pattern)
-  'zaui',        // scraper_vanmtnguides (+ scraper_zaui_utils)
-  'checkfront',  // scraper_aaa
-  'woocommerce', // scraper_cwms (WooCommerce REST)
-  'squarespace', // scraper_jht
-  'fareharbor',  // scraper_vibe_backcountry (FareHarbor External API v1)
-  // NOT included — each WP site needs a bespoke parser:
-  //   'wordpress', 'unknown', 'custom', ''
-]);
+// The Type column is data-driven from `providers.shared_utils_module`.
+// Each scraper writes that field at run start via
+// `update_provider_shared_utils(PROVIDER["id"], PROVIDER.get("shared_utils_module"))`
+// (see scraper_utils.py). Today only `scraper_zaui_utils` qualifies — it's
+// shared across the 5 Zaui scrapers. When a new shared utils file lands,
+// the consuming scrapers add `shared_utils_module: 'scraper_<x>_utils'` to
+// their PROVIDER dict and the Type column flips to "Shared utils" on the
+// next scrape — no admin code change required.
 
 async function fetchRunLog() {
   // Direct REST (anon key) — resilient against the JS client's RLS quirks.
@@ -771,7 +765,7 @@ async function loadProvidersTab() {
       if (page > 200) break;  // 200k-row safety stop
     }
 
-    const providers = await sbSelect('providers', { select: 'id,name,active,booking_platform,created_at' });
+    const providers = await sbSelect('providers', { select: 'id,name,active,booking_platform,shared_utils_module,created_at' });
     const runs = await fetchRunLog();
 
     // Dedup by (provider_id, title_hash). Track sets per provider for the
@@ -815,19 +809,21 @@ async function loadProvidersTab() {
 
     const perProvider = providers.map(p => {
       const buckets = perProviderHashes[p.id] || { visible: new Set(), af: new Set(), uf: new Set() };
-      // Three-state scraper classification:
-      //   no lastRun                           → '' (no scraper yet)
-      //   lastRun + platform in REUSABLE set   → platform name (green)
-      //   lastRun otherwise                    → 'bespoke'     (amber)
-      // "wordpress" is NOT a reusable platform — each WP site needs its own
-      // parser (scraper_srg, scraper_bsa, scraper_summit are all bespoke
-      // despite each matching the wordpress signature).
+      // Two orthogonal signals:
+      //   scraperPlatform — the booking_platform value as-is (rezdy / checkfront
+      //     / zaui / wordpress / unknown / ''). Shown in the Scraper column.
+      //     Empty string until the scraper has actually run for the first time.
+      //   scraperType — 'shared' if shared_utils_module is set on the row,
+      //     'unique' if not, '' if the scraper has never run. Shown in the
+      //     Type column. Driven by what the scraper writes via
+      //     update_provider_shared_utils(); admin.html stays out of the
+      //     classification entirely so adding a new shared utils file doesn't
+      //     need an admin code change.
       const lastRun = lastRunByProvider[p.id] || null;
-      const pl = (p.booking_platform || '').toLowerCase();
-      let scraperKind;
-      if (!lastRun) scraperKind = '';
-      else if (REUSABLE_PLATFORMS.has(pl)) scraperKind = pl;
-      else scraperKind = 'bespoke';
+      const platform = (p.booking_platform || '').toLowerCase();
+      const sharedModule = (p.shared_utils_module || '').trim();
+      const scraperPlatform = lastRun ? platform : '';
+      const scraperType = !lastRun ? '' : (sharedModule ? 'shared' : 'unique');
       return {
         ...p,
         visible: buckets.visible.size,
@@ -835,7 +831,8 @@ async function loadProvidersTab() {
         uf:      buckets.uf.size,
         lastRun,
         prevRun: prevRunByProvider[p.id] || null,
-        scraperKind,
+        scraperPlatform,
+        scraperType,
       };
     });
     cachedProviders = perProvider;
@@ -848,9 +845,11 @@ async function loadProvidersTab() {
 function providerSortValue(p, col) {
   switch (col) {
     case 'name':     return p.name;
-    // Sort alphabetically by the displayed label ('bespoke', 'rezdy', 'zaui'
-    // etc.). Empty scraperKind sorts to the bottom via cmpValues' null-sink.
-    case 'scraper':  return p.scraperKind || null;
+    // Sort alphabetically by the displayed platform name. Empty (no scraper
+    // run yet) sinks to the bottom via cmpValues' null-sink.
+    case 'scraper':  return p.scraperPlatform || null;
+    // 'shared' < 'unique' alphabetically — empty (no run yet) sinks.
+    case 'type':     return p.scraperType || null;
     case 'courses':  return Number(p.visible) || 0;
     case 'status':   return (p.af > 0) ? 1 : 0; // 0 clean, 1 hidden (amber user-flag sits with clean for this sort)
     case 'last_run': return p.lastRun ? p.lastRun.run_at : null;
@@ -887,18 +886,24 @@ function renderProvidersTable() {
     const wf = WORKFLOW_MAP[p.id] || `scraper-${p.id}.yml`;
     const runBtn = `<button class="btn btn-small" onclick="window.triggerScraper('${wf}')">Run</button>`;
     const validateBtn = `<button class="btn btn-small" id="validate-btn-${esc(p.id)}" onclick="window.triggerValidate('${esc(p.id)}')">Validate</button>`;
-    let scraperBadge;
-    if (!p.scraperKind) {
-      scraperBadge = '<span style="color:var(--text-tertiary);">—</span>';
-    } else if (p.scraperKind === 'bespoke') {
-      scraperBadge = '<span class="badge badge-amber">bespoke</span>';
+    // Scraper cell — neutral display of the booking_platform value. No bespoke/
+    // reusable color split anymore; the Type column carries that signal.
+    const scraperCell = p.scraperPlatform
+      ? `<code>${esc(p.scraperPlatform)}</code>`
+      : '<span style="color:var(--text-tertiary);">—</span>';
+    let typeCell;
+    if (p.scraperType === 'shared') {
+      typeCell = '<span class="badge badge-green">Shared utils</span>';
+    } else if (p.scraperType === 'unique') {
+      typeCell = '<span class="badge badge-amber">Unique</span>';
     } else {
-      scraperBadge = `<span class="badge badge-green">${esc(p.scraperKind)}</span>`;
+      typeCell = '<span style="color:var(--text-tertiary);">—</span>';
     }
     const createdIso = p.created_at ? String(p.created_at).slice(0, 10) : '—';
     return `<tr>
       <td><strong>${esc(p.name)}</strong><div class="meta-line"><code>${esc(p.id)}</code></div></td>
-      <td>${scraperBadge}</td>
+      <td>${scraperCell}</td>
+      <td>${typeCell}</td>
       <td><label class="toggle"><input type="checkbox" ${p.active ? 'checked' : ''} onchange="window.toggleProvider('${esc(p.id)}', this.checked)"><span class="toggle-slider"></span></label></td>
       <td>${p.lastRun ? fmt(p.lastRun.run_at) : '—'}</td>
       <td>${p.visible || 0}</td>
@@ -910,7 +915,7 @@ function renderProvidersTable() {
 
   const h = (col, label) => sortableHeader(providersSort, col, label, `window.sortProviders('${col}')`);
   document.getElementById('providers-table-wrap').innerHTML = `
-    <table><thead><tr>${h('name','Provider')}${h('scraper','Scraper')}<th>Active</th>${h('last_run','Last run')}${h('courses','Courses')}${h('status','Status')}<th>Actions</th>${h('created_at','Date added')}</tr></thead><tbody>${rows}</tbody></table>`;
+    <table><thead><tr>${h('name','Provider')}${h('scraper','Scraper')}${h('type','Type')}<th>Active</th>${h('last_run','Last run')}${h('courses','Courses')}${h('status','Status')}<th>Actions</th>${h('created_at','Date added')}</tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 window.sortProviders = (col) => {

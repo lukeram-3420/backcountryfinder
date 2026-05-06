@@ -30,7 +30,7 @@ from scraper_utils import (
     load_location_mappings, normalise_location,
     generate_summaries_batch,
     parse_date_sort, is_future, stable_id_v2,
-    update_provider_ratings,
+    update_provider_ratings, update_provider_shared_utils,
     detect_url_drift,
     title_hash,
     activity_key, upsert_activity_control, load_activity_controls,
@@ -520,6 +520,8 @@ def main():
         update_provider_ratings(provider["id"])
     except Exception as e:
         log.warning(f"Places update failed: {e}")
+
+    update_provider_shared_utils(provider["id"], provider.get("shared_utils_module"))
 
     mappings = load_location_mappings()
     log.info(f"Loaded {len(mappings)} location mappings")
