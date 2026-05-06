@@ -42,13 +42,21 @@ DEFAULT_TIMEOUT_S = 15
 RETRY_BACKOFFS_S = (2, 4, 8)  # exponential backoff between the 3 attempts
 
 
-def cf_get(tenant_base: str, endpoint: str, params=None, headers=None) -> dict:
+def cf_get(tenant_base: str, endpoint: str, params=None, headers=None,
+           attempts: int = 3) -> dict:
     """GET a Checkfront endpoint with retry-on-5xx.
 
     Checkfront's `/item/cal` (and occasionally `/item/{id}` rated) returns
-    500 on otherwise-valid requests — usually transient. Three attempts
-    with exponential backoff before giving up. 4xx responses still raise
-    immediately (no point retrying a bad request).
+    500 on otherwise-valid requests — usually transient. Default policy is
+    3 attempts with exponential backoff (2s, 4s) between them. 4xx
+    responses still raise immediately (no point retrying a bad request).
+
+    The `attempts` knob lets non-critical paths fast-fail. The rated-fetch
+    helper (`fetch_rated_item`) defaults to `attempts=1` — a price-fetch
+    failure is acceptable (caller falls back to catalog price=None) and
+    not worth 14s of retry budget per failed item on a flaky tenant. The
+    calendar path (`fetch_calendar`) keeps the default 3 attempts because
+    date-discovery failures are more costly downstream.
 
     Args:
         tenant_base: e.g. "https://girth-hitch-guiding.checkfront.com/api/3.0"
@@ -56,6 +64,8 @@ def cf_get(tenant_base: str, endpoint: str, params=None, headers=None) -> dict:
         params:      query string params dict (Checkfront uses `item_id[]`
                      for arrays — pass as a list value)
         headers:     defaults to DEFAULT_HEADERS
+        attempts:    total attempts (1 = single try, no retries; default 3
+                     = first + 2 retries with backoffs RETRY_BACKOFFS_S)
 
     Returns:
         Parsed JSON response.
@@ -66,7 +76,7 @@ def cf_get(tenant_base: str, endpoint: str, params=None, headers=None) -> dict:
     """
     headers = headers if headers is not None else DEFAULT_HEADERS
     last_err: Optional[BaseException] = None
-    for attempt in range(3):
+    for attempt in range(attempts):
         try:
             r = requests.get(
                 f"{tenant_base}/{endpoint}",
@@ -78,9 +88,9 @@ def cf_get(tenant_base: str, endpoint: str, params=None, headers=None) -> dict:
                 last_err = requests.HTTPError(
                     f"{r.status_code} {r.reason} for {r.url}", response=r
                 )
-                if attempt < 2:
-                    backoff = RETRY_BACKOFFS_S[attempt]
-                    print(f"  Checkfront {r.status_code} on {endpoint} — retry {attempt + 1}/2 in {backoff}s")
+                if attempt < attempts - 1:
+                    backoff = RETRY_BACKOFFS_S[min(attempt, len(RETRY_BACKOFFS_S) - 1)]
+                    print(f"  Checkfront {r.status_code} on {endpoint} — retry {attempt + 1}/{attempts - 1} in {backoff}s")
                     time.sleep(backoff)
                     continue
                 raise last_err
@@ -88,9 +98,9 @@ def cf_get(tenant_base: str, endpoint: str, params=None, headers=None) -> dict:
             return r.json()
         except requests.RequestException as e:
             last_err = e
-            if attempt < 2:
-                backoff = RETRY_BACKOFFS_S[attempt]
-                print(f"  Checkfront request error on {endpoint} ({e}) — retry {attempt + 1}/2 in {backoff}s")
+            if attempt < attempts - 1:
+                backoff = RETRY_BACKOFFS_S[min(attempt, len(RETRY_BACKOFFS_S) - 1)]
+                print(f"  Checkfront request error on {endpoint} ({e}) — retry {attempt + 1}/{attempts - 1} in {backoff}s")
                 time.sleep(backoff)
                 continue
             raise
@@ -173,6 +183,7 @@ def fetch_rated_item(
     start: str,
     end: str,
     headers=None,
+    attempts: int = 1,
 ) -> dict:
     """GET /api/3.0/item/{id}?start_date=…&end_date=… — rated response.
 
@@ -185,11 +196,18 @@ def fetch_rated_item(
     `parse_rated_per_date_stock` to extract the useful fields.
 
     Date format: YYYYMMDD (no hyphens), matching what /item/cal expects.
+
+    Default `attempts=1` (single try, no retries). Rated failures are
+    non-critical — the scraper falls back to catalog price (often None
+    for these tenants). Burning the full 14s retry budget per 500 on a
+    flaky Checkfront tenant blows up wall-time without recovering enough
+    data to justify it. Override via `attempts=` if a particular tenant
+    proves more reliable on this endpoint than on `/item/cal`.
     """
     return cf_get(tenant_base, f"item/{item_id}", params={
         "start_date": start,
         "end_date":   end,
-    }, headers=headers)
+    }, headers=headers, attempts=attempts)
 
 
 # Matches "$130.00" / "130.00" / "1,234.50" — captures the numeric portion.
