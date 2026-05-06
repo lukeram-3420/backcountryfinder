@@ -32,8 +32,8 @@ from scraper_utils import (
     activity_key, upsert_activity_control, load_activity_controls,
 )
 from scraper_checkfront_utils import (
-    fetch_catalog, fetch_calendar, fetch_rated_item,
-    parse_rated_price, parse_rated_per_date_stock,
+    fetch_catalog, fetch_calendar, fetch_rated_price_sampled,
+    parse_rated_price,
 )
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -173,35 +173,44 @@ def main():
     cal = fetch_calendar(CF_BASE, item_ids, start_s, end_s)
     print(f"  Calendar entries returned: {len(cal)}")
 
-    # 4. Fetch rated response per item (prices + per-date real stock counts).
-    # Rated requests are public-API-accessible. Two scope-limits to keep
-    # wall-time bounded on this flaky tenant:
-    #   (a) only rated-fetch items that succeeded on the calendar pass —
-    #       items that 500'd on /item/cal will almost certainly 500 on
-    #       /item/{id} too (same upstream-data root cause); skipping them
-    #       avoids re-hammering and another retry storm.
-    #   (b) fetch_rated_item defaults to attempts=1 (no retries) — a
-    #       transient blip on rated isn't worth 14s; price falls back to
-    #       catalog (None for this tenant) cleanly.
+    # 4. Sampled rated-price discovery. Three scope-limits keep wall-time
+    # bounded on this flaky tenant:
+    #   (a) Only sample items that succeeded on the calendar pass — items
+    #       that 500'd on /item/cal will almost certainly fail on
+    #       /item/{id} too (same upstream-data root cause).
+    #   (b) Sampled (1-day) requests instead of full-window 180-day rated
+    #       requests — Checkfront computes rates across every date × every
+    #       customer type combination, so a 180-day window times out at 15s
+    #       on this tenant. A 1-day window with param[guests]=1 returns in
+    #       a fraction of a second.
+    #   (c) attempts=1 in fetch_rated_price_sampled (the helper's default)
+    #       and first-failure short-circuit — if today's sample times out,
+    #       remaining offsets are skipped for that item.
     rated_eligible = [iid for iid in item_ids if str(iid) in cal]
     skipped_due_to_cal_failure = len(item_ids) - len(rated_eligible)
-    print(f"  Fetching rated responses for prices + per-date stock counts "
+    print(f"  Sampling rated prices at +0/+30/+90/+150 day offsets "
           f"({len(rated_eligible)} items; "
           f"{skipped_due_to_cal_failure} skipped due to calendar 500s)...")
-    rated_data: dict = {}        # {item_id: full response dict}
+    price_by_item: dict = {}     # {item_id_str: int}
     rated_failed: list = []
     for item_id in rated_eligible:
-        try:
-            rated_data[str(item_id)] = fetch_rated_item(
-                CF_BASE, item_id, start_s, end_s,
-            )
-        except Exception as e:
+        samples = fetch_rated_price_sampled(
+            CF_BASE, item_id, start_s,
+            lookahead_days=LOOKAHEAD_DAYS,
+        )
+        valid = {k: v for k, v in samples.items() if v is not None}
+        if not valid:
             rated_failed.append(item_id)
-            print(f"    rated fetch failed for item {item_id}: {e}")
+            continue
+        unique_prices = set(valid.values())
+        if len(unique_prices) > 1:
+            print(f"    ⚠ item {item_id}: price varies across samples: {valid} — using earliest")
+        # Earliest sample (today's date by construction) is canonical
+        price_by_item[str(item_id)] = sorted(valid.items())[0][1]
     if rated_failed:
-        print(f"  ⚠ {len(rated_failed)} item(s) failed rated fetch; "
+        print(f"  ⚠ {len(rated_failed)} item(s) failed sampled rated fetch; "
               f"those will fall back to catalog price (likely None)")
-    print(f"  Rated fetched for {len(rated_data)}/{len(rated_eligible)} eligible items")
+    print(f"  Rated prices captured for {len(price_by_item)}/{len(rated_eligible)} eligible items")
 
     # 5. Build rows
     rows = []
@@ -209,14 +218,17 @@ def main():
 
     for item_id, item in course_items.items():
         title = item.get("name", "").strip()
-        rated = rated_data.get(str(item_id), {})
 
-        # Price preference: rated response (authoritative) → catalog scalar/dict
-        # fallback (unreliable on this tenant — usually missing). Rated is
-        # populated whenever the item has a price config in Checkfront.
-        price = parse_rated_price(rated)
+        # Price preference: sampled rated response (authoritative) →
+        # catalog scalar/dict fallback (unreliable on this tenant —
+        # usually missing). The sampled helper canonicalizes one price
+        # per item; row-level price is therefore the same across all
+        # dates for that item, which is correct for Checkfront's flat
+        # rate-per-product pricing.
+        price = price_by_item.get(str(item_id))
         if price is None:
-            # Catalog fallback for the rare item where rated has no price.
+            # Catalog fallback for the rare item where every rated
+            # sample failed (usually a tenant-side 500/timeout).
             price_raw = item.get("price")
             if isinstance(price_raw, dict):
                 try:
@@ -246,11 +258,12 @@ def main():
         if duration_days == 0:
             duration_days = None
 
-        # Per-date stock counts: rated response is authoritative when present
-        # (real integers regardless of binary-flag detection on /item/cal).
-        # Fall back to detect_checkfront_spot_counts heuristic on the calendar
-        # response when rated didn't return per-date stock for this item.
-        rated_stock = parse_rated_per_date_stock(rated)
+        # Per-date stock counts come from the calendar response only.
+        # The sampled rated helper doesn't fetch stock (1-day windows would
+        # only cover the sample dates anyway). detect_checkfront_spot_counts
+        # is the per-item heuristic: items that ever return a value > 1 in
+        # the calendar dict are interpreted as real counts; binary-flag
+        # items report spots_remaining=None ("open" until sold).
         item_has_spot_counts = detect_checkfront_spot_counts(item_cal)
 
         for date_key, available in item_cal.items():
@@ -266,9 +279,8 @@ def main():
                 continue
 
             # Spot count resolution:
-            # 1. Rated per-date stock (authoritative when present)
-            # 2. Calendar integer if detect_checkfront_spot_counts says safe
-            # 3. None (binary-flag product, avail='open' until sold)
+            # 1. Calendar integer if detect_checkfront_spot_counts says safe
+            # 2. None (binary-flag product, avail='open' until sold)
             spots_remaining = None
             rated_stock_for_date = rated_stock.get(date_key) or {}
             if rated_stock_for_date.get("available") is not None:

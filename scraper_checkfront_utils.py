@@ -203,11 +203,93 @@ def fetch_rated_item(
     flaky Checkfront tenant blows up wall-time without recovering enough
     data to justify it. Override via `attempts=` if a particular tenant
     proves more reliable on this endpoint than on `/item/cal`.
+
+    PERFORMANCE NOTE: On flaky / slow tenants (e.g. girth-hitch-guiding)
+    a wide date range (180 days) frequently times out at 15s because
+    Checkfront has to compute rates across every date × every customer
+    type combination. If you hit timeouts on this endpoint, prefer
+    `fetch_rated_price_sampled` instead — it spot-checks 4 dates with
+    1-day windows and runs ~30-50x faster per call.
     """
     return cf_get(tenant_base, f"item/{item_id}", params={
         "start_date": start,
         "end_date":   end,
     }, headers=headers, attempts=attempts)
+
+
+def fetch_rated_price_sampled(
+    tenant_base: str,
+    item_id,
+    start_iso: str,
+    sample_offsets_days=(0, 30, 90, 150),
+    lookahead_days: int = 180,
+    headers=None,
+    attempts: int = 1,
+    guests: int = 1,
+) -> dict:
+    """Spot-check rated prices at multiple date offsets to avoid the
+    full-window timeout problem on slow tenants.
+
+    Each sample is a 1-day rated request (`start_date == end_date`) which
+    Checkfront can compute in a fraction of a second — vs ~15s+ for a
+    180-day window. Per-rate-plan disambiguation is forced via
+    `param[guests]=N` so Checkfront doesn't try every customer-type
+    combination.
+
+    First-failure short-circuit: if the FIRST sample fails (timeout or
+    5xx after attempts exhausted), the remaining samples are skipped for
+    this item. Tenants that timeout on one sample almost always timeout
+    on all of them; no point burning the full retry budget.
+
+    Args:
+        tenant_base:        e.g. "https://x.checkfront.com/api/3.0"
+        item_id:            Checkfront item id
+        start_iso:          start date as YYYYMMDD (today, usually)
+        sample_offsets_days: tuple of day offsets from start_iso to sample.
+                            Default (0, 30, 90, 150) covers seasonal
+                            transitions for most outdoor providers.
+        lookahead_days:     skip offsets > this; defensively bounds samples
+                            to the catalogue's actual lookahead window.
+        headers:            defaults to DEFAULT_HEADERS via cf_get
+        attempts:           per-sample attempts (default 1, fast-fail)
+        guests:             passed as `param[guests]=N`. 1 is universal;
+                            override for tenants whose minimum group is >1.
+
+    Returns:
+        {YYYYMMDD: price_int_or_None}. Empty dict if the first sample
+        failed and triggered the short-circuit.
+
+        Stable price across samples → caller can use any value.
+        Differing prices → caller decides how to handle (variance warning
+        + pick first sample is the recommended pattern).
+    """
+    import datetime as _dt
+    try:
+        start_date = _dt.datetime.strptime(start_iso, "%Y%m%d").date()
+    except ValueError as e:
+        log.error(f"fetch_rated_price_sampled: invalid start_iso {start_iso!r}: {e}")
+        return {}
+
+    samples: dict = {}
+    for offset in sample_offsets_days:
+        if offset >= lookahead_days:
+            continue
+        sample_iso = (start_date + _dt.timedelta(days=offset)).strftime("%Y%m%d")
+        try:
+            data = cf_get(tenant_base, f"item/{item_id}", params={
+                "start_date":     sample_iso,
+                "end_date":       sample_iso,
+                "param[guests]":  str(guests),
+            }, headers=headers, attempts=attempts)
+            samples[sample_iso] = parse_rated_price(data)
+        except Exception as e:
+            if not samples:
+                # First-sample failure → skip remaining samples for this item
+                log.info(f"item {item_id}: first sample failed ({e}); skipping further samples")
+                return {}
+            # Some samples succeeded; record this failure but keep going
+            samples[sample_iso] = None
+    return samples
 
 
 # Matches "$130.00" / "130.00" / "1,234.50" — captures the numeric portion.
