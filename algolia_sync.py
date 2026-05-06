@@ -256,6 +256,10 @@ def configure_index(client):
                 "asc(next_date_sort)",
             ],
             "replicas": [REPLICA_PRICE_ASC, REPLICA_PRICE_DESC],
+            "queryLanguages": ["en"],
+            "removeStopWords": ["en"],
+            "ignorePlurals": ["en"],
+            "removeWordsIfNoResults": "allOptional",
         },
     )
 
