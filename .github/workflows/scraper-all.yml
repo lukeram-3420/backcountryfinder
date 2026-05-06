@@ -8,6 +8,9 @@ on:
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
     env:
       SUPABASE_URL:          ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_KEY:  ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -144,4 +147,9 @@ jobs:
         continue-on-error: true
       - name: Sync Algolia
         run: python algolia_sync.py --skip-settings
+        continue-on-error: true
+      - name: Trigger Zaui Scrapers
+        run: gh workflow run scraper-zaui.yml
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
