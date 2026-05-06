@@ -21,7 +21,7 @@ from scraper_utils import (
     load_location_mappings, normalise_location,
     generate_summaries_batch,
     stable_id_v2, spots_to_avail,
-    update_provider_ratings, send_scraper_summary,
+    update_provider_ratings, update_provider_shared_utils, send_scraper_summary,
     title_hash, activity_key,
     upsert_activity_control, load_activity_controls,
 )
@@ -298,6 +298,8 @@ def main():
 
     # Update provider ratings
     update_provider_ratings(provider["id"])
+
+    update_provider_shared_utils(provider["id"], provider.get("shared_utils_module"))
 
     # Load mappings
     mappings = load_location_mappings()

@@ -22,7 +22,7 @@ from scraper_utils import (
     sb_get, sb_upsert, sb_insert,
     stable_id_v2, is_future,
     generate_summaries_batch,
-    update_provider_ratings,
+    update_provider_ratings, update_provider_shared_utils,
     send_scraper_summary,
     SUPABASE_URL, SUPABASE_KEY, RESEND_API_KEY,
     ANTHROPIC_API_KEY, UTM,
@@ -245,6 +245,8 @@ def main():
 
     # Update provider ratings from Google Places
     update_provider_ratings(PROVIDER["id"])
+
+    update_provider_shared_utils(PROVIDER["id"], PROVIDER.get("shared_utils_module"))
 
     global _CONTROLS
     _CONTROLS = load_activity_controls(PROVIDER["id"])

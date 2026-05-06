@@ -7,6 +7,12 @@ CSRF + cookies for mutating calls, not for the read-only catalogue / pricing /
 availability endpoints the scrapers use.
 
 Rate-limited: 0.5s minimum interval between any two GETs from this module.
+
+Maintainer note: any scraper that imports from this module MUST set
+``"shared_utils_module": "scraper_zaui_utils"`` in its PROVIDER config dict so
+the Providers-tab Type column in admin.html renders ``Shared utils`` for that
+provider. Scrapers already call ``update_provider_shared_utils`` next to
+``update_provider_ratings``; the value comes from the PROVIDER dict.
 """
 
 import datetime

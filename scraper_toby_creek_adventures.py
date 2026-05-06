@@ -17,7 +17,7 @@ import re
 from scraper_utils import (
     log_availability_change, log_price_change,
     sb_upsert, stable_id_v2,
-    update_provider_ratings,
+    update_provider_ratings, update_provider_shared_utils,
     load_location_mappings, normalise_location,
     generate_summaries_batch,
     activity_key, bulk_upsert_activity_controls, load_activity_controls,
@@ -37,6 +37,7 @@ PROVIDER = {
     "tenant_slug":      "tobycreekadventures",
     "portal_id":        1,
     "default_location": "Panorama, BC",
+    "shared_utils_module": "scraper_zaui_utils",
 }
 
 BOOKING_URL_PATTERN = "https://tobycreekadventures.zaui.net/booking/web/?{utm}#/default/activity/{id}"
@@ -99,6 +100,8 @@ def main():
         update_provider_ratings(PROVIDER["id"])
     except Exception as e:
         log.warning(f"Places update failed: {e}")
+
+    update_provider_shared_utils(PROVIDER["id"], PROVIDER.get("shared_utils_module"))
 
     # Mappings
     loc_mappings = load_location_mappings()

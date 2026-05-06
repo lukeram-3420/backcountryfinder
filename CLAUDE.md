@@ -119,6 +119,21 @@ In production, scrapers run via GitHub Actions with `workflow_dispatch` (manual 
 
 ## Scraper conventions
 
+### Shared-utils declaration (Providers-tab Type column)
+Every standalone scraper calls `update_provider_shared_utils(PROVIDER["id"], PROVIDER.get("shared_utils_module"))` once per run, right after `update_provider_ratings`. This PATCHes `providers.shared_utils_module` and drives the **Type** column in the admin Providers tab (Shared utils vs Unique).
+
+Scrapers that import from a platform-specific shared helpers file (today only `scraper_zaui_utils.py`) declare the module name in their PROVIDER dict:
+
+```python
+PROVIDER = {
+    "id": "banff-adventures",
+    # ...
+    "shared_utils_module": "scraper_zaui_utils",
+}
+```
+
+Bespoke scrapers omit the field entirely — `PROVIDER.get("shared_utils_module")` returns `None` and the helper writes a null, classifying the row as `Unique`. Always-write semantics so a shared→bespoke migration self-corrects on the next run with no manual SQL. The classification is fully data-driven; there is **no** JS-side allowlist in admin.html — when you create `scraper_<platform>_utils.py` and migrate the consuming scrapers to declare `shared_utils_module: 'scraper_<platform>_utils'`, those rows flip to `Shared utils` on the next scrape with no admin code change. Add a maintainer comment at the top of each new `scraper_<platform>_utils.py` reminding consumers to set the field (mirrors the note in `scraper_zaui_utils.py`).
+
 ### Columns scrapers never touch
 The following columns on the courses table are never written by any scraper under any circumstances:
 - `flagged`, `flagged_reason`, `flagged_note` — user reports via `notify-report` edge function
@@ -321,6 +336,12 @@ Both systems produce identical output (rows upserted to the `courses` table with
 | `find_place_id` | `(query: str) -> Optional[str]` | Find a Google Place ID by text query. Returns `place_id` or `None`. |
 | `get_place_details` | `(place_id: str) -> dict` | Get `rating` and `review_count` from Google Places. Returns `{}` on failure. |
 | `update_provider_ratings` | `(provider_id: str) -> None` | Look up / refresh Google Places rating for a single provider. |
+
+#### Provider metadata
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `update_provider_shared_utils` | `(provider_id: str, module_name: Optional[str]) -> None` | PATCH `providers.shared_utils_module`. Drives the Providers-tab Type column (Shared utils vs Unique). Pass the module name (e.g. `"scraper_zaui_utils"`) when the scraper imports from a platform-specific shared helpers file; pass `None` for bespoke scrapers so a shared→bespoke migration self-corrects on the next run. Convention: every scraper calls this once per run, right after `update_provider_ratings`, with `PROVIDER.get("shared_utils_module")` so the declaration sits next to the rest of the provider config. |
 
 #### Location
 
@@ -789,7 +810,7 @@ Records without a positive `price_min` (~13% of the index — custom-dates / inq
 - **Security:** `<meta name="robots" content="noindex, nofollow">` + `robots.txt` has `Disallow: /admin`.
 
 ### Tabs
-1. **Providers** — stats row (providers / courses / auto-hidden / user flags), provider table with **Scraper** column (three-state classifier: green platform-name badge like `rezdy` / `zaui` / `checkfront` / `woocommerce` / `squarespace` when the provider uses reusable adapter code we can clone for similar providers; amber `bespoke` badge when the scraper is hand-written for that specific site and not reusable — covers custom HTML, Rails, custom WordPress, Playwright-specific parsers, and any site whose `booking_platform` is `'wordpress'`, `'unknown'`, `'custom'`, or null; em-dash when no `scraper_run_log` row exists yet. Reusable set is the hardcoded `REUSABLE_PLATFORMS` const in admin.html — `wordpress` is deliberately excluded because each WP site needs its own parser. When adding a new reusable platform adapter, update both `REUSABLE_PLATFORMS` and `PLATFORM_REFERENCE` in `copyPipelinePrompt`), active toggle, last run, course count, status badge, per-provider "Run" and "Validate" buttons (Validate calls `admin-trigger-scraper` with `workflow_id='validate-provider.yml'` + `inputs={provider_id}`), and "Run all" button. **All course counts on this tab are unique-course counts**, deduped by `(provider_id, title_hash)` to mirror the Algolia-side dedup landed in PR #43 — the stats row "Courses" total, the per-provider "Courses" column, the auto-hidden / user-flag stats, and the per-provider `N hidden` / `N user flags` status badges all dedup so a single course title with 30 scheduled dates counts as 1 course, not 30. Computed client-side in `loadProvidersTab()` via one paginated fetch of `(id, provider_id, active, flagged, auto_flagged)` for every row, then in-memory dedup by the last 8 chars of `id` (the V2 stable id's title_hash segment). A **Date added** column on the right edge renders `providers.created_at` as ISO date (`YYYY-MM-DD`, sliced from the raw timestamp; null/missing → `—`); useful for spotting recent onboarding work. The status cell also surfaces the **Initiative 7 count-drop signal** — when the last two `scraper_run_log` rows for a provider show a course count drop of >30%, a yellow `⚠ {pct}% drop ↗` badge renders alongside the normal status badge, linking directly to that provider's GitHub Actions workflow (`actions/workflows/scraper-{id}.yml`). Computed client-side in `renderProvidersTable()` from the `prevRun` / `lastRun` data attached in `loadProvidersTab()` — no server-side write, no `validator_warnings` row. Clears automatically on the next healthy scrape. Note that `scraper_run_log.course_count` is a per-(course,date) row count (set by `validate_provider.py` after the scrape), so the Initiative 7 drop signal compares like-for-like between the two log rows; it does NOT compare against the Providers tab's deduped Courses column. Column headers are clickable to sort (Provider / Scraper / Last run / Courses / Status / Date added), default is alphabetical by name. The Date added sort uses the raw ISO timestamp, not the displayed slice.
+1. **Providers** — stats row (providers / courses / auto-hidden / user flags), provider table with two orthogonal classification columns: **Scraper** shows the booking platform we detected (`rezdy` / `checkfront` / `zaui` / `wordpress` / `unknown` etc.) — purely informational, no implication about whether scraper code is shared. Em-dash if no `scraper_run_log` row exists yet. **Type** indicates whether the scraper imports from a platform-specific shared helpers file: green `Shared utils` badge when the scraper writes a non-empty `providers.shared_utils_module` value (today only `scraper_zaui_utils`, used by the 5 Zaui scrapers — banff_adventures, canmore_adventures, mt_norquay, toby_creek_adventures, vanmtnguides); amber `Unique` badge otherwise (e.g. Checkfront has 3 providers but each scraper is fully bespoke); em-dash when no scraper run yet. The Type classification is fully data-driven — `loadProvidersTab()` reads `providers.shared_utils_module` directly. There is no JS-side allowlist; when a new shared utils file (e.g. `scraper_rezdy_utils.py`) lands and the consuming scrapers add `shared_utils_module: 'scraper_rezdy_utils'` to their PROVIDER dict, those rows flip to `Shared utils` on the next scrape with no admin code change. Then active toggle, last run, course count, status badge, per-provider "Run" and "Validate" buttons (Validate calls `admin-trigger-scraper` with `workflow_id='validate-provider.yml'` + `inputs={provider_id}`), and "Run all" button. **All course counts on this tab are unique-course counts**, deduped by `(provider_id, title_hash)` to mirror the Algolia-side dedup landed in PR #43 — the stats row "Courses" total, the per-provider "Courses" column, the auto-hidden / user-flag stats, and the per-provider `N hidden` / `N user flags` status badges all dedup so a single course title with 30 scheduled dates counts as 1 course, not 30. Computed client-side in `loadProvidersTab()` via one paginated fetch of `(id, provider_id, active, flagged, auto_flagged)` for every row, then in-memory dedup by the last 8 chars of `id` (the V2 stable id's title_hash segment). A **Date added** column on the right edge renders `providers.created_at` as ISO date (`YYYY-MM-DD`, sliced from the raw timestamp; null/missing → `—`); useful for spotting recent onboarding work. The status cell also surfaces the **Initiative 7 count-drop signal** — when the last two `scraper_run_log` rows for a provider show a course count drop of >30%, a yellow `⚠ {pct}% drop ↗` badge renders alongside the normal status badge, linking directly to that provider's GitHub Actions workflow (`actions/workflows/scraper-{id}.yml`). Computed client-side in `renderProvidersTable()` from the `prevRun` / `lastRun` data attached in `loadProvidersTab()` — no server-side write, no `validator_warnings` row. Clears automatically on the next healthy scrape. Note that `scraper_run_log.course_count` is a per-(course,date) row count (set by `validate_provider.py` after the scrape), so the Initiative 7 drop signal compares like-for-like between the two log rows; it does NOT compare against the Providers tab's deduped Courses column. Column headers are clickable to sort (Provider / Scraper / Type / Last run / Courses / Status / Date added), default is alphabetical by name. The Date added sort uses the raw ISO timestamp, not the displayed slice.
 2. **Location Mappings** — pending + approved location mappings with inline Edit and Delete. Header has an **"Add mapping"** button that opens an inline form (Location raw + Location canonical text inputs) and POSTs directly to `/rest/v1/location_mappings` with the authenticated session token. Approved rows edit both `location_raw` and `location_canonical`. Course counts are on-demand via a "Load counts" button — one `countRows()` query per unique `location_canonical`, results cached for the session. Column headers (Raw / Canonical / Courses / Created) are clickable to sort ascending/descending; Courses is only sortable after counts are loaded. Default is alphabetical by `location_raw`.
 
 ### Sortable headers (shared pattern)
@@ -1249,6 +1270,7 @@ Month 6+ — compounding:
 | description | text | Haiku-generated, admin approved |
 | certifications | text | e.g. 'ACMG, IFMGA' |
 | booking_platform | text | e.g. 'rezdy', 'checkfront', 'zaui', 'woocommerce' |
+| shared_utils_module | text | Set by scrapers that import from a platform-specific `scraper_*_utils.py` (e.g. `'scraper_zaui_utils'`); null for bespoke. Written by `update_provider_shared_utils()` once per scraper run. Drives the Providers-tab Type column (Shared utils vs Unique). |
 
 ### activity_mappings (retired)
 Legacy table from the V1 activity-classification pipeline. No longer read or
@@ -1725,6 +1747,21 @@ ALTER TABLE courses ADD COLUMN IF NOT EXISTS flag_reason text;
 -- prospects with the moment of the migration):
 ALTER TABLE provider_pipeline
   ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
+
+-- For the Providers tab Type column (Shared utils vs Unique). Backfill the
+-- 5 Zaui rows so the column is correct immediately rather than waiting for
+-- the next scrape (≤24 h). Idempotent.
+ALTER TABLE providers
+  ADD COLUMN IF NOT EXISTS shared_utils_module text;
+UPDATE providers
+SET shared_utils_module = 'scraper_zaui_utils'
+WHERE id IN (
+  'banff-adventures',
+  'canmore-adventures',
+  'mt-norquay',
+  'toby-creek-adventures',
+  'vanmtnguides'
+);
 ```
 
 For Initiative 8 (Activity Tracking), run `activity_controls_schema.sql` —
