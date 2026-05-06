@@ -212,7 +212,83 @@ def main():
               f"those will fall back to catalog price (likely None)")
     print(f"  Rated prices captured for {len(price_by_item)}/{len(rated_eligible)} eligible items")
 
-    # 5. Build rows
+    # 5. Probe dateless items for flex-date / notify-me rows.
+    # Items that DIDN'T return calendar data are either (a) chronic /item/cal
+    # 500-ers (broken upstream data — will fail rated too and short-circuit)
+    # or (b) genuine "no upcoming dates in lookahead" items (seasonal /
+    # dormant courses). The latter are the SEO seasonality strategy's
+    # canonical use case — per CLAUDE.md, "scrapers must persist dateless
+    # courses across runs as notify_me mode rows rather than dropping them".
+    # V2's {provider}-flex-{title_hash} ID format already supports it.
+    #
+    # 3-strikes circuit breaker: if 3 consecutive flex items fail their
+    # rated sample, the tenant is clearly storming — abort the rest of the
+    # loop to bound wall-time. Cheapest insurance against runaway 25 × 15s
+    # timeouts on bad days.
+    flex_eligible = [iid for iid in item_ids if str(iid) not in cal]
+    print(f"  Probing {len(flex_eligible)} dateless items for flex-row emission...")
+    flex_rows: list = []
+    flex_failed: list = []
+    consecutive_flex_failures = 0
+    flex_aborted_remaining = 0
+    for idx, item_id in enumerate(flex_eligible):
+        item = course_items[item_id]
+        title = (item.get("name") or "").strip()
+        if not title:
+            continue
+        samples = fetch_rated_price_sampled(
+            CF_BASE, item_id, start_s,
+            sample_offsets_days=(0,),  # one sample is enough for a flex row
+            lookahead_days=LOOKAHEAD_DAYS,
+        )
+        valid = {k: v for k, v in samples.items() if v is not None}
+        if not valid:
+            flex_failed.append(item_id)
+            consecutive_flex_failures += 1
+            if consecutive_flex_failures >= 3:
+                flex_aborted_remaining = len(flex_eligible) - idx - 1
+                print(f"  ⚠ 3 consecutive flex rated samples failed — "
+                      f"aborting remaining {flex_aborted_remaining} items")
+                break
+            continue
+        consecutive_flex_failures = 0
+        flex_price = sorted(valid.items())[0][1]
+        loc_raw       = resolve_location_raw(title)
+        loc_canonical = normalise_location(loc_raw, loc_mappings)
+        description_html = item.get("summary") or ""
+        description = re.sub(r"<[^>]+>", "", description_html).strip()
+        course_id = stable_id_v2(PROVIDER["id"], None, title)
+        booking_url = append_utm(f"{BOOKING_URL}?item_id={item_id}")
+        flex_row = {
+            "id":                 course_id,
+            "provider_id":        PROVIDER["id"],
+            "title":              title,
+            "location_raw":       loc_raw,
+            "date_sort":          None,
+            "date_display":       "Inquire for dates",
+            "duration_days":      item.get("len") or None,
+            "price":              flex_price,
+            "currency":           "CAD",
+            "spots_remaining":    None,
+            "avail":              "open",
+            "active":             True,
+            "booking_url":        booking_url,
+            "booking_mode":       "request",
+            "summary":            "",
+            "search_document":    "",
+            "image_url":          None,
+            "custom_dates":       True,
+            "description":        description or None,
+            "scraped_at":         scraped_at,
+        }
+        if loc_canonical is not None:
+            flex_row["location_canonical"] = loc_canonical
+        flex_rows.append(flex_row)
+    print(f"  Built {len(flex_rows)} flex-date rows "
+          f"({len(flex_failed)} items failed rated sample"
+          f"{f', {flex_aborted_remaining} skipped via circuit breaker' if flex_aborted_remaining else ''})")
+
+    # 6. Build dated rows
     rows = []
     skipped = 0
 
@@ -282,10 +358,7 @@ def main():
             # 1. Calendar integer if detect_checkfront_spot_counts says safe
             # 2. None (binary-flag product, avail='open' until sold)
             spots_remaining = None
-            rated_stock_for_date = rated_stock.get(date_key) or {}
-            if rated_stock_for_date.get("available") is not None:
-                spots_remaining = rated_stock_for_date["available"]
-            elif item_has_spot_counts:
+            if item_has_spot_counts:
                 try:
                     spots_remaining = int(available)
                 except (ValueError, TypeError):
@@ -326,6 +399,12 @@ def main():
             rows.append(row)
 
     print(f"  Built {len(rows)} course-date rows · {skipped} items skipped")
+
+    # Merge flex-date rows into the main row list. They go through the
+    # same summary generation, upsert, and intelligence-logging pipeline.
+    if flex_rows:
+        rows.extend(flex_rows)
+        print(f"  Total rows after flex merge: {len(rows)} ({len(flex_rows)} flex)")
 
     # 6. Summaries — dedup by title (all dates of same course share the summary)
     if rows:
