@@ -8,6 +8,16 @@ function utmUrl(url) {
 const SESSION_VISIBLE_CAP = 4;
 const SESSION_EXPANDED_CAP = SESSION_VISIBLE_CAP - 1;
 
+// Read the search page's date filter as a unix timestamp (seconds). Returns
+// null when the input is missing/empty or we're not in a browser context.
+function _getUserDateTs() {
+  if (typeof document === 'undefined') return null;
+  const el = document.getElementById('search-date');
+  if (!el || !el.value) return null;
+  const t = Date.parse(el.value + 'T00:00:00Z');
+  return isNaN(t) ? null : Math.floor(t / 1000);
+}
+
 // ── HIT NORMALISATION ──
 // Map an Algolia hit to a synthetic card object. Each Algolia record is
 // already grouped by (provider_id, title_hash) at sync time and carries a
@@ -19,7 +29,7 @@ function mapHit(hit) {
   const position = hit.__position || null;
   // Build per-session entries from the pre-grouped dates[] array.
   const rawDates = Array.isArray(hit.dates) ? hit.dates : [];
-  const sessions = rawDates.map(d => ({
+  const allSessions = rawDates.map(d => ({
     id:              d.id,
     date_display:    d.date_display || '',
     date_sort:       d.date_sort,
@@ -34,8 +44,8 @@ function mapHit(hit) {
   }));
   // Defensive fallback: no dates[] array (legacy/missing record). Synthesize a
   // one-session synthetic from top-level fields so the card still renders.
-  if (sessions.length === 0) {
-    sessions.push({
+  if (allSessions.length === 0) {
+    allSessions.push({
       id:              hit.objectID || '',
       date_display:    hit.next_date_display || '',
       date_sort:       hit.next_date_sort,
@@ -49,6 +59,20 @@ function mapHit(hit) {
       _position:       position,
     });
   }
+  // Drop sessions that fall before the user's date filter so the primary row,
+  // expanded list, and computed price_min reflect what the user is looking
+  // for. The Algolia-side filter on `max_date_sort` already passed the record
+  // through; this trims its visible sessions to match. Falls back to the full
+  // set when the filter would empty the group (defensive).
+  const userTs = _getUserDateTs();
+  const filtered = userTs != null
+    ? allSessions.filter(s => (s.date_sort ?? Infinity) >= userTs)
+    : allSessions;
+  const sessions = filtered.length > 0 ? filtered : allSessions;
+  const positivePrices = sessions
+    .map(s => s.price)
+    .filter(p => typeof p === 'number' && p > 0);
+  const visiblePriceMin = positivePrices.length > 0 ? Math.min(...positivePrices) : null;
   // Title hash: prefer explicit field; fall back to the last 8 chars of the
   // objectID (V2 ids always end in the title hash).
   const objId = hit.objectID || '';
@@ -69,7 +93,7 @@ function mapHit(hit) {
     booking_mode:       hit.booking_mode || 'instant',
     custom_dates:       hit.custom_dates || false,
     currency:           hit.currency || 'CAD',
-    price_min:          hit.price_min ?? sessions[0].price ?? null,
+    price_min:          visiblePriceMin ?? hit.price_min ?? sessions[0].price ?? null,
     price_has_variations: hit.price_has_variations || false,
     providers: {
       name:         hit.provider_name || '',
