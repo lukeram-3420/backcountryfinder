@@ -2,19 +2,23 @@
 """
 Scraper: Girth Hitch Guiding (girth-hitch-guiding)
 Platform: Checkfront Public API v3.0 at girth-hitch-guiding.checkfront.com
-Endpoints used:
-  GET /api/3.0/item          — full item catalogue
-  GET /api/3.0/item/cal      — availability bitmap by date
 
-Mirrors scraper_aaa.py. Provider offers rock / ice / alpine / via ferrata
-climbing + guided peaks out of Nordegg, AB with satellite operations in
-Bow Valley, Bugaboos, Jasper, Yoho, and Squamish.
+Provider offers rock / ice / alpine / via ferrata climbing + guided peaks
+out of Nordegg, AB with satellite operations in Bow Valley, Bugaboos,
+Jasper, Yoho, and Squamish.
+
+API + parsing logic lives in scraper_checkfront_utils. This file is
+provider-config + main() orchestration only — same pattern as the Zaui
+tenant scrapers calling scraper_zaui_utils.
+
+Endpoints used (all public, no credentials required):
+  GET /api/3.0/item                                — full catalogue
+  GET /api/3.0/item/cal?item_id[]=…&start_date=…   — date discovery
+  GET /api/3.0/item/{id}?start_date=…&end_date=…   — rated (price + stock)
 """
 
 import re
-import time
 import datetime
-import requests
 
 from scraper_utils import (
     sb_upsert, stable_id_v2,
@@ -26,7 +30,10 @@ from scraper_utils import (
     detect_checkfront_spot_counts,
     title_hash,
     activity_key, upsert_activity_control, load_activity_controls,
-    UTM,
+)
+from scraper_checkfront_utils import (
+    fetch_catalog, fetch_calendar, fetch_rated_price_sampled,
+    parse_rated_price,
 )
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -42,25 +49,6 @@ BOOKING_URL = "https://girth-hitch-guiding.checkfront.com/reserve/"
 
 LOOKAHEAD_DAYS = 180
 
-CF_HEADERS = {
-    "X-On-Behalf": "Off",
-}
-
-# Per-title exclusions live in activity_controls now — hide a title by
-# flipping visible=false in the admin Activity Tracking tab. Seeded from
-# the historical list via seed_activity_controls.py.
-_CONTROLS: dict = {}
-
-
-def _is_visible(provider_id: str, title: str) -> bool:
-    key = activity_key("title", None, title)
-    upsert_activity_control(
-        provider_id, key, title,
-        title_hash_=title_hash(title), platform="checkfront",
-    )
-    ctrl = _CONTROLS.get(key)
-    return not (ctrl and ctrl.get("visible") is False)
-
 # Non-course Checkfront categories. Confirmed from first-run log:
 # Merchandise / Equipment / Samples are retail or internal items, not guided
 # activities. Drop In and Trailhead may be clinics / meetup points — leave
@@ -73,8 +61,15 @@ EXCLUDE_CATEGORIES = {
 
 # Category whitelist — only keep items whose Checkfront category matches.
 # First-run logs print all categories; tune this set if real categories differ.
-# Empty-string default means "keep" — safer than over-filtering a small catalog.
-KEEP_CATEGORIES: set = set()  # keep-all if empty; first run prints categories
+# Empty default means "keep all" — safer than over-filtering a small catalog.
+KEEP_CATEGORIES: set = set()
+
+# Hardcoded skip list — these item_ids cause Checkfront's /item/cal to
+# 500 with no recovery (verified via PRs #55-#57). Most likely
+# archived/misconfigured products on the tenant. Skip entirely so the
+# scraper doesn't waste API calls on the per-item fallback. Re-evaluate
+# when the provider confirms a fix on their side.
+BROKEN_ITEM_IDS = {8, 14, 20, 134, 143}
 
 # Title-keyword location resolution. First match wins; result passes through
 # normalise_location() so unknowns queue to pending_location_mappings.
@@ -103,95 +98,21 @@ def resolve_location_raw(title: str) -> str:
     return PROVIDER["location"]
 
 
-# ── Checkfront API ────────────────────────────────────────────────────────────
-def cf_get(endpoint, params=None):
-    """GET a Checkfront endpoint with retry-on-5xx.
-
-    Checkfront /item/cal occasionally returns 500 on otherwise valid
-    requests — usually transient. Three attempts with exponential
-    backoff (2s, 4s, 8s) before giving up. 4xx responses still raise
-    immediately (no point retrying a bad request).
-    """
-    last_err = None
-    for attempt in range(3):
-        try:
-            r = requests.get(
-                f"{CF_BASE}/{endpoint}",
-                params=params,
-                headers=CF_HEADERS,
-                timeout=15,
-            )
-            if 500 <= r.status_code < 600:
-                last_err = requests.HTTPError(
-                    f"{r.status_code} {r.reason} for {r.url}", response=r
-                )
-                if attempt < 2:
-                    backoff = 2 ** (attempt + 1)
-                    print(f"  Checkfront {r.status_code} on {endpoint} — retry {attempt + 1}/2 in {backoff}s")
-                    time.sleep(backoff)
-                    continue
-                raise last_err
-            r.raise_for_status()
-            return r.json()
-        except requests.RequestException as e:
-            last_err = e
-            if attempt < 2:
-                backoff = 2 ** (attempt + 1)
-                print(f"  Checkfront request error on {endpoint} ({e}) — retry {attempt + 1}/2 in {backoff}s")
-                time.sleep(backoff)
-                continue
-            raise
-    raise last_err  # unreachable, but keeps the contract explicit
+# ── Activity-controls visibility gate ─────────────────────────────────────────
+# Per-title exclusions live in activity_controls — hide a title by flipping
+# visible=false in the admin Activity Tracking tab. Seeded from the historical
+# list via seed_activity_controls.py.
+_CONTROLS: dict = {}
 
 
-def fetch_items() -> dict:
-    data = cf_get("item")
-    items = data.get("items", {})
-    cats = sorted({(item.get("category") or "none") for item in items.values()})
-    print(f"  Categories found: {cats}")
-    return items
-
-
-def fetch_availability(item_ids: list, start: str, end: str) -> dict:
-    """Fetch availability with batch-then-per-item fallback.
-
-    Default path: batch 5 items per /item/cal request (Checkfront 500s
-    on larger lists from this tenant). When a batch fails after the
-    retry-on-5xx logic in cf_get, fall back to per-item queries for
-    that batch — one or more specific item_ids is poisoning the batch,
-    and we don't want one bad item to take out the whole run.
-    Individual failures are logged and skipped.
-    """
-    result = {}
-    failed_items: list = []
-    for i in range(0, len(item_ids), 5):
-        batch = item_ids[i:i + 5]
-        params = {
-            "item_id[]": batch,
-            "start_date": start,
-            "end_date":   end,
-        }
-        try:
-            data = cf_get("item/cal", params=params)
-            result.update(data.get("items", {}))
-            continue
-        except requests.HTTPError as e:
-            print(f"  Batch {batch} failed ({e.response.status_code if e.response is not None else '?'}); falling back to per-item")
-        # Per-item fallback — at least the healthy items in this batch get through.
-        for iid in batch:
-            try:
-                data = cf_get("item/cal", params={
-                    "item_id[]": [iid],
-                    "start_date": start,
-                    "end_date":   end,
-                })
-                result.update(data.get("items", {}))
-            except Exception as e:
-                failed_items.append(iid)
-                print(f"    item {iid}: {e}")
-    if failed_items:
-        print(f"  Skipped {len(failed_items)} item(s) that 500'd individually: {failed_items}")
-    return result
+def _is_visible(provider_id: str, title: str) -> bool:
+    key = activity_key("title", None, title)
+    upsert_activity_control(
+        provider_id, key, title,
+        title_hash_=title_hash(title), platform="checkfront",
+    )
+    ctrl = _CONTROLS.get(key)
+    return not (ctrl and ctrl.get("visible") is False)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -221,7 +142,7 @@ def main():
 
     # 1. Fetch item catalogue
     print("  Fetching item catalogue...")
-    items = fetch_items()
+    items = fetch_catalog(CF_BASE)
     print(f"  Found {len(items)} items total")
 
     # 2. Filter: activity_controls visibility + EXCLUDE_CATEGORIES + optional KEEP_CATEGORIES
@@ -246,41 +167,155 @@ def main():
         print("  No course items — exiting")
         return
 
-    # 3. Fetch availability calendar
+    # 3. Fetch availability calendar (date discovery + binary availability fallback)
     print(f"  Fetching availability {start_s} → {end_s}...")
-    # Hardcoded skip list — these item_ids cause Checkfront's /item/cal to
-    # 500 with no recovery (verified via PRs #55-#57). Most likely
-    # archived/misconfigured products on Girth Hitch's tenant. Skip
-    # entirely so the scraper doesn't waste API calls on the per-item
-    # fallback. Re-evaluate when Girth Hitch confirms a fix on their side.
-    BROKEN_ITEM_IDS = {8, 14, 20, 134, 143}
     item_ids = [i for i in course_items.keys() if int(i) not in BROKEN_ITEM_IDS]
-    cal = fetch_availability(item_ids, start_s, end_s)
+    cal = fetch_calendar(CF_BASE, item_ids, start_s, end_s)
     print(f"  Calendar entries returned: {len(cal)}")
 
-    # Spot-count semantics are decided per item, not globally — see
-    # scraper_utils.detect_checkfront_spot_counts. The probe runs inside the
-    # per-item loop below.
+    # 4. Sampled rated-price discovery. Three scope-limits keep wall-time
+    # bounded on this flaky tenant:
+    #   (a) Only sample items that succeeded on the calendar pass — items
+    #       that 500'd on /item/cal will almost certainly fail on
+    #       /item/{id} too (same upstream-data root cause).
+    #   (b) Sampled (1-day) requests instead of full-window 180-day rated
+    #       requests — Checkfront computes rates across every date × every
+    #       customer type combination, so a 180-day window times out at 15s
+    #       on this tenant. A 1-day window with param[guests]=1 returns in
+    #       a fraction of a second.
+    #   (c) attempts=1 in fetch_rated_price_sampled (the helper's default)
+    #       and first-failure short-circuit — if today's sample times out,
+    #       remaining offsets are skipped for that item.
+    rated_eligible = [iid for iid in item_ids if str(iid) in cal]
+    skipped_due_to_cal_failure = len(item_ids) - len(rated_eligible)
+    print(f"  Sampling rated prices at +0/+30/+90/+150 day offsets "
+          f"({len(rated_eligible)} items; "
+          f"{skipped_due_to_cal_failure} skipped due to calendar 500s)...")
+    price_by_item: dict = {}     # {item_id_str: int}
+    rated_failed: list = []
+    for item_id in rated_eligible:
+        samples = fetch_rated_price_sampled(
+            CF_BASE, item_id, start_s,
+            lookahead_days=LOOKAHEAD_DAYS,
+        )
+        valid = {k: v for k, v in samples.items() if v is not None}
+        if not valid:
+            rated_failed.append(item_id)
+            continue
+        unique_prices = set(valid.values())
+        if len(unique_prices) > 1:
+            print(f"    ⚠ item {item_id}: price varies across samples: {valid} — using earliest")
+        # Earliest sample (today's date by construction) is canonical
+        price_by_item[str(item_id)] = sorted(valid.items())[0][1]
+    if rated_failed:
+        print(f"  ⚠ {len(rated_failed)} item(s) failed sampled rated fetch; "
+              f"those will fall back to catalog price (likely None)")
+    print(f"  Rated prices captured for {len(price_by_item)}/{len(rated_eligible)} eligible items")
 
-    # 4. Build rows
+    # 5. Probe dateless items for flex-date / notify-me rows.
+    # Items that DIDN'T return calendar data are either (a) chronic /item/cal
+    # 500-ers (broken upstream data — will fail rated too and short-circuit)
+    # or (b) genuine "no upcoming dates in lookahead" items (seasonal /
+    # dormant courses). The latter are the SEO seasonality strategy's
+    # canonical use case — per CLAUDE.md, "scrapers must persist dateless
+    # courses across runs as notify_me mode rows rather than dropping them".
+    # V2's {provider}-flex-{title_hash} ID format already supports it.
+    #
+    # 3-strikes circuit breaker: if 3 consecutive flex items fail their
+    # rated sample, the tenant is clearly storming — abort the rest of the
+    # loop to bound wall-time. Cheapest insurance against runaway 25 × 15s
+    # timeouts on bad days.
+    flex_eligible = [iid for iid in item_ids if str(iid) not in cal]
+    print(f"  Probing {len(flex_eligible)} dateless items for flex-row emission...")
+    flex_rows: list = []
+    flex_failed: list = []
+    consecutive_flex_failures = 0
+    flex_aborted_remaining = 0
+    for idx, item_id in enumerate(flex_eligible):
+        item = course_items[item_id]
+        title = (item.get("name") or "").strip()
+        if not title:
+            continue
+        samples = fetch_rated_price_sampled(
+            CF_BASE, item_id, start_s,
+            sample_offsets_days=(0,),  # one sample is enough for a flex row
+            lookahead_days=LOOKAHEAD_DAYS,
+        )
+        valid = {k: v for k, v in samples.items() if v is not None}
+        if not valid:
+            flex_failed.append(item_id)
+            consecutive_flex_failures += 1
+            if consecutive_flex_failures >= 3:
+                flex_aborted_remaining = len(flex_eligible) - idx - 1
+                print(f"  ⚠ 3 consecutive flex rated samples failed — "
+                      f"aborting remaining {flex_aborted_remaining} items")
+                break
+            continue
+        consecutive_flex_failures = 0
+        flex_price = sorted(valid.items())[0][1]
+        loc_raw       = resolve_location_raw(title)
+        loc_canonical = normalise_location(loc_raw, loc_mappings)
+        description_html = item.get("summary") or ""
+        description = re.sub(r"<[^>]+>", "", description_html).strip()
+        course_id = stable_id_v2(PROVIDER["id"], None, title)
+        booking_url = append_utm(f"{BOOKING_URL}?item_id={item_id}")
+        flex_row = {
+            "id":                 course_id,
+            "provider_id":        PROVIDER["id"],
+            "title":              title,
+            "location_raw":       loc_raw,
+            "date_sort":          None,
+            "date_display":       "Inquire for dates",
+            "duration_days":      item.get("len") or None,
+            "price":              flex_price,
+            "currency":           "CAD",
+            "spots_remaining":    None,
+            "avail":              "open",
+            "active":             True,
+            "booking_url":        booking_url,
+            "booking_mode":       "request",
+            "summary":            "",
+            "search_document":    "",
+            "image_url":          None,
+            "custom_dates":       True,
+            "description":        description or None,
+            "scraped_at":         scraped_at,
+        }
+        if loc_canonical is not None:
+            flex_row["location_canonical"] = loc_canonical
+        flex_rows.append(flex_row)
+    print(f"  Built {len(flex_rows)} flex-date rows "
+          f"({len(flex_failed)} items failed rated sample"
+          f"{f', {flex_aborted_remaining} skipped via circuit breaker' if flex_aborted_remaining else ''})")
+
+    # 6. Build dated rows
     rows = []
     skipped = 0
 
     for item_id, item in course_items.items():
         title = item.get("name", "").strip()
 
-        # Price — Checkfront returns either a scalar or a per-tier dict
-        price_raw = item.get("price")
-        if isinstance(price_raw, dict):
-            try:
-                price = int(float(next(iter(price_raw.values()))))
-            except (StopIteration, ValueError, TypeError):
-                price = None
-        else:
-            try:
-                price = int(float(price_raw)) if price_raw else None
-            except (ValueError, TypeError):
-                price = None
+        # Price preference: sampled rated response (authoritative) →
+        # catalog scalar/dict fallback (unreliable on this tenant —
+        # usually missing). The sampled helper canonicalizes one price
+        # per item; row-level price is therefore the same across all
+        # dates for that item, which is correct for Checkfront's flat
+        # rate-per-product pricing.
+        price = price_by_item.get(str(item_id))
+        if price is None:
+            # Catalog fallback for the rare item where every rated
+            # sample failed (usually a tenant-side 500/timeout).
+            price_raw = item.get("price")
+            if isinstance(price_raw, dict):
+                try:
+                    price = int(float(next(iter(price_raw.values()))))
+                except (StopIteration, ValueError, TypeError):
+                    price = None
+            else:
+                try:
+                    price = int(float(price_raw)) if price_raw else None
+                except (ValueError, TypeError):
+                    price = None
 
         # Location — title keyword → default → normalise_location
         loc_raw       = resolve_location_raw(title)
@@ -299,9 +334,12 @@ def main():
         if duration_days == 0:
             duration_days = None
 
-        # Per-item spot-count probe: only trust integer values when THIS item
-        # has at least one date with >1 spots. Items returning 0/1 only are
-        # using the binary availability flag and must report spots_remaining=None.
+        # Per-date stock counts come from the calendar response only.
+        # The sampled rated helper doesn't fetch stock (1-day windows would
+        # only cover the sample dates anyway). detect_checkfront_spot_counts
+        # is the per-item heuristic: items that ever return a value > 1 in
+        # the calendar dict are interpreted as real counts; binary-flag
+        # items report spots_remaining=None ("open" until sold).
         item_has_spot_counts = detect_checkfront_spot_counts(item_cal)
 
         for date_key, available in item_cal.items():
@@ -316,7 +354,9 @@ def main():
             except ValueError:
                 continue
 
-            # Real spot count if THIS item has integer counts; else None ("open").
+            # Spot count resolution:
+            # 1. Calendar integer if detect_checkfront_spot_counts says safe
+            # 2. None (binary-flag product, avail='open' until sold)
             spots_remaining = None
             if item_has_spot_counts:
                 try:
@@ -360,7 +400,13 @@ def main():
 
     print(f"  Built {len(rows)} course-date rows · {skipped} items skipped")
 
-    # 5. Summaries — dedup by title (all dates of same course share the summary)
+    # Merge flex-date rows into the main row list. They go through the
+    # same summary generation, upsert, and intelligence-logging pipeline.
+    if flex_rows:
+        rows.extend(flex_rows)
+        print(f"  Total rows after flex merge: {len(rows)} ({len(flex_rows)} flex)")
+
+    # 6. Summaries — dedup by title (all dates of same course share the summary)
     if rows:
         by_title = {}
         for r in rows:
@@ -385,11 +431,11 @@ def main():
             except Exception as e:
                 print(f"  Summary batch failed: {e}")
 
-    # 6. Strip description (not a courses column)
+    # 7. Strip description (not a courses column)
     for r in rows:
         r.pop("description", None)
 
-    # 7. Upsert in batches of 50
+    # 8. Upsert in batches of 50
     for i in range(0, len(rows), 50):
         sb_upsert("courses", rows[i:i + 50])
 
