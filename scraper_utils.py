@@ -1280,37 +1280,46 @@ def discover_rezdy_products(
     return urls
 
 
-def fetch_rezdy_calendar_products(
+def fetch_rezdy_calendar_sessions(
     storefront_url: str,
     category_id: int,
     referer: str = None,
     user_agent: str = None,
 ) -> list:
-    """Fetch a Rezdy productsMonthlyCalendar page for a category and
-    extract direct product URLs from the embedded session HTML.
+    """Fetch a Rezdy productsMonthlyCalendar page for a category and extract
+    per-product session data — productId, title, canonical product URL, and
+    every (date_sort, time) session embedded in the response.
 
     Endpoint: {storefront_url}/productsMonthlyCalendar/{category_id}
 
-    Returns unique full Rezdy product URLs like
-    'https://msaa.rezdy.com/21189/ski-mountaineering-course'. Used to
-    capture orphan products that aren't shelved in any storefront catalog.
+    The calendar response embeds session links shaped like (JSON-escaped):
+      <a href='/chooseQuantity?productId={id}&preferredDate={YYYY-MM-DD}&catalogId={cid}...'>
+        <strong>{time}<\\/strong> {Title}<\\/a>
 
-    The endpoint is gated by Rezdy's referer/origin allowlist on some
-    tenants — pass the marketing-site `referer` so Rezdy treats the
-    request as coming from an authorised embed. Returns [] on any failure.
+    Returns:
+      [
+        {
+          "product_id": "60990",
+          "title":      "Trad Lead Climbing",
+          "url":        "https://msaa.rezdy.com/60990/trad-lead-climbing",
+          "dates":      [{"date_sort": "2026-05-09", "time": "10:00 AM"}, ...],
+        },
+        ...
+      ]
+
+    Sessions are deduped per product by (date_sort, time). Returns [] on any
+    fetch / parse failure. The endpoint is gated by Rezdy's referer/origin
+    allowlist on some tenants — pass `referer` matching the marketing site
+    so Rezdy treats the request as an authorised embed.
     """
     storefront = storefront_url.rstrip("/")
     url = f"{storefront}/productsMonthlyCalendar/{category_id}"
 
-    # Rezdy's widget endpoint enforces a referer allowlist on many tenants.
-    # Browser-shaped fetch headers + a referer matching the marketing site
-    # is the same shape the calendar widget uses.
     headers = dict(_REZDY_BROWSER_HEADERS)
     if user_agent:
         headers["User-Agent"] = user_agent
     if referer:
         headers["Referer"] = referer
-        # Origin is the scheme+host of the referer.
         try:
             from urllib.parse import urlparse
             p = urlparse(referer)
@@ -1327,21 +1336,17 @@ def fetch_rezdy_calendar_products(
         log.warning(f"Rezdy calendar fetch failed @ {url}: {e}")
         return []
 
-    # The calendar response embeds session links as JSON-escaped HTML:
-    #   <a href='/chooseQuantity?productId={id}&...'>
-    #     <strong>{time}</strong> {Title}<\/a>
-    # The bare /{id} URL 404's on Rezdy — it requires the slug to render the
-    # canonical product page. So we extract (productId, title) pairs from the
-    # calendar markup and slugify the title to construct /{id}/{slug} URLs
-    # that the existing scrape_rezdy_product_page() can render.
-    from urllib.parse import urlparse
+    from urllib.parse import urlparse, parse_qs, unquote
     storefront_host = urlparse(storefront).netloc
 
-    # Match productId then advance to the </strong> after the time prefix and
-    # capture the visible title. Tolerates JSON-escaped close tags (<\/strong>,
-    # <\/a>) the calendar response uses inside JS string literals.
+    # Capture the chooseQuantity query string + the time + the title in one
+    # pass. Param order inside the query string isn't guaranteed, so we
+    # parse it via urllib rather than a positional regex.
     session_re = re.compile(
-        r"productId=(\d+).*?<\\?/strong>\s*([^<\\]+?)\s*(?:<|\\)",
+        r"chooseQuantity\?([^'\"]+?)['\"]"      # query string before href close-quote
+        r"[^>]*>\s*"                             # rest of <a ...>
+        r"<strong>([^<\\]*)<\\?/strong>"         # time (may be empty)
+        r"\s*([^<\\]+?)\s*<",                    # title up to next tag
         re.I | re.S,
     )
 
@@ -1351,22 +1356,74 @@ def fetch_rezdy_calendar_products(
         s = re.sub(r"\s+", "-", s.strip())
         return re.sub(r"-+", "-", s)
 
-    seen: set = set()
-    urls: list = []
-    for m in session_re.finditer(html):
-        pid = m.group(1)
-        title = m.group(2).strip()
-        slug = _slugify(title)
-        if not slug:
-            continue
-        full_url = f"https://{storefront_host}/{pid}/{slug}"
-        if full_url in seen:
-            continue
-        seen.add(full_url)
-        urls.append(full_url)
+    def _normalize_preferred_date(raw: str):
+        if not raw:
+            return None
+        d = unquote(raw).strip()
+        m = re.match(r"^(\d{4})-?(\d{2})-?(\d{2})", d)
+        if m:
+            return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+        return parse_date_sort(d)
 
-    log.info(f"Rezdy calendar @ category {category_id}: {len(urls)} product URL(s)")
-    return urls
+    products: dict = {}
+    for m in session_re.finditer(html):
+        qs = (m.group(1) or "").replace("&amp;", "&")
+        time_str = (m.group(2) or "").strip()
+        title = (m.group(3) or "").strip()
+        try:
+            params = parse_qs(qs)
+        except Exception:
+            continue
+        pid = (params.get("productId") or [None])[0]
+        pdate = (params.get("preferredDate") or [None])[0]
+        if not pid:
+            continue
+        date_sort = _normalize_preferred_date(pdate)
+
+        slug = _slugify(title)
+        full_url = f"https://{storefront_host}/{pid}/{slug}" if slug else \
+                   f"https://{storefront_host}/{pid}"
+
+        entry = products.get(pid)
+        if not entry:
+            entry = {"product_id": pid, "title": title, "url": full_url,
+                     "dates": [], "_seen": set()}
+            products[pid] = entry
+        if date_sort:
+            key = (date_sort, time_str)
+            if key not in entry["_seen"]:
+                entry["_seen"].add(key)
+                entry["dates"].append({"date_sort": date_sort, "time": time_str})
+
+    out = []
+    for entry in products.values():
+        entry.pop("_seen", None)
+        out.append(entry)
+
+    log.info(
+        f"Rezdy calendar @ category {category_id}: "
+        f"{len(out)} product(s), {sum(len(p['dates']) for p in out)} session(s)"
+    )
+    return out
+
+
+def fetch_rezdy_calendar_products(
+    storefront_url: str,
+    category_id: int,
+    referer: str = None,
+    user_agent: str = None,
+) -> list:
+    """Thin wrapper around `fetch_rezdy_calendar_sessions` that returns just
+    the canonical product URLs — kept for callers that don't need session
+    date data. New consumers should call `fetch_rezdy_calendar_sessions`
+    directly to get dates per product (otherwise the scraper falls back
+    to text-regex date extraction on the rendered product page, which
+    silently fails on Rezdy's interactive calendar widget).
+    """
+    sessions = fetch_rezdy_calendar_sessions(
+        storefront_url, category_id, referer=referer, user_agent=user_agent,
+    )
+    return [s["url"] for s in sessions]
 
 
 # ── Two-pass scraping helper ─────────────────────────────────────────────────
