@@ -42,6 +42,7 @@ PROVIDER = {
     "name":     "Girth Hitch Guiding",
     "website":  "http://www.girthhitchguiding.ca",
     "location": "Nordegg, AB",
+    "shared_utils_module": "scraper_checkfront_utils",
 }
 
 CF_BASE     = "https://girth-hitch-guiding.checkfront.com/api/3.0"
