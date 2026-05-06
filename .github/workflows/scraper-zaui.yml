@@ -1,15 +1,15 @@
 name: Zaui Scrapers
 
-# Dedicated cron for Zaui-platform providers. Runs once daily and covers
+# Dedicated cron for Zaui-platform providers. Runs every 6 hours and covers
 # the full catalogue of every provider in a single window by walking
 # groups 0..3 sequentially per scraper, then validating once at the end.
 # Running all groups inside one workflow run keeps `scraper_run_log` rows
-# apples-to-apples (one row per provider per day = full catalog count),
+# apples-to-apples (one row per provider per run = full catalog count),
 # which clears the Initiative 7 false-positive count-drop badge.
 
 on:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 jobs:
