@@ -160,8 +160,15 @@ def group_courses_for_algolia(courses):
     - card-level fields (title, summary, location, image, provider, etc.)
       taken from the head row (the next-upcoming-date — i.e. the row with
       the smallest date_sort after grouping).
-    - `next_date_sort` (scalar) for `customRanking: asc(next_date_sort)` and
-      the frontend's date numericFilter.
+    - `next_date_sort` (scalar) — smallest date_sort in the group. Drives
+      `customRanking: asc(next_date_sort)` for sort order.
+    - `max_date_sort` (scalar) — largest date_sort in the group. Drives the
+      frontend's date numericFilter (`max_date_sort >= ts`) so a course
+      passes when AT LEAST ONE session is on/after the user's selected date.
+      Filtering on `next_date_sort` would hide a course whose earliest
+      session is in the past even though it has many future sessions.
+      The frontend's mapHit() drops past-date sessions client-side so the
+      rendered card matches the filter intent.
     - `next_date_display` (string) for the primary session row.
     - `price_min` (smallest positive price across sessions in the group).
     - `price_has_variations` set true if EITHER any session has it set OR if
@@ -223,6 +230,7 @@ def group_courses_for_algolia(courses):
             "price_min":            price_min,
             "price_has_variations": price_has_variations,
             "next_date_sort":       sessions[0]["date_sort"],
+            "max_date_sort":        sessions[-1]["date_sort"],
             "next_date_display":    sessions[0]["date_display"],
             "dates":                sessions,
             "provider_id":          head.get("provider_id"),
