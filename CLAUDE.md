@@ -1639,8 +1639,22 @@ Both Rezdy and Zaui expose real-time seat counts through their **authenticated**
 | **Rezdy Supplier / Connect API** | `/availability` — returns sessions with `seats` (capacity) + `seatsAvailable` (remaining) + `priceOptions` | `seatsAvailable` (int) | API key (query param) **OR** OAuth2 bearer; per-tenant — merchant generates from Rezdy admin | 100 req/min/key |
 | **Zaui ZAPI (Supplier API)** | `checkInventory` (single date) and `batchAvailability` (multi-date), both return `activityTimeSpotsRemaining` + `numberOnStandby` + `isStandbyAvailable` | `activityTimeSpotsRemaining` (int) | Per-tenant API token; merchant adds us as user in their Zaui system, issues ZAPI token | not documented |
 | **Zaui OCTO** | OCTO standard endpoints (Open Connection for Tourism Operators); returns `availability.vacancies` per date | `availability.vacancies` (int) | Multi-tenant: one OCTO consumer can talk to many suppliers; **free to use** through Zaui per their docs. Merchant still has to enable our connection on their end. | not documented |
+| **Checkfront Public API (rated request)** | `/api/3.0/item/{id}?start_date=YYYYMMDD&end_date=YYYYMMDD` — rated response with prices + per-date real stock counts | `item.rate.summary.price.total` (string `"$130.00"`); per-date stock at `item.rate.dates.{YYYYMMDD}.stock.A` (available, int) and `.stock.T` (total capacity, int) | **None — public API, no credentials required.** Pass booking-date params on the per-item endpoint. The unrated `/item/cal` endpoint returns binary availability (`1` if available); the rated per-item endpoint returns full counts. | Not documented; existing scraper budget covers ~80 items per tenant per scrape with the existing retry-on-5xx logic |
 
-Sources: [Rezdy Supplier Spec](https://developers.rezdy.com/rezdyapi/index-supplier.html), [Rezdy Connect Spec](https://developers.rezdy.com/rezdyconnect/index.html), [Zaui ZAPI Check Inventory](https://docs.zaui.com/zapi/zapi-calls/activity-calls/check-inventory), [Zaui ZAPI Batch Availability](https://docs.zaui.com/zapi/zapi-calls/booking/batch-availability), [Zaui OCTO Spec](https://docs.zaui.com/octo).
+Sources: [Rezdy Supplier Spec](https://developers.rezdy.com/rezdyapi/index-supplier.html), [Rezdy Connect Spec](https://developers.rezdy.com/rezdyconnect/index.html), [Zaui ZAPI Check Inventory](https://docs.zaui.com/zapi/zapi-calls/activity-calls/check-inventory), [Zaui ZAPI Batch Availability](https://docs.zaui.com/zapi/zapi-calls/booking/batch-availability), [Zaui OCTO Spec](https://docs.zaui.com/octo), [Checkfront API item spec](https://api.checkfront.com/ref/item.html), [Checkfront rated response example (item-rated.json)](https://github.com/Checkfront/API/blob/master/docs/examples/response/item-rated.json).
+
+#### Checkfront — onboarding pattern (no credentials required)
+
+Two existing Checkfront scrapers (`scraper_aaa.py`, `scraper_girth_hitch_guiding.py`) share `scraper_checkfront_utils.py` — same pattern as `scraper_zaui_utils.py`. Public API with rated requests gives both prices and real stock counts; no credentials needed. The utils module exposes:
+
+- `cf_get(tenant_base, endpoint, params, headers)` — generic Checkfront GET with retry-on-5xx and per-attempt exponential backoff (2s, 4s, 8s) for the transient infra blips this platform produces.
+- `fetch_catalog(tenant_base, headers)` — `/api/3.0/item` for the full item catalogue.
+- `fetch_calendar(tenant_base, item_ids, start, end, headers)` — `/api/3.0/item/cal` with batch-of-5 + per-item-fallback (some Checkfront tenants 500 on larger batches; one bad item shouldn't take out the whole run).
+- `fetch_rated_item(tenant_base, item_id, start, end, headers)` — `/api/3.0/item/{id}?start_date=…&end_date=…` for the rated response (price + per-date real stock counts).
+- `parse_rated_price(item_data)` — extracts the integer price from `item.rate.summary.price.total` (handles the `"$130.00"` string format).
+- `parse_rated_per_date_stock(item_data)` — extracts `{YYYYMMDD: {available, total}}` from `item.rate.dates`.
+
+Onboarding a new Checkfront provider becomes a ~50-line scraper file: `PROVIDER` config dict, tenant-specific `EXCLUDE_CATEGORIES`, optional `BROKEN_ITEM_IDS` set (per-tenant data-quality issues — Girth Hitch has `{8, 14, 20, 134, 143}` per PRs #55-#58), optional `LOCATION_MAP` for title-keyword location resolution, and a `main()` that orchestrates `fetch_catalog → filter → fetch_calendar → fetch_rated_item per visible item → build rows → upsert → log`. Stable IDs go through `stable_id_v2` from `scraper_utils` so log continuity is preserved across the V1→V2 cutover.
 
 #### Coverage math if credentials are acquired
 
