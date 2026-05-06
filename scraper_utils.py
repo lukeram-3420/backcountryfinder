@@ -107,14 +107,24 @@ def sb_upsert(table: str, rows: list) -> None:
 
 
 def sb_insert(table: str, data: dict) -> None:
-    """INSERT a single row (no upsert). Silently ignores conflicts."""
+    """INSERT a single row (no upsert).
+
+    HTTP 409 (unique-key conflict) is treated as a no-op — the caller is
+    expected to be idempotent on those. Any other 4xx/5xx is logged AND
+    raised so silent contract failures stop being silent. Sibling helpers
+    sb_upsert and sb_patch already log-and-raise; this brings sb_insert in
+    line.
+    """
     r = requests.post(
         f"{SUPABASE_URL}/rest/v1/{table}",
         headers=_sb_headers(prefer="return=minimal"),
         json=data,
     )
+    if r.status_code == 409:
+        return
     if not r.ok:
         log.error(f"Supabase insert error {r.status_code}: {r.text[:300]}")
+    r.raise_for_status()
 
 
 def sb_patch(table: str, filter_params: str, payload: dict) -> None:
