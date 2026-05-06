@@ -2,7 +2,7 @@ name: Scrape All
 
 on:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 jobs:
@@ -129,6 +129,18 @@ jobs:
         continue-on-error: true
       - name: Validate Bow Valley Canyon Tours
         run: python validate_provider.py bow-valley-canyon-tours
+        continue-on-error: true
+      - name: Canadian Rockies Hiking by Yamnuska
+        run: python scraper_canadian_rockies_hiking_by_yamnuska.py
+        continue-on-error: true
+      - name: Validate Canadian Rockies Hiking by Yamnuska
+        run: python validate_provider.py canadian-rockies-hiking-by-yamnuska
+        continue-on-error: true
+      - name: Cloud Nine Guides
+        run: python scraper_cloud_nine_guides.py
+        continue-on-error: true
+      - name: Validate Cloud Nine Guides
+        run: python validate_provider.py cloud-nine-guides
         continue-on-error: true
       - name: Sync Algolia
         run: python algolia_sync.py --skip-settings
